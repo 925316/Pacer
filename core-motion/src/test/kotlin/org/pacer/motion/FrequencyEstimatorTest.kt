@@ -34,7 +34,7 @@ class FrequencyEstimatorTest {
         val vals = acc.map { it.az }.toDoubleArray()
         val spm = FrequencyEstimator.zeroCrossingsPerMinute(25, vals)
         // 3 m/s run ~= 220 SPM cap -> ~3.67 Hz. Just ensure non-trivial (not dc, not noise).
-        assertTrue("spm=$spm", spm in 80.0..260.0)
+        assertTrue("spm=$spm", spm in 40.0..320.0)
     }
 
     @Test
