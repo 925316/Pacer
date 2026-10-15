@@ -40,6 +40,27 @@ class MainActivity : Activity() {
         button.setOnClickListener { runSimulation() }
         root.addView(button)
 
+        val startBtn = Button(this)
+        startBtn.text = "Start remote simulation (campus route)"
+        startBtn.setOnClickListener {
+            PacerConfigClient.start(
+                lat = 39.9042,
+                lon = 116.4074,
+                speed = 3.0,
+                bearing = 45f,
+            )
+            output.text = "Config pushed (if service bound). Hooks read it live."
+        }
+        root.addView(startBtn)
+
+        val stopBtn = Button(this)
+        stopBtn.text = "Stop remote simulation"
+        stopBtn.setOnClickListener {
+            PacerConfigClient.stop()
+            output.text = "Config: active=false."
+        }
+        root.addView(stopBtn)
+
         output = TextView(this)
         output.text = "Tap the button to simulate a 1km run."
         output.textSize = 14f
@@ -47,6 +68,9 @@ class MainActivity : Activity() {
         root.addView(output)
 
         setContentView(ScrollView(this).apply { addView(root) })
+
+        // Bind the config channel early so start/stop work immediately.
+        PacerConfigClient.init()
     }
 
     private fun runSimulation() {
