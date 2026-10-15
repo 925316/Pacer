@@ -198,10 +198,12 @@ object SensorStepHooker {
         val start = if (startTimestampMs > 0L) startTimestampMs else now
         val cadence = autoCadenceSpm(speedMps)
         val phase = 2 * PI * (cadence / 60.0) * ((now - start) / 1000.0)
-        values[0] = (rng.nextDouble(-0.15, 0.15)).toFloat()
-        values[1] = (1.5 * sin(phase) + rng.nextDouble(-0.15, 0.15)).toFloat()
-        values[2] = (3.5 * sin(phase) + rng.nextDouble(-0.15, 0.15)).toFloat()
+        values[0] = (jitter() ).toFloat()
+        values[1] = (1.5 * sin(phase) + jitter()).toFloat()
+        values[2] = (3.5 * sin(phase) + jitter()).toFloat()
     }
+
+    private fun jitter(): Double = rng.nextDouble() * 0.3 - 0.15
 
     private fun mockSensor(type: Int, classLoader: ClassLoader): Sensor? {
         when (type) {
