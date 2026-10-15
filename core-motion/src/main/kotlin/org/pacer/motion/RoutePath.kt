@@ -110,11 +110,12 @@ class RoutePath(points: List<GeoPoint>) {
             val a = points[i]
             val b = points[i + 1]
             // Approximate the projection in a local flat frame (meters).
-            val lonScale = metersPerDegLon(target.lat)
+            val lonScale = 111320.0 * Math.cos(Math.toRadians(target.lat))
+            val metersPerDegLat = 111320.0
             val ax = (a.lon - target.lon) * lonScale
-            val ay = (a.lat - target.lat) * METERS_PER_DEG_LAT
+            val ay = (a.lat - target.lat) * metersPerDegLat
             val bx = (b.lon - target.lon) * lonScale
-            val by = (b.lat - target.lat) * METERS_PER_DEG_LAT
+            val by = (b.lat - target.lat) * metersPerDegLat
             val abx = bx - ax
             val aby = by - ay
             val abLen2 = abx * abx + aby * aby
