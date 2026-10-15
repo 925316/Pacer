@@ -6,8 +6,10 @@ import org.junit.Test
 
 class RouteSimulatorTest {
 
+    private val route = RoutePath(listOf(GeoPoint(0.0, 0.0), GeoPoint(0.0, 0.01)))
+
     private fun sim(seed: Long = 42L) = RouteSimulator(
-        route = RoutePath(listOf(GeoPoint(0.0, 0.0), GeoPoint(0.0, 0.01))),
+        route = route,
         config = MotionConfig.run(),
     ).simulate(dtSec = 1.0, seed = seed)
 
@@ -24,8 +26,9 @@ class RouteSimulatorTest {
     fun `cumulative distance reaches route end`() {
         val out = sim()
         assertEquals(0.0, out.first().distanceMeters, 1e-9)
-        val last = out.last().distanceMeters
-        assertTrue(last in 0.99..1.01)
+        val total = route.totalLengthMeters
+        assertTrue(total > 0)
+        assertEquals(total, out.last().distanceMeters, total * 0.02)
     }
 
     @Test
