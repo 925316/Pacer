@@ -5,6 +5,7 @@ package org.pacer.hook
 
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
+import org.pacer.hook.config.ConfigSync
 import org.pacer.hook.hooks.AntiDetectionHooker
 import org.pacer.hook.hooks.GnssStatusHooker
 import org.pacer.hook.hooks.LocationInjector
@@ -23,6 +24,7 @@ class PacerHook : XposedModule() {
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
         HookUtils.bind(this)
+        ConfigSync.install(this)
         PacerLog.i("module loaded in process")
     }
 
