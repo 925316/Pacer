@@ -6,6 +6,7 @@ package org.pacer.hook
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 import org.pacer.hook.hooks.AntiDetectionHooker
+import org.pacer.hook.hooks.GnssStatusHooker
 import org.pacer.hook.hooks.LocationInjector
 import org.pacer.hook.hooks.RouteReplayHooker
 import org.pacer.hook.hooks.SensorStepHooker
@@ -31,6 +32,9 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("route-replay") {
             RouteReplayHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("gnss-status") {
+            GnssStatusHooker.install(classLoader)
         }
         HookUtils.runCatchingLogged("anti-detection") {
             AntiDetectionHooker.install(classLoader)
