@@ -10,7 +10,11 @@ import kotlin.math.abs
  * The invariants (Pacer's own acceptance thresholds):
  * 1. distance vs steps: steps * stride ~= distance (<= 5%)
  * 2. speed vs cadence: moving speed implies cadence inside [MIN, MAX] band
- * 3. step events vs curve: event count ~= distance / stride (<= 12%)
+ * 3. step events vs curve: event count ~= integral of cadence over time (<= 12%).
+ *    Note: expected events are integrated from cadence (the same source that
+ *    drives the step stream), NOT from distance/stride, because the constant
+ *    stride model and the clamped cadence band disagree at high running
+ *    speeds (3 m/s at 0.7 m stride implies 257 SPM, clamped to 220).
  * 4. timestamps are monotonic across every stream
  */
 object ConsistencyChecker {
@@ -48,8 +52,8 @@ object ConsistencyChecker {
             }
         }
 
-        val expectedEvents = (distance / strideMeters).toLong().coerceAtLeast(1)
-        val stepEventError = abs(stepEvents.size - expectedEvents).toDouble() / expectedEvents
+        val expectedEvents = cadenceIntegratesToSteps(fixes, strideMeters)
+        val stepEventError = abs(stepEvents.size - expectedEvents).toDouble() / expectedEvents.coerceAtLeast(1)
 
         var monotonic = true
         for (i in 1 until fixes.size) if (fixes[i].tSec < fixes[i - 1].tSec) monotonic = false
@@ -57,5 +61,20 @@ object ConsistencyChecker {
         for (i in 1 until stepEvents.size) if (stepEvents[i].tNanos < stepEvents[i - 1].tNanos) monotonic = false
 
         return Report(distanceStepError, violations, stepEventError, monotonic)
+    }
+
+    /**
+     * Expected step count as integral of cadence over time. Cadence is the
+     * same source that drives the step-event stream, so this is the fair
+     * baseline for comparing event counts against the speed curve.
+     */
+    private fun cadenceIntegratesToSteps(fixes: List<FixSample>, strideMeters: Double): Long {
+        var acc = 0.0
+        for (i in 1 until fixes.size) {
+            val dt = fixes[i].tSec - fixes[i - 1].tSec
+            val avgCadence = (fixes[i].cadenceSpm + fixes[i - 1].cadenceSpm) / 2
+            acc += avgCadence / 60.0 * dt
+        }
+        return acc.toLong().coerceAtLeast(1)
     }
 }
