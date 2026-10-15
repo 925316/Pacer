@@ -6,6 +6,7 @@ package org.pacer.hook
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 import org.pacer.hook.hooks.AntiDetectionHooker
+import org.pacer.hook.hooks.LocationInjector
 import org.pacer.hook.hooks.SensorStepHooker
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
@@ -24,6 +25,9 @@ class PacerHook : XposedModule() {
 
     override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
         val classLoader = param.defaultClassLoader
+        HookUtils.runCatchingLogged("location-injection") {
+            LocationInjector.install(classLoader)
+        }
         HookUtils.runCatchingLogged("anti-detection") {
             AntiDetectionHooker.install(classLoader)
         }

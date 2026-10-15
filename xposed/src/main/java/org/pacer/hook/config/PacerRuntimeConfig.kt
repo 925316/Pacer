@@ -24,12 +24,24 @@ object PacerRuntimeConfig {
     /** Wall-clock millis when the current simulation started. */
     @Volatile var startTimestamp: Long = 0L
 
+    // --- target position (WGS84) ---
+    @Volatile var latitude: Double = 0.0
+    @Volatile var longitude: Double = 0.0
+    @Volatile var accuracyMeters: Float = 5f
+    @Volatile var altitudeMeters: Double = 0.0
+    @Volatile var bearingDeg: Float = 0f
+
     fun snapshot(): Snapshot = Snapshot(
         active = active,
         speedMps = speedMps,
         enableStepSimulation = enableStepSimulation,
         mockBluetooth = mockBluetooth,
         startTimestamp = startTimestamp,
+        latitude = latitude,
+        longitude = longitude,
+        accuracyMeters = accuracyMeters,
+        altitudeMeters = altitudeMeters,
+        bearingDeg = bearingDeg,
     )
 
     data class Snapshot(
@@ -38,5 +50,10 @@ object PacerRuntimeConfig {
         val enableStepSimulation: Boolean,
         val mockBluetooth: Boolean,
         val startTimestamp: Long,
+        val latitude: Double,
+        val longitude: Double,
+        val accuracyMeters: Float,
+        val altitudeMeters: Double,
+        val bearingDeg: Float,
     )
 }
