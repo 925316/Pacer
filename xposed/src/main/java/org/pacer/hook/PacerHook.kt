@@ -13,7 +13,7 @@ import io.github.libxposed.api.XposedModuleInterface
  */
 class PacerHook : XposedModule() {
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
-        log(tag = "Pacer", msg = "module loaded in ${param.processName}")
+        // No-op; real hooks land milestone by milestone.
     }
 
     override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
