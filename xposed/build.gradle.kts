@@ -26,5 +26,6 @@ android {
 }
 
 dependencies {
+    compileOnly(libs.libxposed.api)
     implementation(project(":core-motion"))
 }
