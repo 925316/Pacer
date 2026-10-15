@@ -26,7 +26,7 @@ class CoordinateTransformTest {
         val wgs = GeoPoint(39.9042, 116.4074)
         val a = CoordinateTransform.wgs84ToGcj02(wgs)
         val b = CoordinateTransform.wgs84ToGcj02(wgs)
-        assertTrue(CoordinateTransform.samePoint(a, b, 0.0))
+        assertEquals(a, b)
     }
 
     @Test
