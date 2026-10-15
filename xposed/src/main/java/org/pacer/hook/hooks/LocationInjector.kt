@@ -11,6 +11,10 @@ import org.pacer.hook.utils.PacerLog
 
 object LocationInjector {
 
+    private val realism = org.pacer.motion.SignalRealism(seed = 7L)
+    private val jitter = org.pacer.motion.StationaryJitter(seed = 7L)
+    @Volatile private var lastNanos = 0L
+
     /** Always expose a fabricated position while a simulation is active. */
     fun install(classLoader: ClassLoader) {
         val lmClass = HookUtils.findClassIfExists("android.location.LocationManager", classLoader)
@@ -42,19 +46,34 @@ object LocationInjector {
         cfg: PacerRuntimeConfig.Snapshot,
         nowNanos: Long = SystemClock.elapsedRealtimeNanos(),
     ): Location {
+        val dtSec = if (lastNanos == 0L) 1.0 else ((nowNanos - lastNanos).coerceAtLeast(0L)) / 1e9
+        lastNanos = nowNanos
+        val elapsedSec = if (cfg.startTimestamp > 0L) {
+            (System.currentTimeMillis() - cfg.startTimestamp).coerceAtLeast(0L) / 1000.0
+        } else 0.0
+        val fx = realism.next(elapsedSec, cfg.speedMps, dtSec, cfg.bearingDeg)
+
+        var lat = cfg.latitude
+        var lon = cfg.longitude
+        // While stationary, add micro-movement so the point is not pixel-still.
+        if (cfg.speedMps < 0.3) {
+            val off = jitter.next(dtSec)
+            lat += off.northMeters / 111320.0
+            lon += off.eastMeters / (111320.0 * kotlin.math.cos(Math.toRadians(lat)))
+        }
+
         val location = Location(provider)
-        location.latitude = cfg.latitude
-        location.longitude = cfg.longitude
-        location.accuracy = cfg.accuracyMeters
-        location.altitude = cfg.altitudeMeters
-        location.bearing = cfg.bearingDeg
+        location.latitude = lat
+        location.longitude = lon
+        location.accuracy = fx.accuracyMeters
+        location.altitude = cfg.altitudeMeters + fx.altitudeMeters
+        location.bearing = fx.bearingDeg
         location.speed = cfg.speedMps.toFloat()
         location.time = System.currentTimeMillis()
         if (Build.VERSION.SDK_INT >= 17) location.elapsedRealtimeNanos = nowNanos
-        // Satellites in extras so consumers that read them see a plausible count.
         val bundle = Bundle()
-        bundle.putInt("satellites", 9)
-        bundle.putInt("satellitesvalue", 9)
+        bundle.putInt("satellites", fx.satellites)
+        bundle.putInt("satellitesvalue", fx.satellites)
         try {
             location.extras = bundle
         } catch (_: Throwable) {
