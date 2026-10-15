@@ -1,0 +1,146 @@
+package org.pacer.motion
+
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.random.Random
+
+/**
+ * One sampled point of a speed curve.
+ *
+ * @param tSec elapsed seconds since run start
+ * @param speedMps instantaneous speed, always >= 0
+ * @param phase motion phase active at this sample
+ * @param distanceMeters cumulative distance up to this sample
+ */
+data class SpeedSample(
+    val tSec: Double,
+    val speedMps: Double,
+    val phase: MotionPhase,
+    val distanceMeters: Double,
+)
+
+/**
+ * Generates a humanized speed curve for a fixed-distance run.
+ *
+ * Original Pacer design (not ported from any repo):
+ * - ACQUIRE ramp: smooth S-curve 0 -> base over [MotionConfig.acquireDurationSec]
+ * - CRUISE: Ornstein-Uhlenbeck noise around a slowly fatiguing base
+ * - PAUSE: exponential inter-arrival, uniform duration, DECEL ramp in/out
+ * - distance is integrated with the trapezoidal rule so steps stay consistent
+ *
+ * Owns its own [Random] instance so two runs with different seeds diverge.
+ */
+class SpeedProfile(
+    private val config: MotionConfig,
+    seed: Long = Random.nextLong(),
+) {
+    private val rng = Random(seed)
+
+    /** Current value of the mean-reverting cruise-noise process. */
+    private var noise = 0.0
+
+    fun generate(distanceMeters: Double, dtSec: Double = 1.0): List<SpeedSample> {
+        require(distanceMeters > 0) { "distanceMeters must be positive" }
+        require(dtSec in 0.2..5.0) { "dtSec out of range" }
+
+        val out = ArrayList<SpeedSample>(1024)
+        var t = 0.0
+        var dist = 0.0
+        var phase = MotionPhase.ACQUIRE
+        var phaseT = 0.0
+        var pauseLeft = 0.0
+        var decelFrom = 0.0
+        var cruiseBase = config.baseSpeedMps
+        var prevSpeed = 0.0
+        var nextPauseAt = drawNextPauseAt()
+
+        out += SpeedSample(0.0, 0.0, MotionPhase.ACQUIRE, 0.0)
+
+        while (dist < distanceMeters) {
+            t += dtSec
+            phaseT += dtSec
+            val remaining = distanceMeters - dist
+            // Leave room to stop: never plan to overshoot the finish.
+            val stopSpeed = remaining / dtSec
+
+            val speed = when (phase) {
+                MotionPhase.ACQUIRE -> {
+                    val k = min(1.0, phaseT / config.acquireDurationSec)
+                    val ramp = k * k * (3 - 2 * k) // smoothstep
+                    val target = (cruiseBase * ramp).coerceAtLeast(0.0)
+                    if (k >= 1.0) transition(MotionPhase.CRUISE).also { phase = it; phaseT = 0.0 }
+                    min(target, stopSpeed)
+                }
+                MotionPhase.CRUISE -> {
+                    cruiseBase = fatiguedBase(dist)
+                    val noisy = (cruiseBase * (1 + stepNoise(dtSec))).coerceAtLeast(0.0)
+                    if (t >= nextPauseAt) {
+                        pauseLeft = config.minPauseSec +
+                            rng.nextDouble() * (config.maxPauseSec - config.minPauseSec)
+                        decelFrom = prevSpeed
+                        transition(MotionPhase.DECEL).also { phase = it; phaseT = 0.0 }
+                        min(prevSpeed, stopSpeed)
+                    } else {
+                        min(noisy, stopSpeed)
+                    }
+                }
+                MotionPhase.DECEL -> {
+                    val k = min(1.0, phaseT / config.decelDurationSec)
+                    val target = decelFrom * (1 - k * k * (3 - 2 * k))
+                    if (k >= 1.0) transition(MotionPhase.PAUSE).also { phase = it; phaseT = 0.0 }
+                    min(max(target, 0.0), stopSpeed)
+                }
+                MotionPhase.PAUSE -> {
+                    pauseLeft -= dtSec
+                    if (pauseLeft <= 0) {
+                        nextPauseAt = t + drawNextPauseAt()
+                        transition(MotionPhase.ACQUIRE).also { phase = it; phaseT = 0.0 }
+                        min(cruiseBase * 0.1, stopSpeed)
+                    } else {
+                        0.0
+                    }
+                }
+                MotionPhase.IDLE -> 0.0
+            }
+
+            dist += (prevSpeed + speed) * 0.5 * dtSec
+            if (dist > distanceMeters) dist = distanceMeters
+            prevSpeed = speed
+            out += SpeedSample(t, speed, phase, dist)
+        }
+        return out
+    }
+
+    private fun transition(to: MotionPhase): MotionPhase = to
+
+    private fun fatiguedBase(distanceMeters: Double): Double {
+        val factor = 1.0 - config.fatiguePerKm * (distanceMeters / 1000.0)
+        return (config.baseSpeedMps * factor).coerceAtLeast(config.baseSpeedMps * 0.5)
+    }
+
+    private fun stepNoise(dtSec: Double): Double {
+        // OU step: dx = -theta * x * dt + sigma * sqrt(dt) * N(0,1).
+        // Sigma scaled so the stationary std ~= cruiseNoiseFraction.
+        val sigma = config.cruiseNoiseFraction * kotlin.math.sqrt(2 * config.noiseMeanReversion)
+        noise += -config.noiseMeanReversion * noise * dtSec +
+            sigma * kotlin.math.sqrt(dtSec) * rng.nextGaussian()
+        return noise.coerceIn(-0.5, 0.5)
+    }
+
+    private fun drawNextPauseAt(): Double {
+        if (config.pausesPerMinute <= 0) return Double.POSITIVE_INFINITY
+        val ratePerSec = config.pausesPerMinute / 60.0
+        return -kotlin.math.ln(1 - rng.nextDouble()) / ratePerSec
+    }
+
+    private fun Random.nextGaussian(): Double {
+        var u: Double
+        var v: Double
+        do {
+            u = nextDouble()
+            v = nextDouble()
+        } while (u <= Double.MIN_VALUE)
+        return kotlin.math.sqrt(-2.0 * kotlin.math.ln(u)) *
+            kotlin.math.cos(2.0 * kotlin.math.PI * v)
+    }
+}
