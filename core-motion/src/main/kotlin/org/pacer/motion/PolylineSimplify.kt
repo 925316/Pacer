@@ -33,7 +33,7 @@ object PolylineSimplify {
 
     private fun perpendicularDistance(p: GeoPoint, a: GeoPoint, b: GeoPoint): Double {
         // Local flat metres.
-        val cosLat = kotlin.math.cos(kotlin.math.Math.toRadians((a.lat + b.lat) / 2))
+        val cosLat = kotlin.math.cos(Math.toRadians((a.lat + b.lat) / 2))
         val metPerDegLat = 111320.0
         val metPerDegLon = metPerDegLat * cosLat
         val ax = (a.lon - p.lon) * metPerDegLon
