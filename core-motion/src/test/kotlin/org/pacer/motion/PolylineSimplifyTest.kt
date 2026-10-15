@@ -15,10 +15,12 @@ class PolylineSimplifyTest {
 
 
     @Test
-    fun `small epsilon keeps all points`() {
-        val pts = (0..5).map { GeoPoint(it * 0.0001, 0.0) } // straight line in latitude
+    fun `epsilon zero collapses collinear points`() {
+        val pts = (0..5).map { GeoPoint(it * 0.0001, 0.0) }
         val out = PolylineSimplify.simplify(pts, 0.0)
-        assertTrue(out.size >= pts.size - 1)
+        assertEquals(2, out.size)
+        assertEquals(pts.first(), out.first())
+        assertEquals(pts.last(), out.last())
     }
 
     @Test
