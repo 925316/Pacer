@@ -2,11 +2,13 @@
 agp = "8.5.2"
 kotlin = "2.0.21"
 kotlinSerialization = "1.7.3"
+libxposed = "102.0.0"
 junit = "4.13.2"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinSerialization" }
+libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposed" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
