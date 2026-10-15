@@ -34,5 +34,5 @@ android {
 
 dependencies {
     implementation(project(":core-motion"))
-    implementation(libs.xposed.service)
+    implementation(libs.libxposed.service)
 }
