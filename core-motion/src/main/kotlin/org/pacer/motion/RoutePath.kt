@@ -88,4 +88,52 @@ class RoutePath(points: List<GeoPoint>) {
         val brg = GeoMath.bearing(points[lo], points[lo + 1])
         return p to brg
     }
+
+    /**
+     * Closest point on the route to [target], as distance-along-route plus the
+     * perpendicular offset in meters. Linear scan over segments: fine for
+     * typical campus routes (tens to low hundreds of waypoints).
+     *
+     * Used by UI snapping: tap a position on the map, get the nearest spot on
+     * the route and how far off it was.
+     */
+    fun nearestPoint(target: GeoPoint): NearestOnRoute {
+        var bestDist = Double.MAX_VALUE
+        var bestAlong = 0.0
+        var bestPoint = points.first()
+        for (i in 0 until points.size - 1) {
+            val a = points[i]
+            val b = points[i + 1]
+            // Approximate the projection in a local flat frame (meters).
+            val lonScale = metersPerDegLon(target.lat)
+            val ax = (a.lon - target.lon) * lonScale
+            val ay = (a.lat - target.lat) * METERS_PER_DEG_LAT
+            val bx = (b.lon - target.lon) * lonScale
+            val by = (b.lat - target.lat) * METERS_PER_DEG_LAT
+            val abx = bx - ax
+            val aby = by - ay
+            val abLen2 = abx * abx + aby * aby
+            val t = if (abLen2 <= 1e-12) 0.0 else (-(ax * abx + ay * aby) / abLen2).coerceIn(0.0, 1.0)
+            val px = ax + abx * t
+            val py = ay + aby * t
+            val d = kotlin.math.sqrt(px * px + py * py)
+            if (d < bestDist) {
+                bestDist = d
+                bestAlong = cumLen[i] + (cumLen[i + 1] - cumLen[i]) * t
+                bestPoint = GeoMath.interpolate(a, b, t)
+            }
+        }
+        return NearestOnRoute(bestPoint, bestAlong, bestDist)
+    }
+
+    data class NearestOnRoute(
+        val point: GeoPoint,
+        val distanceAlongMeters: Double,
+        val offsetMeters: Double,
+    )
+
+    private companion object {
+        const val METERS_PER_DEG_LAT = 111_320.0
+        fun metersPerDegLon(lat: Double): Double = METERS_PER_DEG_LAT * cos(Math.toRadians(lat))
+    }
 }
