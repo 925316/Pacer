@@ -90,6 +90,14 @@ object HookUtils {
         field(obj.javaClass, name)?.set(obj, value)
     }
 
+    /** Non-throwing setter: missing fields are common across SDK versions. */
+    fun setFieldQuietly(obj: Any, name: String, value: Any?) {
+        try {
+            setField(obj, name, value)
+        } catch (_: Throwable) {
+        }
+    }
+
     fun callMethod(obj: Any, methodName: String, vararg args: Any?): Any? {
         val key = obj.javaClass.name + "#" + methodName + "#" + args.size
         val cached = methodCache[key]
