@@ -1,6 +1,7 @@
 package org.pacer.hook
 
 import io.github.libxposed.api.XposedModule
+import io.github.libxposed.api.XposedModuleInterface
 
 /**
  * Minimal LSPosed entry point. Registers no hooks yet — the anti-detection and
@@ -8,12 +9,11 @@ import io.github.libxposed.api.XposedModule
  * class wired now proves the :xposed module builds as a valid LSPosed module.
  */
 class PacerHook : XposedModule() {
-    override fun onModuleLoaded(param: XposedModule.ModuleLoadedParam) {
-        log(tag = "Pacer", msg = "module loaded, api=${param.apiVersion}")
+    override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
+        log(tag = "Pacer", msg = "module loaded in ${param.processName}")
     }
 
-    override fun onPackageLoaded(param: XposedModule.PackageLoadedParam) {
-        // Hooks live in earlier milestones; placeholder keeps the pipeline green.
+    override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
         if (param.packageName == "org.pacer.app") return
     }
 }
