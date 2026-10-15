@@ -125,8 +125,8 @@ object MapSdkHooker {
     }
 
     /** Hook a concrete listener class's single callback method once. */
-    private fun hookListenerClass(clazz: Class<*>, method: String, patch: (Array<Any?>) -> Unit) {
-        if (hookedCallbackClasses.putIfAbsent(clazz, method) == null) {
+    private fun hookListenerClass(clazz: Class<*>, method: String, patch: (List<Any?>) -> Unit) {
+        if (hookedCallbackClasses.putIfAbsent(clazz, true) == null) {
             HookUtils.hookAllMethods(clazz, method) { chain ->
                 if (PacerRuntimeConfig.snapshot().active) patch(chain.args)
                 chain.proceed(chain.args.toTypedArray())
