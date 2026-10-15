@@ -5,18 +5,30 @@ package org.pacer.hook
 
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
+import org.pacer.hook.hooks.AntiDetectionHooker
+import org.pacer.hook.hooks.SensorStepHooker
+import org.pacer.hook.utils.HookUtils
+import org.pacer.hook.utils.PacerLog
 
 /**
- * Minimal LSPosed entry point. Registers no hooks yet — the anti-detection and
- * sensor-injection hooks land here milestone by milestone (M4). Having the entry
- * class wired now proves the :xposed module builds as a valid LSPosed module.
+ * LSPosed entry point. Installs the anti-detection and sensor-simulation hooks
+ * into the scoped processes. All hooks no-op unless [PacerRuntimeConfig.active]
+ * is set, so an idle module never disturbs the device.
  */
 class PacerHook : XposedModule() {
+
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
-        // No-op; real hooks land milestone by milestone.
+        HookUtils.bind(this)
+        PacerLog.i("module loaded in process")
     }
 
     override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
-        if (param.packageName == "org.pacer.app") return
+        val classLoader = param.defaultClassLoader
+        HookUtils.runCatchingLogged("anti-detection") {
+            AntiDetectionHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("sensor-steps") {
+            SensorStepHooker.install(classLoader)
+        }
     }
 }
