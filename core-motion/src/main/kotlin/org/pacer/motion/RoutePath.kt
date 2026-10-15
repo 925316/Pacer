@@ -7,10 +7,16 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 
 /**
  * Immutable geographic point.
  */
+@Serializable
 data class GeoPoint(val lat: Double, val lon: Double)
 
 /**
@@ -69,6 +75,8 @@ class RoutePath(points: List<GeoPoint>) {
     }
 
     val totalLengthMeters: Double get() = cumLen.last()
+
+    fun toJson(): String = RoutePath.toJson(this)
 
     /**
      * Point and bearing at [distanceMeters] along the route; clamps to endpoints.
@@ -132,8 +140,17 @@ class RoutePath(points: List<GeoPoint>) {
         val offsetMeters: Double,
     )
 
-    private companion object {
-        const val METERS_PER_DEG_LAT = 111_320.0
-        fun metersPerDegLon(lat: Double): Double = METERS_PER_DEG_LAT * cos(Math.toRadians(lat))
+    companion object {
+        private val json = Json { prettyPrint = false }
+
+        fun fromPoints(points: List<GeoPoint>): RoutePath = RoutePath(points)
+
+        fun fromJson(text: String): RoutePath =
+            RoutePath(Json.decodeFromString(text))
+
+        fun toJson(route: RoutePath): String =
+            Json.encodeToString(route.points)
+
+        fun toJson(points: List<GeoPoint>): String = Json.encodeToString(points)
     }
 }
