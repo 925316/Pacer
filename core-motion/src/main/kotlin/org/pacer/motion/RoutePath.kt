@@ -9,9 +9,6 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 
 /**
  * Immutable geographic point.
@@ -142,16 +139,13 @@ class RoutePath(points: List<GeoPoint>) {
     )
 
     companion object {
-        private val json = Json { prettyPrint = false }
-
         fun fromPoints(points: List<GeoPoint>): RoutePath = RoutePath(points)
 
-        fun fromJson(text: String): RoutePath =
-            RoutePath(Json.decodeFromString(text))
+        /** Parses the shared [RouteJson] wire format. Throws on malformed text. */
+        fun fromJson(text: String): RoutePath = RoutePath(RouteJson.decode(text))
 
-        fun toJson(route: RoutePath): String =
-            Json.encodeToString(route.points)
+        fun toJson(route: RoutePath): String = RouteJson.encode(route.points)
 
-        fun toJson(points: List<GeoPoint>): String = Json.encodeToString(points)
+        fun toJson(points: List<GeoPoint>): String = RouteJson.encode(points)
     }
 }
