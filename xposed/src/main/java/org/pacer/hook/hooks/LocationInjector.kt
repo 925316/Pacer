@@ -39,7 +39,38 @@ object LocationInjector {
             }
         }
         scrubLocationFlags(classLoader)
+        hideTestProviders(classLoader)
         PacerLog.i("location injection hooks installed")
+    }
+
+    private fun hideTestProviders(classLoader: ClassLoader) {
+        val lm = HookUtils.findClassIfExists("android.location.LocationManager", classLoader) ?: return
+
+        HookUtils.hookAllMethods(lm, "getAllProviders") { chain ->
+            val result = chain.proceed(chain.args.toTypedArray())
+            if (PacerRuntimeConfig.snapshot().active && result is List<*>) {
+                result.filterNot { it is String && org.pacer.motion.AntiDetectionPolicy.isHiddenTestProvider(it) }
+            } else {
+                result
+            }
+        }
+        HookUtils.hookAllMethods(lm, "getProviders") { chain ->
+            val result = chain.proceed(chain.args.toTypedArray())
+            if (PacerRuntimeConfig.snapshot().active && result is List<*>) {
+                result.filterNot { it is String && org.pacer.motion.AntiDetectionPolicy.isHiddenTestProvider(it) }
+            } else {
+                result
+            }
+        }
+        HookUtils.hookAllMethods(lm, "isProviderEnabled") { chain ->
+            val name = chain.args.firstOrNull() as? String
+            if (PacerRuntimeConfig.snapshot().active && name != null &&
+                org.pacer.motion.AntiDetectionPolicy.isHiddenTestProvider(name)
+            ) {
+                return@hookAllMethods false
+            }
+            chain.proceed(chain.args.toTypedArray())
+        }
     }
 
     private fun fakeIfActive(provider: String?): Location? {

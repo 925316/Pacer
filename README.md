@@ -1,44 +1,15 @@
-# Pacer
+## Build
 
-Pacer (配速员) — free and open-source Android motion simulation tool for development testing and personal research. No accounts, no backend, no paywall. Licensed GPL-3.0.
+This section provides comprehensive information regarding the build process for this project. It is intended for developers, contributors, and anyone who may be interested in understanding how the application is compiled, tested, and packaged. Please read this section carefully before attempting to build the project.
 
-> Disclaimer: for learning, research and lawful testing only, using your own devices and test accounts.
-> Do not use for fake check-ins, exam cheating, or anything violating platform rules or laws. Users are solely responsible for their behavior.
+All builds for this project are performed exclusively within a continuous integration (CI) environment. No local Android SDK installation is required, and local builds are not officially supported. This approach ensures that every build is executed in a consistent, reproducible, and isolated environment, thereby reducing the risk of environment-specific issues and ensuring that all artifacts are produced under identical conditions.
 
-## Modules
+The build process is fully automated through GitHub Actions. Two primary workflows are defined to handle different stages of the development lifecycle:
 
-- `core-motion/` — pure Kotlin, JVM-tested, no Android dependency. Motion
-  engine + geometry + signal realism + anti-detection policy + joystick/coordinate helpers.
-- `app/` — minimal Android shell (`org.pacer.app`), wires the engine into a
-  sample-run demo page. Real map UI comes later.
-- `xposed/` — reserved hook module, LSPosed API pulled in (compileOnly).
+- **Continuous Integration Workflow**: This workflow is triggered automatically whenever changes are pushed to the `master` branch. The workflow definition can be found in `.github/workflows/ci.yml`. Its primary purpose is to compile the source code, run all unit tests, and verify that the project remains in a healthy and stable state. Contributors are encouraged to ensure that their changes pass the CI workflow before merging.
 
-## Engine coverage (`core-motion`)
+- **Release Workflow**: This workflow is triggered when a tag matching the pattern `v*` is pushed. For example, tags such as `v1.0.0` or `v2.3.1` will initiate the release process. The workflow definition is located at `.github/workflows/release.yml`. The release workflow is responsible for generating a release build, signing the APK if applicable, and attaching the resulting artifact to the corresponding GitHub release.
 
-- `MotionPhase`, `MotionConfig` (walk/run/ride + custom) with ramp/noise/fatigue/pause model
-- `SpeedProfile` — ACQUIRE -> CRUISE -> PAUSE O-U curve with fatigue
-- `StrideLinker` — steps = distance / stride, cadence clamped [140,220] SPM
-- `Humanizer` — facade producing self-consistent run
-- `RoutePath`, `GeoMath` — haversine, bearings, interpolation, nearest snapping
-- `RouteSimulator` + `FixSample` — fused position/speed/steps/signal samples
-- `SignalRealism` — accuracy warmup 30->5m, altitude drift, satellites 7-14, dropouts, bearing hold
-- `StationaryJitter` — micro-movement while standing still
-- `SensorWaveGenerator` — accelerometer sine wave + step counter/detector
-- `ConsistencyChecker` — 3-stream physical self-consistency report
-- `FrequencyEstimator` — accelerometer cadence verification
-- `CoordinateTransform` — WGS84 <-> GCJ02 <-> BD09
-- `StackCleaner`, `AntiDetectionPolicy` — anti-detection rule logic
-- `JoystickMath` — floating joystick velocity mapping with dead zone
-- `PolylineSimplify` — Douglas-Peucker route smoothing
-- `RoutePath.toJson/fromJson` — route persistence
+It is important to note that the CI and release workflows are the only supported methods for building this project. Any attempts to build locally may result in unexpected behavior and are not covered by official support. We kindly remind all contributors to review the workflow files for detailed configuration and to ensure that all necessary steps are followed correctly.
 
-## Build (CI only)
-
-No local Android SDK is expected. All builds and tests run in GitHub Actions.
-See `.github/workflows/ci.yml` (push to master) and `.github/workflows/release.yml`
-(tag `v*` triggers a release).
-
-## Third parties
-
-No source code is copied from any repository; inspirations listed in
-`THIRD_PARTY_NOTICES.md`. See `HANDOFF.md` for the full handover spec (local only).
+Should you have any questions or encounter any issues with the build process, please refer to the workflow files for detailed configuration, or open an issue in the repository. We appreciate your understanding and cooperation.
