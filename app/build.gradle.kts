@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "org.pacer.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.pacer.app"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = providers.gradleProperty("APP_VERSION_CODE").get().toInt()
         versionName = providers.gradleProperty("APP_VERSION_NAME").get()
     }

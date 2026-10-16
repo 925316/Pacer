@@ -39,7 +39,7 @@ jobs:
       - name: Install platform and build-tools
         run: |
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-          sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Assemble debug APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Rename APK with version

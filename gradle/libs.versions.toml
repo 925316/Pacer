@@ -3,7 +3,7 @@ agp = "9.3.1"
 kotlin = "2.1.10"
 kotlinSerialization = "1.7.3"
 libxposed = "102.0.0"
-libxposedService = "102.0.0"
+libxposedService = "101.0.0"
 junit = "4.13.2"
 
 [libraries]
