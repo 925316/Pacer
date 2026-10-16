@@ -34,5 +34,10 @@ android {
 
 dependencies {
     implementation(project(":core-motion"))
+    // The hook code lives in the :xposed library; without this the app APK
+    // would ship no hooks at all. libxposed discovers the module from the
+    // META-INF/xposed files that come along with this dependency, so the CI
+    // guard below asserts they really end up inside the APK.
+    implementation(project(":xposed"))
     implementation(libs.libxposed.service)
 }
