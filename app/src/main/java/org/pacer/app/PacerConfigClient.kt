@@ -81,4 +81,13 @@ object PacerConfigClient {
             .apply()
         Log.i(TAG, "simulation stopped")
     }
+
+    /** Live update from the floating joystick: speed and heading only. */
+    fun updateMotion(speed: Double, bearing: Float) {
+        val p = prefs ?: return
+        p.edit()
+            .putLong("speed_mps", java.lang.Double.doubleToRawLongBits(speed))
+            .putFloat("bearing", bearing)
+            .apply()
+    }
 }

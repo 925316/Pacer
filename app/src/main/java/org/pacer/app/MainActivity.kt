@@ -76,6 +76,24 @@ class MainActivity : Activity() {
         }
         root.addView(routeBtn)
 
+        val joystickBtn = Button(this)
+        joystickBtn.text = "Show floating joystick"
+        joystickBtn.setOnClickListener {
+            if (android.provider.Settings.canDrawOverlays(this)) {
+                startService(android.content.Intent(this, JoystickOverlayService::class.java))
+                output.text = "Joystick shown. Drag the knob to steer, tap center to stop."
+            } else {
+                startActivity(
+                    android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:$packageName"),
+                    ),
+                )
+                output.text = "Grant overlay permission, then tap again."
+            }
+        }
+        root.addView(joystickBtn)
+
         val stopBtn = Button(this)
         stopBtn.text = "Stop simulation"
         stopBtn.setOnClickListener {
