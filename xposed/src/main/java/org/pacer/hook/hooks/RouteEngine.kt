@@ -9,6 +9,7 @@ import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
+import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteResampler
 import org.pacer.motion.RouteSimulator
@@ -83,17 +84,12 @@ object RouteEngine {
         }
     }
 
-    /** Route JSON is [[lat,lon],...] (Pacer's own compact form). */
+    /** Route JSON is the shared [RouteJson] wire format: [[lat,lon],...]. */
     fun parseRoute(json: String): RoutePath? {
         if (json.isBlank()) return null
         return try {
-            val points = org.json.JSONArray(json)
-            val out = ArrayList<GeoPoint>(points.length())
-            for (i in 0 until points.length()) {
-                val pair = points.getJSONArray(i)
-                out.add(GeoPoint(pair.getDouble(0), pair.getDouble(1)))
-            }
-            if (out.size >= 2) RoutePath(out) else null
+            val points = RouteJson.decode(json)
+            if (points.size >= 2) RoutePath(points) else null
         } catch (t: Throwable) {
             PacerLog.w("route-parse", t)
             null
