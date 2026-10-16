@@ -61,12 +61,13 @@ class SensorWaveGenerator(
         val events = ArrayList<StepEvent>()
         var nextStepAt = 0.0
         var t = 0.0
+        var phase = 0.0
         val endT = samples.last().tSec
 
         while (t <= endT) {
             val speed = speedAt(samples, t)
             val cadence = StrideLinker.cadenceForSpeed(speed)
-            val phase = 2 * PI * (cadence / 60.0) * t
+            // Phase accumulates so cadence changes do not jump the waveform.
             val az = zAmplitude * sin(phase) + rng.nextDouble(-jitter, jitter)
             val ay = yAmplitude * sin(phase) + rng.nextDouble(-jitter, jitter)
             val ax = rng.nextDouble(-jitter, jitter)
@@ -81,6 +82,7 @@ class SensorWaveGenerator(
                     nextStepAt += period
                 }
             }
+            phase += 2 * PI * (cadence / 60.0) * step
             t += step
         }
         return acc to events
