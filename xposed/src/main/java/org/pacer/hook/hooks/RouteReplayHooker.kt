@@ -26,7 +26,10 @@ object RouteReplayHooker {
 
     private data class Sink(val listener: LocationListener?, val handler: Handler?, val provider: String)
 
+    private data class PiSink(val intent: android.app.PendingIntent, val provider: String)
+
     private val sinks = CopyOnWriteArrayList<Sink>()
+    private val piSinks = CopyOnWriteArrayList<PiSink>()
 
     @Volatile private var timerStarted = false
     private val timerLock = Any()
@@ -38,16 +41,22 @@ object RouteReplayHooker {
             val provider = chain.args.firstOrNull { it is String } as? String ?: LocationManager.GPS_PROVIDER
             var listener: LocationListener? = null
             var handler: Handler? = null
+            var pendingIntent: android.app.PendingIntent? = null
             for (arg in chain.args) {
                 if (arg is LocationListener) listener = arg
                 if (arg is Handler) handler = arg
+                if (arg is android.app.PendingIntent) pendingIntent = arg
             }
-            if (listener != null && PacerRuntimeConfig.snapshot().active) {
-                sinks.add(Sink(listener, handler, provider))
+            if (PacerRuntimeConfig.snapshot().active && (listener != null || pendingIntent != null)) {
+                if (listener != null) {
+                    sinks.add(Sink(listener, handler, provider))
+                    listener.onProviderEnabled(provider)
+                    fakeIfActive(provider)?.let { listener.onLocationChanged(it) }
+                }
+                if (pendingIntent != null) {
+                    piSinks.add(PiSink(pendingIntent, provider))
+                }
                 startTimerIfNeeded()
-                listener.onProviderEnabled(provider)
-                fakeIfActive(provider)?.let { listener.onLocationChanged(it) }
-                LocationInjector.scrubFake(listener)
                 return@hookAllMethods null
             }
             chain.proceed(chain.args.toTypedArray())
@@ -56,6 +65,7 @@ object RouteReplayHooker {
         HookUtils.hookAllMethods(lm, "removeUpdates") { chain ->
             val l = chain.args.firstOrNull()
             if (l is LocationListener) sinks.removeAll { it.listener === l }
+            if (l is android.app.PendingIntent) piSinks.removeAll { it.intent === l }
             chain.proceed(chain.args.toTypedArray())
         }
         PacerLog.i("route replay hooks installed")
@@ -96,7 +106,27 @@ object RouteReplayHooker {
             } catch (_: Throwable) {
             }
         }
+        for (pi in piSinks.toList()) {
+            try {
+                val ctx = appContext() ?: continue
+                val intent = android.content.Intent()
+                intent.putExtra(LocationManager.KEY_LOCATION_CHANGED, Location(loc))
+                intent.putExtra(LocationManager.KEY_PROVIDER_ENABLED, true)
+                pi.intent.send(ctx, 0, intent)
+            } catch (_: Throwable) {
+            }
+        }
     }
+
+    /** Best-effort application context without a constructor-provided Context. */
+    private fun appContext(): android.content.Context? =
+        try {
+            Class.forName("android.app.ActivityThread")
+                .getMethod("currentApplication")
+                .invoke(null) as? android.content.Context
+        } catch (_: Throwable) {
+            null
+        }
 
     /** Move the configured lat/lon forward along bearing by speed * 1s. */
     private fun advancePosition(cfg: PacerRuntimeConfig.Snapshot) {
@@ -117,9 +147,4 @@ object RouteReplayHooker {
         if (!cfg.active || cfg.latitude == 0.0 || cfg.longitude == 0.0) return null
         return LocationInjector.buildLocation(provider, cfg, SystemClock.elapsedRealtimeNanos())
     }
-}
-
-/** Scrub a listener's cached Location (defensive; mirrors reference behavior). */
-private fun LocationInjector.scrubFake(listener: LocationListener) {
-    // No-op placeholder: real per-listener scrub happens in onLocationChanged copies.
 }
