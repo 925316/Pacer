@@ -31,6 +31,9 @@ object PacerRuntimeConfig {
     @Volatile var altitudeMeters: Double = 0.0
     @Volatile var bearingDeg: Float = 0f
 
+    /** Compact route polyline as [[lat,lon],...] (empty = straight-line mode). */
+    @Volatile var routeJson: String = ""
+
     fun snapshot(): Snapshot = Snapshot(
         active = active,
         speedMps = speedMps,
@@ -42,6 +45,7 @@ object PacerRuntimeConfig {
         accuracyMeters = accuracyMeters,
         altitudeMeters = altitudeMeters,
         bearingDeg = bearingDeg,
+        routeJson = routeJson,
     )
 
     data class Snapshot(
@@ -55,5 +59,6 @@ object PacerRuntimeConfig {
         val accuracyMeters: Float,
         val altitudeMeters: Double,
         val bearingDeg: Float,
+        val routeJson: String,
     )
 }

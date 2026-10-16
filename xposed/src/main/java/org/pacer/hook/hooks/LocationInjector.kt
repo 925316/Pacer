@@ -63,8 +63,24 @@ object LocationInjector {
 
         var lat = cfg.latitude
         var lon = cfg.longitude
-        // While stationary, add micro-movement so the point is not pixel-still.
-        if (cfg.speedMps < 0.3) {
+        var accuracy = fx.accuracyMeters
+        var altitude = cfg.altitudeMeters + fx.altitudeMeters
+        var bearing = fx.bearingDeg
+        var satellites = fx.satellites
+        var speed = cfg.speedMps
+
+        // Route mode: route + humanized speed curve take precedence.
+        val sample = RouteEngine.sampleAt()
+        if (sample != null) {
+            lat = sample.point.lat
+            lon = sample.point.lon
+            accuracy = sample.accuracyMeters
+            altitude = sample.altitudeMeters
+            bearing = sample.bearingDeg
+            satellites = sample.satellites
+            speed = sample.speedMps
+        } else if (cfg.speedMps < 0.3) {
+            // Straight-line idle: add micro-movement so the point is not pixel-still.
             val off = jitter.next(dtSec)
             lat += off.northMeters / 111320.0
             lon += off.eastMeters / (111320.0 * kotlin.math.cos(Math.toRadians(lat)))
@@ -73,15 +89,15 @@ object LocationInjector {
         val location = Location(provider)
         location.latitude = lat
         location.longitude = lon
-        location.accuracy = fx.accuracyMeters
-        location.altitude = cfg.altitudeMeters + fx.altitudeMeters
-        location.bearing = fx.bearingDeg
-        location.speed = cfg.speedMps.toFloat()
+        location.accuracy = accuracy
+        location.altitude = altitude
+        location.bearing = bearing
+        location.speed = speed.toFloat()
         location.time = System.currentTimeMillis()
         if (Build.VERSION.SDK_INT >= 17) location.elapsedRealtimeNanos = nowNanos
         val bundle = Bundle()
-        bundle.putInt("satellites", fx.satellites)
-        bundle.putInt("satellitesvalue", fx.satellites)
+        bundle.putInt("satellites", satellites)
+        bundle.putInt("satellitesvalue", satellites)
         try {
             location.extras = bundle
         } catch (_: Throwable) {

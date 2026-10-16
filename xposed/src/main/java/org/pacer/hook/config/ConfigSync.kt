@@ -39,6 +39,7 @@ object ConfigSync {
         PacerRuntimeConfig.bearingDeg = prefs.getFloat("bearing", 0f)
         PacerRuntimeConfig.enableStepSimulation = prefs.getBoolean("step_enabled", true)
         PacerRuntimeConfig.mockBluetooth = prefs.getBoolean("mock_bt", false)
+        PacerRuntimeConfig.routeJson = prefs.getString("route_json", "") ?: ""
     }
 
     private fun doubleOf(p: SharedPreferences, key: String, def: Double): Double =

@@ -56,6 +56,20 @@ class MainActivity : Activity() {
         }
         root.addView(startBtn)
 
+        val routeBtn = Button(this)
+        routeBtn.text = "Start route simulation (humanized)"
+        routeBtn.setOnClickListener {
+            PacerConfigClient.start(
+                lat = 39.9042,
+                lon = 116.4074,
+                speed = 3.0,
+                bearing = 45f,
+                routeJson = SAMPLE_ROUTE,
+            )
+            output.text = "Route pushed: engine drives humanized speed along it."
+        }
+        root.addView(routeBtn)
+
         val stopBtn = Button(this)
         stopBtn.text = "Stop remote simulation"
         stopBtn.setOnClickListener {
@@ -74,6 +88,17 @@ class MainActivity : Activity() {
 
         // Bind the config channel early so start/stop work immediately.
         PacerConfigClient.init()
+    }
+
+    private companion object {
+        /** Sample 1km-ish campus polygon; [lat,lon] pairs. */
+        const val SAMPLE_ROUTE = "[" +
+            "[39.9042,116.4074]," +
+            "[39.9052,116.4090]," +
+            "[39.9081,116.4104]," +
+            "[39.9095,116.4071]," +
+            "[39.9080,116.4040]," +
+            "[39.9050,116.4035]]"
     }
 
     private fun runSimulation() {
