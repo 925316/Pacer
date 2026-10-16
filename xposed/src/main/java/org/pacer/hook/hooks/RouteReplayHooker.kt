@@ -90,6 +90,8 @@ object RouteReplayHooker {
 
     /** Move the configured lat/lon forward along bearing by speed * 1s. */
     private fun advancePosition(cfg: PacerRuntimeConfig.Snapshot) {
+        // Route mode advances position through RouteEngine instead.
+        if (cfg.routeJson.isNotBlank()) return
         if (cfg.speedMps <= 0.0) return
         val dist = cfg.speedMps // 1s tick
         val latRad = Math.toRadians(cfg.latitude)

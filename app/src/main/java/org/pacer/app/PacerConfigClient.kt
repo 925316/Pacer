@@ -42,7 +42,14 @@ object PacerConfigClient {
     val isReady: Boolean get() = prefs != null
 
     /** Start a simulation at [lat]/[lon] (WGS84) at [speed] m/s along [bearing]. */
-    fun start(lat: Double, lon: Double, speed: Double, bearing: Float, accuracy: Float = 5f) {
+    fun start(
+        lat: Double,
+        lon: Double,
+        speed: Double,
+        bearing: Float,
+        accuracy: Float = 5f,
+        routeJson: String = "",
+    ) {
         val p = prefs ?: run {
             Log.w(TAG, "config channel not ready yet")
             return
@@ -58,8 +65,9 @@ object PacerConfigClient {
             .putFloat("bearing", bearing)
             .putBoolean("step_enabled", true)
             .putBoolean("mock_bt", false)
+            .putString("route_json", routeJson)
             .apply()
-        Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed")
+        Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")
     }
 
     fun stop() {
