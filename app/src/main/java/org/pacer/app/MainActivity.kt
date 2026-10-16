@@ -14,6 +14,7 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
+import org.pacer.motion.CoordinateInput
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
 import org.pacer.motion.RouteDraft
@@ -44,6 +45,7 @@ class MainActivity : Activity() {
 
     private lateinit var latInput: EditText
     private lateinit var lonInput: EditText
+    private lateinit var pasteInput: EditText
 
     private lateinit var routeSummary: TextView
     private lateinit var waypointBox: LinearLayout
@@ -89,6 +91,9 @@ class MainActivity : Activity() {
         lonInput = numberField("Longitude (WGS84)", "116.4074")
         root.addView(latInput)
         root.addView(lonInput)
+        pasteInput = EditText(this).apply { hint = "Paste a Google Maps link or \"lat,lon\"" }
+        root.addView(pasteInput)
+        root.addView(action("Use pasted link / coordinates") { usePasted() })
         root.addView(action("Add waypoint at these coordinates") { addWaypointFromInputs() })
 
         searchInput = EditText(this).apply { hint = "Search a place (OSM Nominatim)" }
@@ -139,6 +144,19 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------------
     // Route editing
     // ---------------------------------------------------------------------
+
+    private fun usePasted() {
+        val point = CoordinateInput.parse(pasteInput.text.toString())
+        if (point == null) {
+            output.text = "Could not read a coordinate from that text."
+            return
+        }
+        latInput.setText(point.lat.toString())
+        lonInput.setText(point.lon.toString())
+        draft.add(point)
+        persistAndRender()
+        output.text = String.format(Locale.US, "Added waypoint %.5f, %.5f from pasted text.", point.lat, point.lon)
+    }
 
     private fun addWaypointFromInputs() {
         val lat = latInput.text.toString().toDoubleOrNull()
