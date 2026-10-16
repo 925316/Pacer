@@ -5,6 +5,7 @@ import io.github.libxposed.api.XposedModuleInterface
 import org.pacer.hook.config.ConfigSync
 import org.pacer.hook.hooks.AntiDetectionHooker
 import org.pacer.hook.hooks.GnssStatusHooker
+import org.pacer.hook.hooks.GmsFusedHooker
 import org.pacer.hook.hooks.LocationInjector
 import org.pacer.hook.hooks.MapSdkHooker
 import org.pacer.hook.hooks.RouteReplayHooker
@@ -38,6 +39,9 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("map-sdks") {
             MapSdkHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("gms-fused") {
+            GmsFusedHooker.install(classLoader)
         }
         HookUtils.runCatchingLogged("anti-detection") {
             AntiDetectionHooker.install(classLoader)
