@@ -196,13 +196,20 @@ object SensorStepHooker {
 
     /** Accelerometer overlay: Z bounce + Y sway at cadence, small jitter. */
     fun syntheticAccel(values: FloatArray, startTimestampMs: Long, speedMps: Double, now: Long = System.currentTimeMillis()) {
-        val start = if (startTimestampMs > 0L) startTimestampMs else now
         val cadence = cadenceFor(speedMps, now)
-        val phase = 2 * PI * (cadence / 60.0) * ((now - start) / 1000.0)
-        values[0] = (jitter() ).toFloat()
-        values[1] = (1.5 * sin(phase) + jitter()).toFloat()
-        values[2] = (3.5 * sin(phase) + jitter()).toFloat()
+        // Accumulate phase so a changing cadence does not jump the waveform.
+        if (lastPhaseMillis != 0L) {
+            val dt = (now - lastPhaseMillis).coerceAtLeast(0L) / 1000.0
+            phaseAccum += 2 * PI * (cadence / 60.0) * dt
+        }
+        lastPhaseMillis = now
+        values[0] = jitter().toFloat()
+        values[1] = (1.5 * sin(phaseAccum) + jitter()).toFloat()
+        values[2] = (3.5 * sin(phaseAccum) + jitter()).toFloat()
     }
+
+    @Volatile private var phaseAccum = 0.0
+    @Volatile private var lastPhaseMillis = 0L
 
     private fun jitter(): Double = rng.nextDouble() * 0.3 - 0.15
 
