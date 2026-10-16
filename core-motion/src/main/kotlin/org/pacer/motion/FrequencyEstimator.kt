@@ -21,15 +21,24 @@ object FrequencyEstimator {
     fun zeroCrossingsPerMinute(samplesHz: Int, values: DoubleArray): Double {
         if (values.size < 2) return 0.0
         var mean = 0.0
+        var amp = 0.0
         for (v in values) mean += v
         mean /= values.size
+        for (v in values) amp = maxOf(amp, kotlin.math.abs(v - mean))
+        if (amp <= 1e-9) return 0.0
+        // Schmitt-trigger counting: noise around the mean must not register as
+        // extra crossings, so only count transitions past a small hysteresis.
+        val h = amp * 0.15
+        var state = 0
         var crossings = 0
-        var prevSign = (values[0] - mean) > 0
-        for (i in 1 until values.size) {
-            val sign = (values[i] - mean) > 0
-            if (sign != prevSign) {
-                crossings++
-                prevSign = sign
+        for (v in values) {
+            val d = v - mean
+            if (state <= 0 && d > h) {
+                if (state != 0) crossings++
+                state = 1
+            } else if (state >= 0 && d < -h) {
+                if (state != 0) crossings++
+                state = -1
             }
         }
         val seconds = values.size.toDouble() / samplesHz
