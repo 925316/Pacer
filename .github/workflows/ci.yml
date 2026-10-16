@@ -40,6 +40,15 @@ jobs:
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Assemble debug APKs
         run: gradle :app:assembleDebug :xposed:assembleDebug --stacktrace
+      - name: Verify the APK carries the libxposed module
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -n1)
+          echo "inspecting $APK"
+          unzip -l "$APK" | grep -F "META-INF/xposed/module.prop"
+          unzip -l "$APK" | grep -F "META-INF/xposed/java_init.list"
+          unzip -p "$APK" "classes*.dex" | grep -a -F "org/pacer/hook/PacerHook"
+          echo "module declaration and entry class are packaged"
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:

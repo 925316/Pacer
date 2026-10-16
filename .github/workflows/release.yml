@@ -42,6 +42,15 @@ jobs:
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Assemble debug APK
         run: gradle :app:assembleDebug --stacktrace
+      - name: Verify the APK carries the libxposed module
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -n1)
+          echo "inspecting $APK"
+          unzip -l "$APK" | grep -F "META-INF/xposed/module.prop"
+          unzip -l "$APK" | grep -F "META-INF/xposed/java_init.list"
+          unzip -p "$APK" "classes*.dex" | grep -a -F "org/pacer/hook/PacerHook"
+          echo "module declaration and entry class are packaged"
       - name: Rename APK with version
         run: |
           VERSION=$(grep APP_VERSION_NAME gradle.properties | cut -d= -f2)
