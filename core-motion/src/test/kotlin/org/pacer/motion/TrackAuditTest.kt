@@ -262,4 +262,25 @@ class TrackAuditTest {
         assertEquals(TrackAudit.Verdict.HIGH_RISK, TrackAudit.verdictFor(0.8))
         assertEquals(TrackAudit.Verdict.HIGH_RISK, TrackAudit.verdictFor(1.0))
     }
+
+    @Test
+    fun `smooth mechanical ramp still triggers noise_spectrum`() {
+        // A deterministic linear speed ramp has no stochastic component, so its
+        // displacement series autocorrelates almost perfectly. This guards the
+        // acf thresholds: they were raised so honest runs stop being flagged,
+        // which must not have disabled the rule for a machine-smoothed curve.
+        val n = 400
+        val out = ArrayList<FixSample>(n)
+        var dist = 0.0
+        for (i in 0 until n) {
+            val speed = 2.5 + (3.5 - 2.5) * i / (n - 1)
+            // Position advances by the current speed, so the displacement series
+            // IS the ramp (non-zero variance, so the acf branch is the one tested).
+            out += fix(t = i.toDouble(), lat = dist / 111320.0, lon = 0.0, speed = speed, dist = dist)
+            dist += speed
+        }
+        val f = finding(TrackAudit.audit(out), "noise_spectrum")
+        assertTrue("noise_spectrum missing", f != null)
+        assertTrue("score=${f!!.score}", f.score > 0.5)
+    }
 }
