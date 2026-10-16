@@ -14,6 +14,9 @@ import org.pacer.hook.hooks.MapSdkHooker
 import org.pacer.hook.hooks.NmeaHooker
 import org.pacer.hook.hooks.RouteReplayHooker
 import org.pacer.hook.hooks.SensorStepHooker
+import org.pacer.hook.hooks.env.BleSpoofHooker
+import org.pacer.hook.hooks.env.CellSpoofHooker
+import org.pacer.hook.hooks.env.WifiSpoofHooker
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
@@ -55,6 +58,15 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("sensor-steps") {
             SensorStepHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("env-wifi") {
+            WifiSpoofHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("env-cell") {
+            CellSpoofHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("env-ble") {
+            BleSpoofHooker.install(classLoader)
         }
     }
 }
