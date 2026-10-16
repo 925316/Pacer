@@ -14,6 +14,10 @@ import org.pacer.hook.hooks.SensorStepHooker
 import org.pacer.hook.hooks.env.BleSpoofHooker
 import org.pacer.hook.hooks.env.CellSpoofHooker
 import org.pacer.hook.hooks.env.WifiSpoofHooker
+import org.pacer.hook.hooks.system.RawGnssSuppressionHooker
+import org.pacer.hook.hooks.system.SystemAppOpsHooker
+import org.pacer.hook.hooks.system.SystemLocationServiceHooker
+import org.pacer.hook.hooks.system.SystemSettingsProviderHooker
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
@@ -64,6 +68,30 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("env-ble") {
             BleSpoofHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("raw-gnss") {
+            RawGnssSuppressionHooker.install(classLoader)
+        }
+    }
+
+    /**
+     * system_server side layer. In system_server this callback replaces the
+     * first onPackageLoaded phase, so the global hooks are installed here. The
+     * hooks only act while a simulation is active.
+     */
+    override fun onSystemServerStarting(param: XposedModuleInterface.SystemServerStartingParam) {
+        val classLoader = param.classLoader
+        HookUtils.runCatchingLogged("system-location") {
+            SystemLocationServiceHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("system-appops") {
+            SystemAppOpsHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("system-settings") {
+            SystemSettingsProviderHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("system-rawgnss") {
+            RawGnssSuppressionHooker.install(classLoader)
         }
     }
 }

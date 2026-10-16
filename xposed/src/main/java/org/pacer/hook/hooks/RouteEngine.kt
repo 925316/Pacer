@@ -10,13 +10,28 @@ import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
 import org.pacer.motion.RoutePath
+import org.pacer.motion.RouteResampler
 import org.pacer.motion.RouteSimulator
 import org.pacer.motion.FixSample
 
 object RouteEngine {
 
+    /** Target arc-length spacing for the cached resampled route. */
+    private const val RESAMPLE_SPACING_METERS = 1.0
+
     @Volatile private var cacheKey: String? = null
     @Volatile private var fixes: List<FixSample> = emptyList()
+
+    /**
+     * Uniform (~1 m) resampling of the current route polyline.
+     *
+     * Intended use: advancing along the route becomes "advance the index"
+     * instead of repeating segment projection maths per step, which is the
+     * cheap path for progress / nearest-point queries. The injected sample
+     * stream itself still comes from [RouteSimulator], so this is computed
+     * defensively and does not alter [sampleAt] output.
+     */
+    @Volatile private var resampledPoints: List<GeoPoint> = emptyList()
 
     /** Sample for the current elapsed time, or null when no route is configured. */
     fun sampleAt(nowMs: Long = System.currentTimeMillis()): FixSample? {
@@ -38,6 +53,12 @@ object RouteEngine {
         return best
     }
 
+    /**
+     * Uniform resampled route points currently cached (empty when no route is
+     * built). Exposed for callers that want the index-walk path over the route.
+     */
+    internal fun resampledRoute(): List<GeoPoint> = resampledPoints
+
     private fun build(route: RoutePath, key: String, speedMps: Double) {
         try {
             val config = if (speedMps > 0.0) {
@@ -47,10 +68,17 @@ object RouteEngine {
             }
             val sim = RouteSimulator(route, config)
             fixes = sim.simulate(dtSec = 1.0)
+            resampledPoints = try {
+                RouteResampler.resample(route.points, RESAMPLE_SPACING_METERS)
+            } catch (t: Throwable) {
+                PacerLog.w("route-resample", t)
+                emptyList()
+            }
             cacheKey = key
             PacerLog.i("route engine built: ${fixes.size} samples, ${route.totalLengthMeters.toInt()} m")
         } catch (t: Throwable) {
             fixes = emptyList()
+            resampledPoints = emptyList()
             cacheKey = null
         }
     }
