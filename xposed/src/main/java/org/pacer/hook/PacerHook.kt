@@ -11,6 +11,7 @@ import org.pacer.hook.hooks.GnssStatusHooker
 import org.pacer.hook.hooks.GmsFusedHooker
 import org.pacer.hook.hooks.LocationInjector
 import org.pacer.hook.hooks.MapSdkHooker
+import org.pacer.hook.hooks.NmeaHooker
 import org.pacer.hook.hooks.RouteReplayHooker
 import org.pacer.hook.hooks.SensorStepHooker
 import org.pacer.hook.utils.HookUtils
@@ -45,6 +46,9 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("gms-fused") {
             GmsFusedHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("nmea") {
+            NmeaHooker.install(classLoader)
         }
         HookUtils.runCatchingLogged("anti-detection") {
             AntiDetectionHooker.install(classLoader)
