@@ -56,6 +56,7 @@ object RouteJson {
         while (true) {
             scanner.skipWhitespace()
             scanner.expect('[')
+            scanner.skipWhitespace()
             val lat = scanner.number()
             scanner.skipWhitespace()
             scanner.expect(',')
