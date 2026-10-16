@@ -18,7 +18,6 @@ import kotlin.random.Random
  * - jitter +/-0.15 m/s^2
  */
 class SensorWaveGenerator(
-    private val strideMeters: Double = StrideLinker.DEFAULT_STRIDE_METERS,
     private val zAmplitude: Double = 3.5,
     private val yAmplitude: Double = 1.5,
     private val jitter: Double = 0.15,
@@ -63,7 +62,7 @@ class SensorWaveGenerator(
 
         while (t <= endT) {
             val speed = speedAt(samples, t)
-            val cadence = StrideLinker.cadenceForSpeed(speed, strideMeters)
+            val cadence = StrideLinker.cadenceForSpeed(speed)
             val phase = 2 * PI * (cadence / 60.0) * t
             val az = zAmplitude * sin(phase) + rng.nextDouble(-jitter, jitter)
             val ay = yAmplitude * sin(phase) + rng.nextDouble(-jitter, jitter)

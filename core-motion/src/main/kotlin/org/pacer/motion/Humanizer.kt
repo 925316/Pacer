@@ -22,7 +22,7 @@ object Humanizer {
     ): RunResult {
         val profile = SpeedProfile(config, seed)
         val samples = profile.generate(distanceMeters, dtSec)
-        val steps = StrideLinker.cumulativeSteps(samples, config.strideMeters)
+        val steps = StrideLinker.cumulativeSteps(samples)
         return RunResult(
             samples = samples,
             cumulativeSteps = steps,

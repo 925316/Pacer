@@ -37,7 +37,7 @@ class RouteSimulator(
             val s = run.samples[i]
             val (p, brg) = route.pointAt(s.distanceMeters)
             val fx = realism.next(s.tSec, s.speedMps, dtSec, brg)
-            val cadence = StrideLinker.cadenceForSpeed(s.speedMps, config.strideMeters)
+            val cadence = StrideLinker.cadenceForSpeed(s.speedMps)
             out += FixSample(
                 tSec = s.tSec,
                 point = p,

@@ -40,12 +40,25 @@ class SpeedProfileTest {
     }
 
     @Test
-    fun `distance speed steps triangle is consistent within 5 percent`() {
+    fun `distance speed steps triangle stays physically plausible`() {
         val config = MotionConfig.run()
         val run = Humanizer.simulate(config, distanceMeters = 3000.0, seed = 7L)
-        val expected = StrideLinker.stepsForDistance(run.totalDistanceMeters, config.strideMeters)
-        val err = kotlin.math.abs(run.totalSteps - expected).toDouble() / expected.coerceAtLeast(1)
-        assertTrue("triangle error $err exceeds 5%", err < 0.05)
+        // Average stride = distance / steps must sit in the human band, and the
+        // step series must be monotonic.
+        val avgStride = run.totalDistanceMeters / run.totalSteps.coerceAtLeast(1)
+        assertTrue("avgStride=$avgStride", avgStride in 0.65..1.35)
+        for (i in 1 until run.cumulativeSteps.size) {
+            assertTrue(run.cumulativeSteps[i] >= run.cumulativeSteps[i - 1])
+        }
+    }
+
+    @Test
+    fun `stride grows with speed`() {
+        assertTrue(StrideLinker.strideForSpeed(1.0) < StrideLinker.strideForSpeed(3.0))
+        assertTrue(StrideLinker.strideForSpeed(3.0) < StrideLinker.strideForSpeed(6.0))
+        // A 3 m/s run must not clamp at the cadence ceiling anymore.
+        val cadence = StrideLinker.cadenceForSpeed(3.0, rng = Random(1L))
+        assertTrue("cadence=$cadence", cadence < StrideLinker.MAX_CADENCE_SPM)
     }
 
     @Test

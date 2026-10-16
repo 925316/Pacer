@@ -36,12 +36,12 @@ object ConsistencyChecker {
         fixes: List<FixSample>,
         accel: List<SensorWaveGenerator.AccelSample>,
         stepEvents: List<SensorWaveGenerator.StepEvent>,
-        strideMeters: Double = StrideLinker.DEFAULT_STRIDE_METERS,
     ): Report {
         require(fixes.isNotEmpty()) { "no fixes" }
-        val distance = fixes.last().distanceMeters
-        val steps = fixes.last().cumulativeSteps
-        val distanceStepError = if (steps == 0L) 1.0 else abs(steps * strideMeters - distance) / distance.coerceAtLeast(1e-9)
+        val expectedSteps = expectedSteps(fixes)
+        val actualSteps = fixes.last().cumulativeSteps
+        val distanceStepError = if (expectedSteps == 0L) 1.0
+        else abs(actualSteps - expectedSteps).toDouble() / expectedSteps
 
         var violations = 0
         for (f in fixes) {
@@ -52,7 +52,7 @@ object ConsistencyChecker {
             }
         }
 
-        val expectedEvents = cadenceIntegratesToSteps(fixes, strideMeters)
+        val expectedEvents = cadenceIntegratesToSteps(fixes)
         val stepEventError = abs(stepEvents.size - expectedEvents).toDouble() / expectedEvents.coerceAtLeast(1)
 
         var monotonic = true
@@ -64,11 +64,26 @@ object ConsistencyChecker {
     }
 
     /**
+     * Expected cumulative steps for the run, integrating speed / stride(speed).
+     * Mirrors StrideLinker so the checker validates the produced series rather
+     * than re-deriving it from a constant stride.
+     */
+    private fun expectedSteps(fixes: List<FixSample>): Long {
+        var acc = 0.0
+        for (i in 1 until fixes.size) {
+            val dt = fixes[i].tSec - fixes[i - 1].tSec
+            val speed = (fixes[i].speedMps + fixes[i - 1].speedMps) / 2
+            acc += speed * dt / StrideLinker.strideForSpeed(speed)
+        }
+        return acc.toLong()
+    }
+
+    /**
      * Expected step count as integral of cadence over time. Cadence is the
      * same source that drives the step-event stream, so this is the fair
      * baseline for comparing event counts against the speed curve.
      */
-    private fun cadenceIntegratesToSteps(fixes: List<FixSample>, strideMeters: Double): Long {
+    private fun cadenceIntegratesToSteps(fixes: List<FixSample>): Long {
         var acc = 0.0
         for (i in 1 until fixes.size) {
             val dt = fixes[i].tSec - fixes[i - 1].tSec
