@@ -179,6 +179,9 @@ object SensorStepHooker {
 
     /** Cumulative steps since [startTimestampMs] at the configured speed. */
     fun currentSteps(startTimestampMs: Long, speedMps: Double, now: Long = System.currentTimeMillis()): Long {
+        // Route mode: steps come straight from the humanized run so they stay
+        // consistent with the injected coordinates.
+        RouteEngine.sampleAt(now)?.let { return it.cumulativeSteps }
         val start = if (startTimestampMs > 0L) startTimestampMs else now
         if (lastInitTime != start) {
             lastInitTime = start
@@ -190,6 +193,10 @@ object SensorStepHooker {
         lastSteps = stepBase + cadence / 60.0 * elapsedSec
         return lastSteps.toLong()
     }
+
+    /** Cadence used for the accelerometer phase: route-aware when available. */
+    private fun cadenceFor(speedMps: Double, now: Long): Double =
+        RouteEngine.sampleAt(now)?.cadenceSpm?.takeIf { it > 0.0 } ?: autoCadenceSpm(speedMps)
 
     /** Speed -> cadence band, Pacer's own mapping (walk 95 ... sprint 200). */
     fun autoCadenceSpm(speedMs: Double): Double = when {
@@ -204,7 +211,7 @@ object SensorStepHooker {
     /** Accelerometer overlay: Z bounce + Y sway at cadence, small jitter. */
     fun syntheticAccel(values: FloatArray, startTimestampMs: Long, speedMps: Double, now: Long = System.currentTimeMillis()) {
         val start = if (startTimestampMs > 0L) startTimestampMs else now
-        val cadence = autoCadenceSpm(speedMps)
+        val cadence = cadenceFor(speedMps, now)
         val phase = 2 * PI * (cadence / 60.0) * ((now - start) / 1000.0)
         values[0] = (jitter() ).toFloat()
         values[1] = (1.5 * sin(phase) + jitter()).toFloat()
