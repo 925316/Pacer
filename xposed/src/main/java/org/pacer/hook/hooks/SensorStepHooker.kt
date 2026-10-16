@@ -198,15 +198,9 @@ object SensorStepHooker {
     private fun cadenceFor(speedMps: Double, now: Long): Double =
         RouteEngine.sampleAt(now)?.cadenceSpm?.takeIf { it > 0.0 } ?: autoCadenceSpm(speedMps)
 
-    /** Speed -> cadence band, Pacer's own mapping (walk 95 ... sprint 200). */
-    fun autoCadenceSpm(speedMs: Double): Double = when {
-        speedMs <= 0.8 -> 95.0
-        speedMs <= 1.5 -> 100 + (speedMs - 0.8) / 0.7 * 25
-        speedMs <= 2.8 -> 135 + (speedMs - 1.5) / 1.3 * 25
-        speedMs <= 4.0 -> 160 + (speedMs - 2.8) / 1.2 * 20
-        speedMs <= 5.5 -> 180 + (speedMs - 4.0) / 1.5 * 15
-        else -> 200.0
-    }
+    /** Speed -> cadence, delegated to the shared physical model. */
+    fun autoCadenceSpm(speedMs: Double): Double =
+        org.pacer.motion.StrideLinker.cadenceForSpeed(speedMs)
 
     /** Accelerometer overlay: Z bounce + Y sway at cadence, small jitter. */
     fun syntheticAccel(values: FloatArray, startTimestampMs: Long, speedMps: Double, now: Long = System.currentTimeMillis()) {

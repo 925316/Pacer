@@ -31,11 +31,11 @@ class SensorWaveGeneratorTest {
     }
 
     @Test
-    fun `step count roughly matches distance over stride`() {
+    fun `step count roughly matches reported run steps`() {
         val s = curve()
         val run = Humanizer.simulate(MotionConfig.run(), distanceMeters = 800.0, seed = 5L)
         val (_, events) = SensorWaveGenerator(seed = 1L).generate(s)
-        val expected = StrideLinker.stepsForDistance(run.totalDistanceMeters)
+        val expected = run.totalSteps
         val ratio = events.size.toDouble() / expected.coerceAtLeast(1)
         assertTrue("events=${events.size} expected=$expected ratio=$ratio", ratio in 0.8..1.2)
     }

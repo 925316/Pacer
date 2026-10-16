@@ -27,8 +27,6 @@ data class MotionConfig(
     /** Pause length range in seconds (typical 8..20). */
     val minPauseSec: Double = 8.0,
     val maxPauseSec: Double = 20.0,
-    /** Stride length in metres used by [StrideLinker]. */
-    val strideMeters: Double = StrideLinker.DEFAULT_STRIDE_METERS,
 ) {
     init {
         require(baseSpeedMps > 0) { "baseSpeedMps must be positive" }
