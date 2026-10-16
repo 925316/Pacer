@@ -75,10 +75,14 @@ object TrackAudit {
         val movingSpeedMps: Double = 0.5,
 
         // --- noise_spectrum ---------------------------------------------------
-        // Lag-1..5 autocorrelation of the step-length series. Real human and
-        // GNSS jitter drive it low; a machine-smoothed ramp drives it high.
-        val acfLagWarn: Double = 0.92,
-        val acfLagHard: Double = 0.995,
+        // Lag-1..5 autocorrelation of the step-length series. A 1 Hz speed
+        // series is autocorrelated by construction, so a genuinely human run
+        // already sits near 0.95 at lag 1: the warn band must start above that
+        // or every honest track is flagged. What separates a machine curve is
+        // near-perfect determinism (> 0.99), while a constant series is caught
+        // by the separate zero-variance branch below.
+        val acfLagWarn: Double = 0.97,
+        val acfLagHard: Double = 0.999,
         // Below this variance in the step-length series we flag "perfectly
         // uniform increments" outright.
         val varianceEpsilon: Double = 1e-9,
