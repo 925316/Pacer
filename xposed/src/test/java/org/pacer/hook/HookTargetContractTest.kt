@@ -168,7 +168,6 @@ class HookTargetContractTest {
             "android.location.LocationManager" to listOf(
                 "getLastKnownLocation", "requestLocationUpdates", "isProviderEnabled",
                 "getProviders", "getAllProviders", "registerGnssStatusCallback",
-                "addGnssMeasurementsListener", "addGnssNavigationMessageListener",
                 "getCurrentLocation",
             ),
             "android.location.GnssStatus" to listOf(
@@ -212,7 +211,9 @@ class HookTargetContractTest {
                 "getNetworkId", "getSupplicantState",
             ),
             "android.net.wifi.ScanResult" to listOf(
-                "getBSSID", "getSSID", "getWifiSsid", "getFrequency",
+                // BSSID / SSID / frequency / level are public FIELDS on ScanResult,
+                // not getters: a hook aimed at getBSSID() would silently do nothing.
+                "BSSID", "SSID", "frequency", "level", "timestamp", "getWifiSsid",
             ),
             "android.bluetooth.BluetoothAdapter" to listOf(
                 "getRemoteDevice", "isEnabled", "getState", "getBluetoothLeScanner",
@@ -244,7 +245,7 @@ class HookTargetContractTest {
                 "elapsedRealtimeNanos", "elapsedRealtime", "uptimeMillis",
             ),
             "android.telephony.ServiceState" to listOf(
-                "getState", "getNetworkOperator",
+                "getState", "getOperatorNumeric",
             ),
             "android.telephony.SignalStrength" to listOf(
                 "getLevel", "getCellSignalStrengths",
@@ -257,6 +258,8 @@ class HookTargetContractTest {
                 "addGpsStatusListener", "removeGpsStatusListener", "requestSingleUpdate",
                 "addTestProvider", "removeTestProvider", "setTestProviderEnabled",
                 "setTestProviderLocation", "getGnssAntennaInfos", "addGnssAntennaInfoListener",
+                "addGnssMeasurementsListener", "addGnssNavigationMessageListener",
+                "registerGnssMeasurementsCallback", "registerGnssNavigationMessageCallback",
             ),
             "android.location.Location" to listOf(
                 "setElapsedRealtimeNanos", "isFromMockProvider", "isMock",
