@@ -40,9 +40,9 @@
 //   - A hot-reload close()/unhook protocol. Pacer's hookers have none.
 package org.pacer.hook.hooks.system
 
-import android.os.Bundle
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CellLocationShapes
 import org.pacer.hook.hooks.env.CellPayload
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.system.vendor.SystemClassLocator
@@ -73,10 +73,6 @@ object SystemTelephonyRegistryHooker {
     private const val LISTEN_PREFIX = "listen"
     private const val CALLBACK_CELL_INFO = "onCellInfoChanged"
     private const val CALLBACK_CELL_LOCATION = "onCellLocationChanged"
-
-    /** Compared by name so no class has to be loaded to recognize the shapes. */
-    private const val BUNDLE_CLASS = "android.os.Bundle"
-    private const val CELL_LOCATION_CLASS = "android.telephony.CellLocation"
 
     /** Callback classes already intercepted, so each class is hooked once. */
     private val hookedCallbacks = ConcurrentHashMap<Class<*>, Boolean>()
@@ -200,104 +196,21 @@ object SystemTelephonyRegistryHooker {
 
     /**
      * The serving cell identity adapted to whatever the callback's parameter 0
-     * declares. Returns null - keep the original - when no identity can be built
-     * or the parameter type is not one the notification historically carries.
+     * declares. Null - keep the original - when no identity can be built or the
+     * parameter type cannot hold the shape it was built in.
+     *
+     * The adaptation itself is shared with the phone-process hooker rather than
+     * implemented here, so the two cannot drift into answering differently about
+     * the same device - the failure mode of three adaptations with three
+     * formulas for one value.
      */
     private fun cellLocation(chain: XposedInterface.Chain): Any? {
-        val identity = servingIdentity() ?: return null
-        val parameter = (chain.executable as? Method)?.parameterTypes?.firstOrNull() ?: return null
-        return when {
-            parameter.name == BUNDLE_CLASS -> notifierBundle(identity)
-            parameter.name == CELL_LOCATION_CLASS ||
-                HookUtils.hasTypeByName(parameter, CELL_LOCATION_CLASS) -> asCellLocation(identity)
-            // A CellIdentity (or any other shape): hand the identity over as is.
-            else -> identity
-        }
+        val identity = CellLocationShapes.servingIdentity(cellInfoList()) ?: return null
+        val parameter = (chain.executable as? Method)?.parameterTypes?.firstOrNull()
+        return CellLocationShapes.fit(identity, parameter)
     }
-
-    /**
-     * The identity of the fabricated serving cell: the first entry that reports
-     * itself registered, falling back to the first entry when none does. The
-     * payload puts the camping cell first, so the fallback still picks a
-     * plausible one.
-     */
-    private fun servingIdentity(): Any? {
-        val cells = cellInfoList() ?: return null
-        val serving = cells.firstOrNull { read(it, "isRegistered") == true }
-            ?: cells.firstOrNull()
-            ?: return null
-        return read(serving, "getCellIdentity")
-    }
-
-    // --- location shapes -----------------------------------------------------
-
-    /**
-     * A cell-location notification Bundle.
-     *
-     * The platform's own writer is tried first because it owns the mapping
-     * between a cell type and the keys the framework's client side reads back.
-     * It is hidden, and on some releases it lives on the identity while on others
-     * only on the identity's CellLocation view, so both are tried. When neither
-     * wrote anything, the legacy lac/cid/psc keys are written directly; -1 is the
-     * value the telephony classes themselves use for an unavailable field.
-     */
-    private fun notifierBundle(identity: Any): Bundle {
-        val bundle = Bundle()
-        if (writeWithPlatform(identity, bundle)) return bundle
-        writeLegacyKeys(bundle, identity)
-        return bundle
-    }
-
-    private fun writeWithPlatform(identity: Any, bundle: Bundle): Boolean {
-        for (target in listOfNotNull(identity, asCellLocation(identity))) {
-            try {
-                HookUtils.callMethod(target, "fillInNotifierBundle", bundle)
-                if (wroteKeys(bundle)) return true
-            } catch (_: Throwable) {
-                // Absent or hidden: try the other target, then the legacy keys.
-            }
-        }
-        return false
-    }
-
-    private fun wroteKeys(bundle: Bundle): Boolean =
-        bundle.containsKey("lac") || bundle.containsKey("cid") || bundle.containsKey("psc")
-
-    private fun writeLegacyKeys(bundle: Bundle, identity: Any) {
-        bundle.putInt("lac", intOf(identity, "getTac", "getLac"))
-        bundle.putInt("cid", intOf(identity, "getCi", "getCid"))
-        bundle.putInt("psc", intOf(identity, "getPsc"))
-    }
-
-    /** First readable getter wins; -1 when none exists, matching the platform. */
-    private fun intOf(identity: Any, vararg getters: String): Int {
-        for (getter in getters) {
-            (read(identity, getter) as? Int)?.let { return it }
-        }
-        return -1
-    }
-
-    /** The identity's CellLocation view. Hidden, hence reflective and nullable. */
-    private fun asCellLocation(identity: Any): Any? =
-        try {
-            HookUtils.callMethod(identity, "asCellLocation")
-        } catch (_: Throwable) {
-            null
-        }
 
     // --- helpers -------------------------------------------------------------
-
-    /**
-     * Zero-argument getter lookup, null when absent or unreadable. Used for the
-     * public accessors on the telephony value classes; the hidden writer goes
-     * through HookUtils.callMethod instead.
-     */
-    private fun read(target: Any, getter: String): Any? =
-        try {
-            HookUtils.noArgAccessor(target.javaClass, getter)?.invoke(target)
-        } catch (_: Throwable) {
-            null
-        }
 
     /**
      * Forces the registry out of compiled code so its call sites into the

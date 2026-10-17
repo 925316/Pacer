@@ -30,6 +30,7 @@ package org.pacer.hook.hooks.env
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
 object CellSpoofHooker {
@@ -82,9 +83,12 @@ object CellSpoofHooker {
     private fun hookCellLocation(telephonyManager: Class<*>) {
         HookUtils.hookAllMethods(telephonyManager, "getCellLocation") { chain ->
             if (!suppressing()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
-            // Null matches the empty list above: a device that sees no cells has
-            // no serving cell location either.
-            null
+            // The serving cell getAllCellInfo reports, in the shape this getter
+            // declares. Answering null here while getAllCellInfo hands out cells was
+            // the kind of disagreement an app can see for itself: on a device with
+            // service, one of the two has to be lying.
+            val identity = CellLocationShapes.servingIdentity(cellsFor()) ?: return@hookAllMethods null
+            CellLocationShapes.fit(identity, (chain.executable as? Method)?.returnType)
         }
     }
 
@@ -149,8 +153,19 @@ object CellSpoofHooker {
             chain.proceed(replaceFirstListArg(chain.args))
         }
         HookUtils.hookAllMethods(clazz, "onCellLocationChanged") { chain ->
-            if (suppressing()) return@hookAllMethods null
-            chain.proceed(chain.args.toTypedArray())
+            val identity = if (suppressing()) CellLocationShapes.servingIdentity(cellsFor()) else null
+            val parameter = (chain.executable as? Method)?.parameterTypes?.firstOrNull()
+            val replacement = identity?.let { CellLocationShapes.fit(it, parameter) }
+            if (replacement == null) {
+                // Silence, not the original value: this one may be the REAL serving
+                // cell, because the system_server layer that would have rewritten it
+                // is a separate entry in the module scope. A push that cannot be
+                // replaced must not pass through.
+                return@hookAllMethods null
+            }
+            val args = chain.args.toTypedArray()
+            if (args.isNotEmpty()) args[0] = replacement
+            chain.proceed(args)
         }
     }
 
@@ -175,23 +190,9 @@ object CellSpoofHooker {
         val serviceState = HookUtils.findClassIfExists("android.telephony.ServiceState", loader) ?: return
         HookUtils.hookAllMethods(serviceState, "getCellIdentity") { chain ->
             if (!suppressing()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
-            servingIdentity() ?: chain.proceed(chain.args.toTypedArray())
+            CellLocationShapes.servingIdentity(cellsFor()) ?: chain.proceed(chain.args.toTypedArray())
         }
     }
-
-    /** The identity of the fabricated serving cell, taken from the payload itself. */
-    private fun servingIdentity(): Any? {
-        val cells = cellsFor() ?: return null
-        val serving = cells.firstOrNull { read(it, "isRegistered") == true } ?: cells.firstOrNull() ?: return null
-        return read(serving, "getCellIdentity")
-    }
-
-    private fun read(target: Any, getter: String): Any? =
-        try {
-            HookUtils.noArgAccessor(target.javaClass, getter)?.invoke(target)
-        } catch (_: Throwable) {
-            null
-        }
 
     // ---- payload ----
 
