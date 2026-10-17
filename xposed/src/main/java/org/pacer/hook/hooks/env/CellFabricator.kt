@@ -235,6 +235,43 @@ object CellFabricator {
         else -> 0
     }
 
+    // ---- signal strength ----
+
+    /**
+     * Rewrites a real SignalStrength in place so that its entries become the
+     * strengths of the fabricated cells, and reports whether that took effect.
+     *
+     * In place rather than built from scratch: the real object already has every
+     * field of its release filled in correctly, so a name-based rewrite leaves
+     * everything Pacer does not care about untouched, and no constructor has to be
+     * guessed at all.
+     *
+     * What makes this worth doing is that it is the SAME strength objects
+     * getAllCellInfo reports. Left alone, SignalStrength carries the real cells'
+     * strengths while CellInfo carries fabricated ones, so an app comparing the two
+     * - the count of entries, or the level of the serving one - sees them disagree.
+     *
+     * A false return leaves the real object in place on purpose: a SignalStrength
+     * that disagrees with the fabricated cells is a far weaker signal than a null
+     * one, which most callers dereference without checking.
+     */
+    fun installSignalStrengths(target: Any, cells: List<Any>): Boolean {
+        val strengths = ArrayList<Any>(cells.size)
+        for (cell in cells) readObject(cell, "getCellSignalStrength")?.let { strengths.add(it) }
+        if (strengths.isEmpty()) return false
+        if (!HookUtils.trySetField(target, "mCellSignalStrengths", strengths)) return false
+
+        // Builds older than the list answer getDbm()/getLevel() from a per-radio
+        // field. The serving cell is first in the payload and is the LTE one.
+        HookUtils.trySetField(target, "mLte", strengths.first())
+        HookUtils.trySetField(target, "mLteAsPrimaryInNrNsa", true)
+
+        // Read back: a renamed field would otherwise be reported as success while the
+        // app still sees the real strengths.
+        val read = readObject(target, "getCellSignalStrengths") as? List<*> ?: return false
+        return read.size == strengths.size
+    }
+
     // ---- reflection plumbing ----
 
     private fun intConstructor(clazz: Class<*>, arity: Int): Constructor<*>? =

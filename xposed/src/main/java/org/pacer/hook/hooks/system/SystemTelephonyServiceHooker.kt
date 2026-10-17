@@ -14,6 +14,7 @@ package org.pacer.hook.hooks.system
 
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CellFabricator
 import org.pacer.hook.hooks.env.CellLocationShapes
 import org.pacer.hook.hooks.env.CellPayload
 import org.pacer.hook.hooks.env.EnvGeo
@@ -67,6 +68,23 @@ object SystemTelephonyServiceHooker {
             val identity = CellLocationShapes.servingIdentity(payload(classLoader))
             if (identity == null) null
             else CellLocationShapes.fit(identity, (chain.executable as? Method)?.returnType)
+        }
+
+        hooked += HookUtils.hookAllMethods(manager, "getSignalStrength") { chain ->
+            // Its own getter, and the last place the real radio shows through while
+            // every cell answer is fabricated. Rewritten from the same payload, so the
+            // entry count and the serving level cannot contradict getAllCellInfo.
+            if (!serving()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            val real = chain.proceed(chain.args.toTypedArray()) ?: return@hookAllMethods null
+            val cells = payload(classLoader)
+            if (cells != null) {
+                try {
+                    CellFabricator.installSignalStrengths(real, cells)
+                } catch (t: Throwable) {
+                    PacerLog.w("phone-signal-strength", t)
+                }
+            }
+            real
         }
 
         for (method in REQUEST_METHODS) {
