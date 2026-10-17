@@ -21,6 +21,7 @@ import org.pacer.hook.hooks.system.SystemAppOpsHooker
 import org.pacer.hook.hooks.system.SystemBluetoothServiceHooker
 import org.pacer.hook.hooks.system.SystemLocationServiceHooker
 import org.pacer.hook.hooks.system.SystemSettingsProviderHooker
+import org.pacer.hook.hooks.system.SystemTelephonyRegistryHooker
 import org.pacer.hook.hooks.system.SystemTelephonyServiceHooker
 import org.pacer.hook.hooks.system.SystemWifiServiceHooker
 import org.pacer.hook.hooks.system.vendor.ProcessIdentity
@@ -164,6 +165,9 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("system-wifi") {
             SystemWifiServiceHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("system-telephony-push") {
+            SystemTelephonyRegistryHooker.install(classLoader)
         }
         logInstallReport()
     }
