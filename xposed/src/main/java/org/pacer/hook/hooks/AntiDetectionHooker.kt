@@ -18,12 +18,20 @@ object AntiDetectionHooker {
 
     private const val OP_MOCK_LOCATION = 58
 
-    private val locationOpCodes = setOf(0, 1, 2, 12, 41, 42, 59, 77)
+    /**
+     * Location / bluetooth operation names. Codes are NOT hardcoded: the numeric
+     * op table shifts between Android releases, and answering MODE_ALLOWED for
+     * the wrong number would silently mask an unrelated permission check. They
+     * are resolved through the platform's own strOpToOp() at install time.
+     */
     private val locationOpNames = setOf(
         "android:coarse_location", "android:fine_location", "android:gps",
         "android:monitor_location", "android:monitor_location_high_power",
         "android:bluetooth_scan", "android:bluetooth_connect", "android:bluetooth_advertise",
     )
+
+    private val locationOpCodes: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     private val locationPermissions = setOf(
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -37,11 +45,30 @@ object AntiDetectionHooker {
     )
 
     fun install(classLoader: ClassLoader) {
+        resolveLocationOpCodes(classLoader)
         hookAppOps(classLoader)
         hookSettingsSecure(classLoader)
         hookPermissionChecks(classLoader)
         hookSystemFeatures(classLoader)
-        PacerLog.i("anti-detection hooks installed")
+        PacerLog.i("anti-detection hooks installed (locationOpCodes=$locationOpCodes)")
+    }
+
+    /** Fills [locationOpCodes] via the platform op table; empty if unavailable. */
+    private fun resolveLocationOpCodes(classLoader: ClassLoader) {
+        val appOps = HookUtils.findClassIfExists("android.app.AppOpsManager", classLoader) ?: return
+        val strOpToOp = try {
+            HookUtils.findMethodExact(appOps, "strOpToOp", String::class.java)
+        } catch (_: Throwable) {
+            return
+        }
+        for (name in locationOpNames) {
+            val code = try {
+                strOpToOp.invoke(null, name) as? Int
+            } catch (_: Throwable) {
+                null
+            }
+            if (code != null) locationOpCodes.add(code)
+        }
     }
 
     private fun hookAppOps(classLoader: ClassLoader) {
@@ -54,8 +81,10 @@ object AntiDetectionHooker {
                 if (op == OP_MOCK_LOCATION || op == "android:mock_location" || op == "mock_location") {
                     return@hookAllMethods 1 // MODE_IGNORED
                 }
-                if (op != null && (locationOpCodes.contains(op) || locationOpNames.contains(op))) {
-                    return@hookAllMethods 0 // MODE_ALLOWED
+                val isLocation = (op is String && locationOpNames.contains(op)) ||
+                    (op is Int && locationOpCodes.contains(op))
+                if (isLocation) {
+                    return@hookAllMethods 0 // MODE_ALLOWED, consistent with the permission hooks
                 }
                 chain.proceed(chain.args.toTypedArray())
             }

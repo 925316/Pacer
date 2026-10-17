@@ -16,15 +16,51 @@ object ConfigSync {
 
     const val GROUP = "pacer"
 
+    /** Interval of the safety-net re-read described in [startFallbackPoll]. */
+    private const val FALLBACK_POLL_MS = 5000L
+
     fun install(module: io.github.libxposed.api.XposedInterface) {
         try {
             val prefs = module.getRemotePreferences(GROUP)
             apply(prefs)
             prefs.registerOnSharedPreferenceChangeListener { p, _ -> apply(p) }
+            startFallbackPoll(prefs)
             PacerLog.i("config sync installed (active=${PacerRuntimeConfig.active})")
         } catch (t: Throwable) {
             // Framework without remote-preference support: hooks stay idle-safe.
             PacerLog.w("config-sync", t)
+        }
+    }
+
+    /**
+     * Safety net for the change listener.
+     *
+     * The remote preference object is provided by the framework, and two things
+     * about it cannot be verified without a device: whether it really delivers
+     * cross-process change events, and whether it keeps a strong reference to a
+     * listener registered as a lambda. Either failing would leave it looking as
+     * if the module works while a config pushed from the module app never takes
+     * effect in an already-running target process. A slow unconditional re-read
+     * costs one preference read every few seconds and removes the whole class of
+     * silent failure. It is deliberately slow: the value only changes when the
+     * user taps start or stop.
+     */
+    private fun startFallbackPoll(prefs: SharedPreferences) {
+        try {
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            handler.postDelayed(
+                object : Runnable {
+                    override fun run() {
+                        try {
+                            apply(prefs)
+                        } catch (_: Throwable) {
+                        }
+                        handler.postDelayed(this, FALLBACK_POLL_MS)
+                    }
+                },
+                FALLBACK_POLL_MS,
+            )
+        } catch (_: Throwable) {
         }
     }
 
