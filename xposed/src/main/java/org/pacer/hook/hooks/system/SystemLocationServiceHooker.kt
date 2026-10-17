@@ -11,23 +11,19 @@ import android.os.Build
 import android.os.SystemClock
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.LocationInjector
+import org.pacer.hook.hooks.system.vendor.SystemClassLocator
+import org.pacer.hook.hooks.system.vendor.SystemComponent
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
 object SystemLocationServiceHooker {
 
-    private val providerManagerCandidates = listOf(
-        "com.android.server.location.provider.LocationProviderManager",
-    )
-
-    private val serviceCandidates = listOf(
-        "com.android.server.location.LocationManagerService",
-        "com.android.server.LocationManagerService",
-    )
-
     // The per-registration delivery objects. Whatever the ROM names them, the
     // class that turns a provider result into a client callback is the point
     // where a freshly created registration receives its cached last location.
+    // These are inner classes of the provider manager, so they are not a
+    // SystemComponent: there is no alternative service to resolve, only different
+    // spellings of the same inner class.
     private val deliveryCandidates = listOf(
         "com.android.server.location.provider.LocationProviderManager\$Registration",
         "com.android.server.location.provider.LocationProviderManager\$LocationRegistration",
@@ -45,14 +41,10 @@ object SystemLocationServiceHooker {
 
     fun install(classLoader: ClassLoader) {
         var hooked = 0
-        for (name in providerManagerCandidates) {
-            val clazz = HookUtils.findClassIfExists(name, classLoader) ?: continue
-            hooked += hookProviderManager(clazz)
-        }
-        for (name in serviceCandidates) {
-            val clazz = HookUtils.findClassIfExists(name, classLoader) ?: continue
-            hooked += hookService(clazz)
-        }
+        SystemClassLocator.locate(SystemComponent.LOCATION_PROVIDER_MANAGER, classLoader)
+            ?.let { hooked += hookProviderManager(it) }
+        SystemClassLocator.locate(SystemComponent.LOCATION_MANAGER_SERVICE, classLoader)
+            ?.let { hooked += hookService(it) }
         for (name in deliveryCandidates) {
             val clazz = HookUtils.findClassIfExists(name, classLoader) ?: continue
             hooked += hookDeliveryClass(clazz)

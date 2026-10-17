@@ -7,6 +7,8 @@ package org.pacer.hook.hooks.system
 import android.content.ContentResolver
 import android.os.Bundle
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.system.vendor.SystemClassLocator
+import org.pacer.hook.hooks.system.vendor.SystemComponent
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
@@ -15,16 +17,9 @@ object SystemSettingsProviderHooker {
     private const val KEY_MOCK_LOCATION = "mock_location"
     private const val GET_SECURE = "GET_secure"
 
-    private val providerCandidates = listOf(
-        "com.android.providers.settings.SettingsProvider",
-    )
-
     fun install(classLoader: ClassLoader) {
         hookSettingsSecure(classLoader)
-        for (name in providerCandidates) {
-            val clazz = HookUtils.findClassIfExists(name, classLoader) ?: continue
-            hookSettingsProvider(clazz)
-        }
+        SystemClassLocator.locate(SystemComponent.SETTINGS_PROVIDER, classLoader)?.let { hookSettingsProvider(it) }
         PacerLog.i("system settings hooks installed")
     }
 

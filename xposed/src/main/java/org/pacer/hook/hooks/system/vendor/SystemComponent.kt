@@ -10,6 +10,7 @@ package org.pacer.hook.hooks.system.vendor
  */
 enum class SystemComponent(val process: SystemProcess) {
     LOCATION_MANAGER_SERVICE(SystemProcess.SYSTEM_SERVER),
+    LOCATION_PROVIDER_MANAGER(SystemProcess.SYSTEM_SERVER),
     WIFI_SERVICE(SystemProcess.SYSTEM_SERVER),
     WIFI_SCANNER_SERVICE(SystemProcess.SYSTEM_SERVER),
     CONNECTIVITY_SERVICE(SystemProcess.SYSTEM_SERVER),
