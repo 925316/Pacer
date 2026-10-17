@@ -9,6 +9,9 @@ object CellFabricator {
     /** A phone reports a handful of cells, never dozens. */
     private const val MAX_CELLS = 5
 
+    /** Anything outside this is not a received signal power in dBm. */
+    private val PLAUSIBLE_DBM = -140..-30
+
     /**
      * Set once construction has proven impossible on this build. Kept so a
      * failure costs one attempt instead of one attempt per call for the rest of
@@ -114,7 +117,7 @@ object CellFabricator {
         HookUtils.trySetField(candidate, "mLevel", level)
         HookUtils.trySetField(candidate, "mRssi", dbm)
         HookUtils.trySetField(candidate, "mDbm", dbm)
-        return if (matchesStrength(candidate, dbm, level)) candidate else null
+        return if (matchesStrength(candidate, level)) candidate else null
     }
 
     private fun buildInfo(infoClass: Class<*>, family: String, identity: Any, strength: Any): Any? {
@@ -140,7 +143,7 @@ object CellFabricator {
         val identity = readObject(info, "getCellIdentity") ?: return false
         val strength = readObject(info, "getCellSignalStrength") ?: return false
         return matchesIdentity(identity, cell) &&
-            matchesStrength(strength, cell.level, levelFor(cell.level))
+            matchesStrength(strength, levelFor(cell.level))
     }
 
     private fun matchesIdentity(identity: Any, cell: FakeRadioEnvironment.Cell): Boolean {
@@ -165,12 +168,15 @@ object CellFabricator {
         return pci == expected || psc == expected
     }
 
-    private fun matchesStrength(strength: Any, dbm: Int, level: Int): Boolean {
+    private fun matchesStrength(strength: Any, level: Int): Boolean {
         if (HookUtils.intAccessor(strength, "getLevel") != level) return false
-        // getDbm is newer than getLevel; when it exists it must agree with the
-        // level we derived, otherwise the strength object was written wrong.
-        val reported = HookUtils.intAccessor(strength, "getDbm")
-        return reported == null || reported == dbm
+        // getDbm is newer than getLevel. Exact equality is deliberately NOT
+        // required - the platform may compute it from a field we did not write -
+        // but a non-negative or out-of-band reading means the object was filled
+        // with the wrong unit (ASU instead of dBm is the classic mix-up for
+        // strength types) and must be rejected rather than handed to the app.
+        val reported = HookUtils.intAccessor(strength, "getDbm") ?: return true
+        return reported in PLAUSIBLE_DBM
     }
 
     private fun identityFamilyOf(identity: Any): String =
