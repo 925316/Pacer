@@ -33,6 +33,30 @@ object HookUtils {
             null
         }
 
+    /**
+     * Resolves [fqn] among [clazz]'s interfaces and superclasses, or returns null.
+     *
+     * Several hookers have to answer "is this argument the callback object I care
+     * about?" from an argument list whose order they do not control. Matching the
+     * TYPE NAME rather than a parameter position is what makes that portable: the
+     * registration methods keep their callback types even when a request object is
+     * inserted in front of them, which is exactly what changed between the
+     * registerGnss*Callback and addGnss*Listener families.
+     */
+    fun typeByName(clazz: Class<*>, fqn: String): Class<*>? {
+        var c: Class<*>? = clazz
+        while (c != null) {
+            for (i in c.interfaces) {
+                if (i.name == fqn) return i
+                typeByName(i, fqn)?.let { return it }
+            }
+            c = c.superclass
+        }
+        return null
+    }
+
+    fun hasTypeByName(clazz: Class<*>, fqn: String): Boolean = typeByName(clazz, fqn) != null
+
     private fun field(clazz: Class<*>, name: String): Field? {
         val key = clazz.name + "#" + name
         if (fieldCache.containsKey(key)) return fieldCache[key]

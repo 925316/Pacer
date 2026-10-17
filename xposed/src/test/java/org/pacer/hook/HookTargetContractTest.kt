@@ -125,6 +125,7 @@ class HookTargetContractTest {
             "android.location.Location",
             "android.location.GnssStatus",
             "android.telephony.TelephonyManager",
+            "android.telephony.TelephonyManager\$CellInfoCallback",
             "android.telephony.TelephonyCallback",
             "android.telephony.CellInfo",
             "android.telephony.CellInfoLte",
