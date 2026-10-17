@@ -49,6 +49,8 @@ jobs:
           echo "inspecting $APK"
           unzip -l "$APK" | grep -F "META-INF/xposed/module.prop"
           unzip -l "$APK" | grep -F "META-INF/xposed/java_init.list"
+          unzip -p "$APK" "META-INF/xposed/scope.list" | grep -F "system"
+          unzip -p "$APK" "META-INF/xposed/scope.list" | grep -F "com.android.phone"
           unzip -p "$APK" "classes*.dex" | grep -a -F "org/pacer/hook/PacerHook"
           echo "module declaration and entry class are packaged"
       - name: Upload APKs
