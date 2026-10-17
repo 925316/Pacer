@@ -46,6 +46,7 @@ package org.pacer.hook.hooks.system
 
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CellFabricator
 import org.pacer.hook.hooks.env.CellLocationShapes
 import org.pacer.hook.hooks.env.CellPayload
 import org.pacer.hook.hooks.env.EnvGeo
@@ -77,6 +78,7 @@ object SystemTelephonyRegistryHooker {
     private const val LISTEN_PREFIX = "listen"
     private const val CALLBACK_CELL_INFO = "onCellInfoChanged"
     private const val CALLBACK_CELL_LOCATION = "onCellLocationChanged"
+    private const val CALLBACK_SIGNAL_STRENGTHS = "onSignalStrengthsChanged"
 
     /** Callback classes already intercepted, so each class is hooked once. */
     private val hookedCallbacks = ConcurrentHashMap<Class<*>, Boolean>()
@@ -145,9 +147,9 @@ object SystemTelephonyRegistryHooker {
     // --- callback delivery ---------------------------------------------------
 
     /**
-     * Hooks the two delivery methods on the concrete callback class. The target
-     * is the app's remote proxy, so its methods are the last point before the
-     * list or location is written to the binder parcel.
+     * Hooks the cell-related delivery methods on the concrete callback class. The
+     * target is the app's remote proxy, so its methods are the last point before the
+     * list, location or signal strength is written to the binder parcel.
      */
     private fun hookCallbackClass(callbackClass: Class<*>) {
         if (hookedCallbacks.putIfAbsent(callbackClass, true) != null) return
@@ -160,6 +162,18 @@ object SystemTelephonyRegistryHooker {
         }
         HookUtils.hookAllMethods(callbackClass, CALLBACK_CELL_LOCATION) { chain ->
             rewrite(chain) { if (serving()) cellLocation(chain) else null }
+        }
+        HookUtils.hookAllMethods(callbackClass, CALLBACK_SIGNAL_STRENGTHS) { chain ->
+            // Rewritten in place, so the transform returns null and argument 0 stays
+            // the object the framework handed over. Signal strength carries the real
+            // cells' strengths, and leaving it alone while the cell list is fabricated
+            // is a contradiction an app can read off by comparing entry counts.
+            rewrite(chain) {
+                val real = chain.args.firstOrNull() ?: return@rewrite null
+                val cells = if (serving()) cellInfoList() else null
+                if (cells != null) CellFabricator.installSignalStrengths(real, cells)
+                null
+            }
         }
     }
 

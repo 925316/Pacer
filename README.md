@@ -45,9 +45,10 @@ attribution is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
   coordinate: the WiFi scan list and every `WifiInfo` accessor, plus the
   `ConnectivityManager` view of the same radio, so two APIs describing one radio
   cannot disagree. The cell and BLE views come from the same model (cells on the
-  device's own operator, beacons re-jittered at a fixed cadence), and the phone
-  and Bluetooth processes carry that answer for apps that are not themselves in
-  the module scope.
+  device's own operator, signal strength rewritten to those cells' strengths so the
+  two cannot be compared out of step, beacons re-jittered at a fixed cadence), and
+  the phone and Bluetooth processes carry that answer for apps that are not
+  themselves in the module scope.
 
 **Control app**
 

@@ -70,6 +70,7 @@ object CellSpoofHooker {
         hookCellInfoUpdate(telephonyManager)
         hookTelephonyCallbackRegistration(telephonyManager)
         hookNetworkType(telephonyManager)
+        hookSignalStrength(telephonyManager)
         hookServiceStateCellIdentity(loader)
         PacerLog.i("cell environment hooks installed")
     }
@@ -180,6 +181,29 @@ object CellSpoofHooker {
                 if (!suppressing()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
                 NETWORK_TYPE_LTE
             }
+        }
+    }
+
+    /**
+     * Signal strength is a getter of its own, and left alone it is the last place
+     * the real radio shows through while every cell answer is fabricated: the app
+     * sees the fabricated cells in getAllCellInfo and the REAL cells' strengths here,
+     * and comparing the two entry counts is all it takes to notice. Rewritten from
+     * the same payload, so the two agree by construction.
+     */
+    private fun hookSignalStrength(telephonyManager: Class<*>) {
+        HookUtils.hookAllMethods(telephonyManager, "getSignalStrength") { chain ->
+            if (!suppressing()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            val real = chain.proceed(chain.args.toTypedArray()) ?: return@hookAllMethods null
+            val cells = cellsFor()
+            if (cells != null) {
+                try {
+                    CellFabricator.installSignalStrengths(real, cells)
+                } catch (t: Throwable) {
+                    PacerLog.w("cell-signal-strength", t)
+                }
+            }
+            real
         }
     }
 
