@@ -18,12 +18,14 @@ package org.pacer.hook.hooks.system
 
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CellLocationShapes
 import org.pacer.hook.hooks.env.CellPayload
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.system.vendor.SystemClassLocator
 import org.pacer.hook.hooks.system.vendor.SystemComponent
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import java.lang.reflect.Method
 
 object SystemTelephonyServiceHooker {
 
@@ -62,11 +64,13 @@ object SystemTelephonyServiceHooker {
         }
 
         hooked += HookUtils.hookAllMethods(manager, "getCellLocation") { chain ->
-            // Matches the app-process hooker: a device that reports no cells has
-            // no serving cell location either. Deliberately independent of whether
-            // fabrication succeeded, so the two answers stay consistent.
+            // Never the real serving cell: the answer is the same serving cell
+            // getAllCellInfo reports, via the shared adapter, or null, which is what a
+            // device with no service reports. One payload, one formula, on both processes.
             if (!serving()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
-            null
+            val identity = CellLocationShapes.servingIdentity(payload(classLoader))
+            if (identity == null) null
+            else CellLocationShapes.fit(identity, (chain.executable as? Method)?.returnType)
         }
 
         for (method in REQUEST_METHODS) {
