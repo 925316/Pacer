@@ -16,6 +16,7 @@ import org.pacer.hook.hooks.RouteReplayHooker
 import org.pacer.hook.hooks.SensorStepHooker
 import org.pacer.hook.hooks.env.BleSpoofHooker
 import org.pacer.hook.hooks.env.CellSpoofHooker
+import org.pacer.hook.hooks.env.ConnectivitySpoofHooker
 import org.pacer.hook.hooks.env.WifiSpoofHooker
 import org.pacer.hook.hooks.system.RawGnssSuppressionHooker
 import org.pacer.hook.hooks.system.SystemAppOpsHooker
@@ -65,6 +66,9 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("env-wifi") {
             WifiSpoofHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("env-connectivity") {
+            ConnectivitySpoofHooker.install(classLoader)
         }
         HookUtils.runCatchingLogged("env-cell") {
             CellSpoofHooker.install(classLoader)

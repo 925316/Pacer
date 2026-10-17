@@ -134,7 +134,7 @@ object WifiSpoofHooker {
         }
     }
 
-    private fun mutateWifiInfo(info: Any, ap: FakeRadioEnvironment.WifiAp, classLoader: ClassLoader) {
+    internal fun mutateWifiInfo(info: Any, ap: FakeRadioEnvironment.WifiAp, classLoader: ClassLoader) {
         HookUtils.setFieldQuietly(info, "mSSID", EnvGeo.quoteSsid(ap.ssid))
         HookUtils.setFieldQuietly(info, "mBSSID", ap.bssid)
         HookUtils.setFieldQuietly(info, "mMacAddress", ap.bssid)
@@ -243,7 +243,7 @@ object WifiSpoofHooker {
 
     // --- helpers -------------------------------------------------------------
 
-    private fun connectedAp(cfg: PacerRuntimeConfig.Snapshot): FakeRadioEnvironment.WifiAp? {
+    internal fun connectedAp(cfg: PacerRuntimeConfig.Snapshot): FakeRadioEnvironment.WifiAp? {
         if (!cfg.active || !EnvGeo.hasFix(cfg.latitude, cfg.longitude)) return null
         return try {
             FakeRadioEnvironment.connectedAp(
