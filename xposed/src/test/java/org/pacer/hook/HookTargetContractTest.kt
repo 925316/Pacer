@@ -159,6 +159,7 @@ class HookTargetContractTest {
             "android.bluetooth.le.ScanRecord",
             "android.bluetooth.le.ScanFilter",
             "android.bluetooth.le.ScanCallback",
+            "android.bluetooth.le.ScanSettings",
             "android.os.ParcelUuid",
             "android.content.pm.PackageManager",
             "android.hardware.Sensor",
@@ -252,6 +253,7 @@ class HookTargetContractTest {
             "android.bluetooth.le.ScanCallback" to listOf(
                 "onScanResult", "onBatchScanResults", "onScanFailed",
             ),
+            "android.bluetooth.le.ScanSettings" to listOf("CALLBACK_TYPE_ALL_MATCHES"),
             "android.os.ParcelUuid" to listOf("fromString"),
             "android.content.pm.PackageManager" to listOf("hasSystemFeature"),
             "android.hardware.SensorManager" to listOf(
