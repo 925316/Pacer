@@ -308,7 +308,7 @@ class HookTargetContractTest {
             "android.net.wifi.WifiInfo\$Builder" to listOf("setBssid", "setSsid", "setRssi", "build"),
             "android.net.wifi.WifiSsid" to listOf("fromBytes", "createFromAsciiEncoded", "getBytes"),
             "android.telephony.ServiceState" to listOf(
-                "getOperatorAlphaLong", "getOperatorAlphaShort", "getNrState",
+                "getOperatorAlphaLong", "getOperatorAlphaShort", "getNrState", "getCellIdentity",
             ),
             "android.telephony.SignalStrength" to listOf("isGsm"),
             "android.location.GpsStatus" to listOf("getSatelliteCount"),
