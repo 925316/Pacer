@@ -139,6 +139,19 @@ object HookUtils {
     fun hasField(obj: Any, name: String): Boolean = field(obj.javaClass, name) != null
 
     /**
+     * Reads a primitive double field, reporting absence instead of pretending
+     * zero. Code that must not recurse into a hooked getter cannot use the
+     * property syntax, and code that must tell "absent" from "zero" cannot use a
+     * defaulting accessor.
+     */
+    fun doubleField(obj: Any, name: String): Double? =
+        try {
+            field(obj.javaClass, name)?.get(obj) as? Double
+        } catch (_: Throwable) {
+            null
+        }
+
+    /**
      * Zero-argument accessor lookup across the hierarchy. Returns null only when
      * the member does not exist at all, which is different from an accessor that
      * exists and returns null - callers that must tell the two apart (invariant
