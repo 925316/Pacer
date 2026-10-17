@@ -102,6 +102,53 @@ object HookUtils {
         field(obj.javaClass, name)?.setInt(obj, value)
     }
 
+    /**
+     * Sets a field and reports whether it existed and could be written. Code that
+     * must fall back when a field is absent or final cannot use [setObjectField],
+     * because that one silently does nothing.
+     */
+    fun trySetField(obj: Any, name: String, value: Any?): Boolean =
+        try {
+            val f = field(obj.javaClass, name) ?: return false
+            f.set(obj, value)
+            true
+        } catch (_: Throwable) {
+            false
+        }
+
+    fun hasField(obj: Any, name: String): Boolean = field(obj.javaClass, name) != null
+
+    /**
+     * Zero-argument accessor lookup across the hierarchy. Returns null only when
+     * the member does not exist at all, which is different from an accessor that
+     * exists and returns null - callers that must tell the two apart (invariant
+     * checks on reflectively built objects) use this instead of [callMethod].
+     */
+    fun noArgAccessor(clazz: Class<*>, name: String): Method? {
+        val key = clazz.name + "#" + name + "()"
+        if (methodCache.containsKey(key)) return methodCache[key]
+        var c: Class<*>? = clazz
+        while (c != null) {
+            try {
+                val m = c.getMethod(name)
+                m.isAccessible = true
+                methodCache[key] = m
+                return m
+            } catch (_: NoSuchMethodException) {
+                c = c.superclass
+            }
+        }
+        methodCache[key] = null
+        return null
+    }
+
+    fun intAccessor(obj: Any, name: String): Int? =
+        try {
+            noArgAccessor(obj.javaClass, name)?.invoke(obj) as? Int
+        } catch (_: Throwable) {
+            null
+        }
+
     fun setBooleanField(obj: Any, name: String, value: Boolean) {
         field(obj.javaClass, name)?.setBoolean(obj, value)
     }
