@@ -5,15 +5,38 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
 object LocationInjector {
 
+    /** Android 12+ exposes the fused provider under this name. */
+    private const val FUSED_PROVIDER = "fused"
+
+    /** How long the coordinate getter hook may reuse the last computed position. */
+    private const val TARGET_TTL_MS = 500L
+
     private val realism = org.pacer.motion.SignalRealism(seed = 7L)
     private val jitter = org.pacer.motion.StationaryJitter(seed = 7L)
     @Volatile private var lastNanos = 0L
+
+    /** Provider names that mean "the platform produced this fix". */
+    private val SYSTEM_PROVIDERS = setOf(
+        LocationManager.GPS_PROVIDER,
+        LocationManager.NETWORK_PROVIDER,
+        LocationManager.PASSIVE_PROVIDER,
+        FUSED_PROVIDER,
+    )
+
+    /**
+     * The simulated position, kept here so the coordinate getter hook - which an
+     * app can call in a tight loop - does not recompute the route on every read.
+     */
+    @Volatile private var targetLat = 0.0
+    @Volatile private var targetLon = 0.0
+    @Volatile private var targetAtMs = 0L
 
     /** Always expose a fabricated position while a simulation is active. */
     fun install(classLoader: ClassLoader) {
@@ -32,6 +55,7 @@ object LocationInjector {
         }
         scrubLocationFlags(classLoader)
         hideTestProviders(classLoader)
+        hookCoordinateGetters(classLoader)
         PacerLog.i("location injection hooks installed")
     }
 
@@ -110,6 +134,9 @@ object LocationInjector {
         }
 
         val location = Location(provider)
+        targetLat = lat
+        targetLon = lon
+        targetAtMs = SystemClock.elapsedRealtime()
         location.latitude = lat
         location.longitude = lon
         location.accuracy = accuracy
@@ -134,6 +161,71 @@ object LocationInjector {
         HookUtils.setBooleanField(location, "mIsFromMockProvider", false)
         HookUtils.setBooleanField(location, "mMock", false)
         HookUtils.setBooleanField(location, "mIsMock", false)
+    }
+
+    /**
+     * Location objects that reach the app WITHOUT passing through this module - a
+     * Play services Task result, one parcelled in from another process, one cached
+     * before the hooks installed - still carry the real position.
+     *
+     * Both the getters and the private fields are handled, because
+     * distanceTo()/bearingTo() read the FIELDS rather than the getters: answering
+     * the getters alone would hand the app an object that contradicts itself, which
+     * is worse than not touching it at all.
+     *
+     * Only provider names that mean "the platform produced this fix" are touched,
+     * so a Location an app builds for its own purposes keeps its value.
+     */
+    private fun hookCoordinateGetters(classLoader: ClassLoader) {
+        val locClass = HookUtils.findClassIfExists("android.location.Location", classLoader) ?: return
+        HookUtils.hookAllMethods(locClass, "getLatitude") { chain -> coordinate(chain, "mLatitude") }
+        HookUtils.hookAllMethods(locClass, "getLongitude") { chain -> coordinate(chain, "mLongitude") }
+    }
+
+    /**
+     * The aligned value, or the original getter's answer when the location must be
+     * left alone. Both the read and the write go through the FIELD: using the
+     * property would call the hooked getter again and recurse.
+     */
+    private fun coordinate(chain: XposedInterface.Chain, field: String): Any? {
+        val aligned = align(chain.thisObject as? Location)
+        val value = if (aligned == null) null else HookUtils.doubleField(aligned, field)
+        return value ?: chain.proceed(chain.args.toTypedArray())
+    }
+
+    /** Aligns a system fix with the simulated position, or null to leave it alone. */
+    private fun align(location: Location?): Location? {
+        if (location == null) return null
+        val cfg = PacerRuntimeConfig.snapshot()
+        if (!cfg.active || cfg.latitude == 0.0 || cfg.longitude == 0.0) return null
+        if (!isSystemFix(location.provider)) return null
+
+        refreshTarget()
+        return try {
+            if (HookUtils.doubleField(location, "mLatitude") != targetLat) {
+                HookUtils.trySetField(location, "mLatitude", targetLat)
+            }
+            if (HookUtils.doubleField(location, "mLongitude") != targetLon) {
+                HookUtils.trySetField(location, "mLongitude", targetLon)
+            }
+            location
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun isSystemFix(provider: String?): Boolean =
+        provider != null && SYSTEM_PROVIDERS.contains(provider)
+
+    /** Recomputes the simulated position at most once per TARGET_TTL_MS. */
+    private fun refreshTarget() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - targetAtMs <= TARGET_TTL_MS) return
+        val cfg = PacerRuntimeConfig.snapshot()
+        val sample = RouteEngine.sampleAt()
+        targetLat = sample?.point?.lat ?: cfg.latitude
+        targetLon = sample?.point?.lon ?: cfg.longitude
+        targetAtMs = now
     }
 
     private fun scrubLocationFlags(classLoader: ClassLoader) {
