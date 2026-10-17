@@ -44,7 +44,10 @@ attribution is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - A deterministic virtual radio environment derived from the simulated
   coordinate: the WiFi scan list and every `WifiInfo` accessor, plus the
   `ConnectivityManager` view of the same radio, so two APIs describing one radio
-  cannot disagree. Cell and Bluetooth data are suppressed rather than fabricated.
+  cannot disagree. The cell and BLE views come from the same model (cells on the
+  device's own operator, beacons re-jittered at a fixed cadence), and the phone
+  and Bluetooth processes carry that answer for apps that are not themselves in
+  the module scope.
 
 **Control app**
 
@@ -70,7 +73,10 @@ attribution is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
    (`init()` binds to the framework service).
 3. **Enable the module** in LSPosed and set its scope to the target app. Add
    **System Framework** as well if you want the global system_server layer, and
-   **Settings Storage** if you want the settings-provider hook.
+   **Settings Storage** if you want the settings-provider hook. The module also
+   asks for the **phone** and **Bluetooth** processes in its own scope
+   declaration; keep them enabled if an app you did not scope should still be
+   answered.
 4. **Restart the target app** (force-stop it first). Hooks are installed when its
    process loads, so an app that was already running is not covered.
 5. **Start a simulation** from the Pacer app: choose a speed, add waypoints (map,
