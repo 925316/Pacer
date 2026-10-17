@@ -68,6 +68,7 @@ object BleSpoofHooker {
         hookLeScanner(loader)
         hookLegacyLeScan(adapter)
         hookStopScan(loader, adapter)
+        hookScanFilter(loader)
         PacerLog.i("ble environment hooks installed")
     }
 
@@ -86,10 +87,25 @@ object BleSpoofHooker {
         val scanner = HookUtils.findClassIfExists("android.bluetooth.le.BluetoothLeScanner", loader) ?: return
         HookUtils.hookAllMethods(scanner, "startScan") { chain ->
             val callback = chain.args.firstOrNull { it != null && HookUtils.hasTypeByName(it.javaClass, SCAN_CALLBACK) }
+            val settings = chain.args.firstOrNull { it is ScanSettings } as? ScanSettings
             if (callback != null && suppressing()) {
                 hookScanCallback(callback.javaClass)
-                startModernDelivery(callback)
+                startModernDelivery(callback, settings?.callbackType ?: ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             }
+            chain.proceed(chain.args.toTypedArray())
+        }
+    }
+
+    /**
+     * The app's own filter has to accept what this module delivers, otherwise its
+     * callback would be handed devices it explicitly asked not to match. Only the
+     * module's own delivery is affected: the CallScope check keeps the app's real
+     * filtering behaviour intact when the app filters a result itself.
+     */
+    private fun hookScanFilter(loader: ClassLoader) {
+        val filter = HookUtils.findClassIfExists("android.bluetooth.le.ScanFilter", loader) ?: return
+        HookUtils.hookAllMethods(filter, "matches") { chain ->
+            if (CallScope.active()) return@hookAllMethods true
             chain.proceed(chain.args.toTypedArray())
         }
     }
@@ -100,13 +116,13 @@ object BleSpoofHooker {
         HookUtils.hookAllMethods(clazz, "onBatchScanResults") { chain -> swallow(chain) }
     }
 
-    private fun startModernDelivery(callback: Any) {
+    private fun startModernDelivery(callback: Any, callbackType: Int) {
         val typed = callback as? ScanCallback ?: return
         startDelivery(callback) {
             CallScope.enter {
                 for (result in payload().orEmpty()) {
                     if (result is ScanResult) {
-                        typed.onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, result)
+                        typed.onScanResult(callbackType, result)
                     }
                 }
             }
