@@ -44,20 +44,10 @@ object DeviceProfileReader {
     }
 
     private fun readProperties(): Map<String, String> {
-        val clazz = HookUtils.findClassIfExists("android.os.SystemProperties", null) ?: return emptyMap()
-        val get = try {
-            HookUtils.findMethodExact(clazz, "get", String::class.java)
-        } catch (_: Throwable) {
-            return emptyMap()
-        }
         val out = LinkedHashMap<String, String>()
         for (key in RomRules.PROPERTY_KEYS) {
-            val value = try {
-                get.invoke(null, key) as? String
-            } catch (_: Throwable) {
-                null
-            }
-            if (!value.isNullOrBlank()) out[key] = value
+            val value = HookUtils.systemProperty(key)
+            if (value.isNotBlank()) out[key] = value
         }
         return out
     }

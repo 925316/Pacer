@@ -59,16 +59,6 @@ object CellSpoofHooker {
      */
     @Volatile private var telephony: Any? = null
 
-    /** A device occupies one coarse area at a time, so one entry is enough. */
-    private data class AreaCache(
-        val areaKey: Long,
-        val seed: Long,
-        val operator: String,
-        val cells: List<Any>,
-    )
-
-    @Volatile private var cache: AreaCache? = null
-
     fun install(loader: ClassLoader) {
         classLoader = loader
         val telephonyManager =
@@ -181,29 +171,16 @@ object CellSpoofHooker {
 
     /**
      * Fabricated cells for the current fix, or null when the caller must
-     * suppress. Cached per coarse area, seed and operator, because the tower set
-     * only changes at an area boundary while building it costs a dozen
-     * reflective constructions.
+     * suppress. The payload itself is shared with the phone-process hooker, so
+     * both describe the same device; only what this process alone can answer
+     * stays here.
      */
     private fun cellsFor(): List<Any>? {
         if (!suppressing()) return null
-        val cfg = PacerRuntimeConfig.snapshot()
-        val seed = EnvGeo.sessionSeed(cfg.startTimestamp)
-        val areaKey = FakeRadioEnvironment.cellAreaKey(cfg.latitude, cfg.longitude)
-        val operator = realOperator()
-
-        cache?.let {
-            if (it.areaKey == areaKey && it.seed == seed && it.operator == operator) return it.cells
-        }
-
         // A device without a usable SIM has no cells to report; inventing some
         // would contradict getSimState().
         if (!simUsable()) return null
-
-        val model = FakeRadioEnvironment.cells(cfg.latitude, cfg.longitude, seed)
-        val built = CellFabricator.fabricate(onRealOperator(model, operator), classLoader) ?: return null
-        cache = AreaCache(areaKey, seed, operator, built)
-        return built
+        return CellPayload.payload(realOperator(), classLoader)
     }
 
     /**
@@ -218,20 +195,6 @@ object CellSpoofHooker {
         return out
     }
 
-    /**
-     * Puts the fabricated cells on the operator the device is really camped on.
-     * Everything else about a cell (area, identity, radio code, signal) is what
-     * changes as a device moves, so nothing is lost by taking the operator from
-     * the device instead of from the model.
-     */
-    private fun onRealOperator(
-        cells: List<FakeRadioEnvironment.Cell>,
-        operator: String,
-    ): List<FakeRadioEnvironment.Cell> {
-        val parsed = parseOperator(operator) ?: return cells
-        return cells.map { it.copy(mcc = parsed.first, mnc = parsed.second) }
-    }
-
     /** Raw getNetworkOperator(), or "" when unreadable. Never hooked, never faked. */
     private fun realOperator(): String {
         val manager = telephony ?: return ""
@@ -240,15 +203,6 @@ object CellSpoofHooker {
         } catch (_: Throwable) {
             ""
         }
-    }
-
-    /** "46001" -> (460, 1). Null when the string is absent or malformed. */
-    private fun parseOperator(raw: String): Pair<Int, Int>? {
-        if (raw.length < 5 || !raw.all { it in '0'..'9' }) return null
-        val mcc = raw.substring(0, 3).toIntOrNull() ?: return null
-        val mnc = raw.substring(3).toIntOrNull() ?: return null
-        if (mcc <= 0) return null
-        return mcc to mnc
     }
 
     /** Unknown counts as usable: better a plausible cell than a silent removal. */

@@ -64,6 +64,26 @@ object HookUtils {
 
     fun hasTypeByName(clazz: Class<*>, fqn: String): Boolean = typeByName(clazz, fqn) != null
 
+    private val propertyCache = ConcurrentHashMap<String, String>()
+
+    /**
+     * android.os.SystemProperties.get(key), or "" when unreadable.
+     *
+     * Cached once: these values are constant for the life of a process, and this
+     * is the only way to read device state from a process that has no Context
+     * (system_server, the phone process).
+     */
+    fun systemProperty(key: String): String =
+        propertyCache.getOrPut(key) {
+            try {
+                val clazz = findClassIfExists("android.os.SystemProperties", null) ?: return@getOrPut ""
+                val get = findMethodExact(clazz, "get", String::class.java)
+                get.invoke(null, key) as? String ?: ""
+            } catch (_: Throwable) {
+                ""
+            }
+        }
+
     private fun field(clazz: Class<*>, name: String): Field? {
         val key = clazz.name + "#" + name
         if (fieldCache.containsKey(key)) return fieldCache[key]
