@@ -18,6 +18,7 @@ import org.pacer.hook.hooks.env.ConnectivitySpoofHooker
 import org.pacer.hook.hooks.env.WifiSpoofHooker
 import org.pacer.hook.hooks.system.RawGnssSuppressionHooker
 import org.pacer.hook.hooks.system.SystemAppOpsHooker
+import org.pacer.hook.hooks.system.SystemBluetoothServiceHooker
 import org.pacer.hook.hooks.system.SystemLocationServiceHooker
 import org.pacer.hook.hooks.system.SystemSettingsProviderHooker
 import org.pacer.hook.hooks.system.SystemTelephonyServiceHooker
@@ -85,11 +86,12 @@ class PacerHook : XposedModule() {
                 SystemTelephonyServiceHooker.install(classLoader)
             }
 
-            SystemProcess.BLUETOOTH -> {
-                // Bluetooth fabrication does not exist yet. Installing the
-                // app-process environment hooks here would be actively harmful.
-                PacerLog.i("bluetooth process: no layer installed yet")
-            }
+            SystemProcess.BLUETOOTH ->
+                // Only the scan-service layer. Running the app-process environment
+                // hooks in this process is a known source of system instability.
+                HookUtils.runCatchingLogged("bluetooth-scan") {
+                    SystemBluetoothServiceHooker.install(classLoader)
+                }
 
             SystemProcess.SYSTEM_SERVER ->
                 PacerLog.i("system server layer comes from onSystemServerStarting")
