@@ -125,6 +125,30 @@ object WifiFabricator {
         }
     }
 
+    /**
+     * Rewrites a real DhcpInfo so the lease describes the fabricated association.
+     *
+     * The addresses are little-endian integers, which is how the platform stores and
+     * prints them: 0x6401A8C0 is 192.168.1.100, not 100.1.168.192. They are taken from
+     * the same subnet as the address WifiInfo reports, because a lease and an
+     * association that disagree is a contradiction between two APIs describing one
+     * radio - and the real lease also carries the user's home gateway and DNS.
+     */
+    internal fun mutateDhcpInfo(info: Any) {
+        HookUtils.setFieldQuietly(info, "ipAddress", IPV4_192_168_1_100)
+        HookUtils.setFieldQuietly(info, "gateway", IPV4_192_168_1_1)
+        HookUtils.setFieldQuietly(info, "netmask", IPV4_255_255_255_0)
+        HookUtils.setFieldQuietly(info, "dns1", IPV4_192_168_1_1)
+        HookUtils.setFieldQuietly(info, "dns2", IPV4_8_8_8_8)
+        HookUtils.setFieldQuietly(info, "serverAddress", IPV4_192_168_1_1)
+    }
+
     /** 192.168.1.100 in the little-endian integer form used by WifiInfo. */
     internal const val IPV4_192_168_1_100 = 0x6401A8C0
+
+    internal const val IPV4_192_168_1_1 = 0x0101A8C0
+
+    internal const val IPV4_255_255_255_0 = 0x00FFFFFF
+
+    internal const val IPV4_8_8_8_8 = 0x08080808
 }

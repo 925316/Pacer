@@ -221,8 +221,9 @@ class HookTargetContractTest {
             ),
             "android.net.wifi.WifiManager" to listOf(
                 "getScanResults", "getConnectionInfo", "isWifiEnabled", "getWifiState",
-                "calculateSignalLevel",
+                "calculateSignalLevel", "getConfiguredNetworks", "getDhcpInfo",
             ),
+            "android.net.NetworkInfo" to listOf("getExtraInfo", "getType"),
             "android.net.wifi.WifiInfo" to listOf(
                 "getBSSID", "getSSID", "getRssi", "getLinkSpeed", "getFrequency",
                 "getNetworkId", "getSupplicantState",

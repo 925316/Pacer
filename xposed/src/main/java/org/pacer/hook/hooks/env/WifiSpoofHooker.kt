@@ -7,6 +7,16 @@
 // WifiInfo cannot be constructed off the phone stack (its setters are hidden and
 // it has no usable public constructor), so the getters are hooked directly and
 // the object returned by getConnectionInfo is additionally mutated in place.
+//
+// FOLLOW THE REAL RADIO, do not override it. Everything here is gated on the real
+// state of the radio rather than on the simulation alone: no access points are
+// invented when the real scan list is empty (WiFi off, or no scan permission), and
+// no association is claimed for a WifiInfo that the platform itself left
+// unassociated. The alternative - answering "WiFi is on and connected" while the
+// radio is off - would contradict the device's own state twice over: the active
+// network would still be cellular, and Settings.Global.WIFI_ON would still say 0.
+// For the same reason getWifiState and isWifiEnabled are deliberately NOT hooked;
+// they are the honest report of the state everything else here follows.
 package org.pacer.hook.hooks.env
 
 import org.pacer.hook.config.PacerRuntimeConfig
@@ -15,11 +25,15 @@ import org.pacer.hook.utils.PacerLog
 
 object WifiSpoofHooker {
 
+    /** WifiInfo.INVALID_NETWORK_ID: the platform's "not associated with anything". */
+    private const val NOT_ASSOCIATED = -1
+
     fun install(classLoader: ClassLoader) {
         val wifiManager = HookUtils.findClassIfExists("android.net.wifi.WifiManager", classLoader) ?: return
         hookScanResults(wifiManager, classLoader)
         hookConnectionInfo(wifiManager, classLoader)
         hookConfiguredNetworks(wifiManager, classLoader)
+        hookDhcpInfo(wifiManager, classLoader)
         hookWifiInfoGetters(classLoader)
         PacerLog.i("wifi environment hooks installed")
     }
@@ -35,6 +49,12 @@ object WifiSpoofHooker {
             val real = chain.proceed(chain.args.toTypedArray())
             // Keep the method contract: only a genuine List is replaced.
             if (real !is List<*>) return@hookAllMethods real
+            // Follow the real radio: the platform answers with an empty list when WiFi
+            // is off, and that is the state every other WiFi answer here follows too.
+            // Inventing access points for a disabled radio would be a claim the device
+            // itself contradicts (the active network is still cellular, and
+            // Settings.Global.WIFI_ON still says 0).
+            if (real.isEmpty()) return@hookAllMethods real
             val fake = try {
                 WifiFabricator.buildScanResults(cfg, classLoader, real.firstOrNull(), System.currentTimeMillis())
             } catch (t: Throwable) {
@@ -53,11 +73,44 @@ object WifiSpoofHooker {
             val ap = connectedAp(PacerRuntimeConfig.snapshot())
                 ?: return@hookAllMethods chain.proceed(chain.args.toTypedArray())
             val info = chain.proceed(chain.args.toTypedArray()) ?: return@hookAllMethods null
+            // Follow the real radio: a WifiInfo the platform left unassociated belongs
+            // to a radio that is off or between networks, and filling in an SSID there
+            // would claim a connection that the active network (still cellular) and the
+            // supplicant state both contradict.
+            if (!reallyAssociated(info)) return@hookAllMethods info
             try {
                 mutateWifiInfo(info, ap, classLoader)
             } catch (t: Throwable) {
                 PacerLog.w("wifi-info", t)
             }
+            info
+        }
+    }
+
+    /**
+     * Whether the platform itself put an association into [info], read from the
+     * backing field rather than through getSSID(): the getters are hooked further
+     * down, so asking them would answer from the virtual environment and always look
+     * associated. A missing field reads as 0, which is treated as associated, so a
+     * build that renames it keeps working instead of silently going quiet.
+     */
+    internal fun reallyAssociated(info: Any): Boolean =
+        HookUtils.getIntField(info, "mNetworkId") != NOT_ASSOCIATED
+
+    // --- getDhcpInfo ---------------------------------------------------------
+
+    private fun hookDhcpInfo(wifiManager: Class<*>, classLoader: ClassLoader) {
+        HookUtils.hookAllMethods(wifiManager, "getDhcpInfo") { chain ->
+            if (connectedAp(PacerRuntimeConfig.snapshot()) == null) {
+                return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            }
+            val info = chain.proceed(chain.args.toTypedArray()) ?: return@hookAllMethods null
+            // A radio that is off or unassociated reports an all-zero lease, and that
+            // is left alone: rewriting it would describe a network the device says it
+            // is not on. A real lease, on the other hand, carries the user's home
+            // gateway and DNS, and disagrees with the address WifiInfo reports.
+            if (HookUtils.getIntField(info, "ipAddress") == 0) return@hookAllMethods info
+            WifiFabricator.mutateDhcpInfo(info)
             info
         }
     }
@@ -132,6 +185,12 @@ object WifiSpoofHooker {
             HookUtils.hookAllMethods(wifiInfo, name) { chain ->
                 val ap = connectedAp(PacerRuntimeConfig.snapshot())
                     ?: return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+                // Follow the real radio: an instance the platform left unassociated
+                // keeps its real answer, so a device that is not on WiFi does not
+                // report an SSID (or a signal) for an association that does not exist.
+                if (!associatedOrUnknown(chain.thisObject)) {
+                    return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+                }
                 extractor(ap)
             }
         }
@@ -148,6 +207,12 @@ object WifiSpoofHooker {
             HookUtils.hookAllMethods(wifiInfo, name) { chain ->
                 val ap = connectedAp(PacerRuntimeConfig.snapshot())
                     ?: return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+                // Follow the real radio: an instance the platform left unassociated
+                // keeps its real answer, so a device that is not on WiFi does not
+                // report an SSID (or a signal) for an association that does not exist.
+                if (!associatedOrUnknown(chain.thisObject)) {
+                    return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+                }
                 extractor(ap)
             }
         }
@@ -155,10 +220,17 @@ object WifiSpoofHooker {
         HookUtils.hookAllMethods(wifiInfo, "getSupplicantState") { chain ->
             val ap = connectedAp(PacerRuntimeConfig.snapshot())
                 ?: return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            if (!associatedOrUnknown(chain.thisObject)) {
+                return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            }
             val state = if (ap.ssid.isEmpty()) null else supplicantStateCompleted(classLoader)
             state ?: chain.proceed(chain.args.toTypedArray())
         }
     }
+
+    /** As [reallyAssociated]; a receiver that cannot be checked is answered. */
+    private fun associatedOrUnknown(target: Any?): Boolean =
+        target == null || reallyAssociated(target)
 
     // --- helpers -------------------------------------------------------------
 

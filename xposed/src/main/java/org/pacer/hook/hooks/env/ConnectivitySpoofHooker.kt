@@ -15,6 +15,9 @@ object ConnectivitySpoofHooker {
 
     private const val WIFI_INFO_CLASS = "android.net.wifi.WifiInfo"
 
+    /** NetworkInfo.TYPE_WIFI. */
+    private const val TYPE_WIFI = 1
+
     fun install(classLoader: ClassLoader) {
         val capabilities = HookUtils.findClassIfExists("android.net.NetworkCapabilities", classLoader) ?: return
 
@@ -30,6 +33,9 @@ object ConnectivitySpoofHooker {
             val real = chain.proceed(chain.args.toTypedArray())
             val ap = WifiSpoofHooker.connectedAp(PacerRuntimeConfig.snapshot())
             if (real != null && ap != null && real.javaClass.name == WIFI_INFO_CLASS) {
+                // Same rule as the WifiManager path: an instance the platform left
+                // unassociated is not given an association here either.
+                if (!WifiSpoofHooker.reallyAssociated(real)) return@hookAllMethods real
                 try {
                     WifiSpoofHooker.mutateWifiInfo(real, ap, classLoader)
                 } catch (t: Throwable) {
@@ -39,6 +45,28 @@ object ConnectivitySpoofHooker {
             real
         }
 
+        hookNetworkInfoExtraInfo(classLoader)
         PacerLog.i("connectivity environment hooks installed")
+    }
+
+    /**
+     * The second path to the connected SSID. getActiveNetworkInfo() and friends hand
+     * back a NetworkInfo whose extra info IS the SSID on a Wi-Fi transport, so an app
+     * that asks ConnectivityManager instead of WifiManager would read the real one
+     * while every other WiFi answer is virtual. Only the Wi-Fi case is touched: on a
+     * mobile network the extra info is the APN name, and a Wi-Fi NetworkInfo whose real
+     * extra info is absent belongs to a radio that is not associated.
+     */
+    private fun hookNetworkInfoExtraInfo(loader: ClassLoader) {
+        val networkInfo = HookUtils.findClassIfExists("android.net.NetworkInfo", loader) ?: return
+        HookUtils.hookAllMethods(networkInfo, "getExtraInfo") { chain ->
+            val real = chain.proceed(chain.args.toTypedArray())
+            if (real !is String || real.isEmpty()) return@hookAllMethods real
+            val target = chain.thisObject ?: return@hookAllMethods real
+            if (HookUtils.intAccessor(target, "getType") != TYPE_WIFI) return@hookAllMethods real
+            val ap = WifiSpoofHooker.connectedAp(PacerRuntimeConfig.snapshot())
+                ?: return@hookAllMethods real
+            EnvGeo.quoteSsid(ap.ssid)
+        }
     }
 }
