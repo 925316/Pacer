@@ -191,6 +191,19 @@ class HookTargetContractTest {
             "android.telephony.CellInfo" to listOf(
                 "isRegistered", "getTimeStamp", "getCellIdentity", "getCellSignalStrength",
             ),
+            "android.telephony.CellInfoLte" to listOf("getCellIdentity", "getCellSignalStrength"),
+            "android.telephony.CellInfoGsm" to listOf("getCellIdentity", "getCellSignalStrength"),
+            "android.telephony.CellInfoWcdma" to listOf("getCellIdentity", "getCellSignalStrength"),
+            "android.telephony.CellIdentityLte" to listOf(
+                "getMcc", "getMnc", "getCi", "getPci", "getTac",
+            ),
+            "android.telephony.CellIdentityGsm" to listOf("getMcc", "getMnc", "getLac", "getCid"),
+            "android.telephony.CellIdentityWcdma" to listOf(
+                "getMcc", "getMnc", "getLac", "getCid", "getPsc",
+            ),
+            "android.telephony.CellSignalStrengthLte" to listOf("getLevel"),
+            "android.telephony.CellSignalStrengthGsm" to listOf("getLevel"),
+            "android.telephony.CellSignalStrengthWcdma" to listOf("getLevel"),
             "android.app.AppOpsManager" to listOf(
                 "checkOp", "checkOpNoThrow", "noteOp", "noteOpNoThrow", "startWatchingMode",
             ),
@@ -266,6 +279,18 @@ class HookTargetContractTest {
                 "setElapsedRealtimeNanos", "isFromMockProvider", "isMock",
             ),
             "android.telephony.CellInfo" to listOf("getCellConnectionStatus"),
+            "android.telephony.CellInfoNr" to listOf("getCellIdentity", "getCellSignalStrength"),
+            "android.telephony.CellIdentityLte" to listOf("getEarfcn", "getBands"),
+            "android.telephony.CellIdentityGsm" to listOf("getArfcn", "getBsic"),
+            "android.telephony.CellIdentityWcdma" to listOf("getUarfcn"),
+            "android.telephony.CellIdentityNr" to listOf(
+                "getMccString", "getMncString", "getNci", "getPci", "getTac", "getNrArfcn",
+            ),
+            "android.telephony.CellSignalStrengthLte" to listOf(
+                "getDbm", "getRsrp", "getRsrq", "getRssnr", "getTimingAdvance", "getCqi",
+            ),
+            "android.telephony.CellSignalStrengthGsm" to listOf("getDbm", "getBitErrorRate"),
+            "android.telephony.CellSignalStrengthWcdma" to listOf("getDbm"),
             "android.telephony.ServiceState" to listOf(
                 "getOperatorAlphaLong", "getOperatorAlphaShort", "getNrState",
             ),
