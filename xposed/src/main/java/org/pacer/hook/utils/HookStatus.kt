@@ -21,6 +21,18 @@ object HookStatus {
     private val totalHooked = AtomicInteger(0)
     private val hookedPerTag = ConcurrentHashMap<String, Int>()
     private val failures = ConcurrentHashMap<String, String>()
+    private val components = ConcurrentHashMap<String, String>()
+
+    /**
+     * Records the class a system component resolved to, or "missing".
+     *
+     * A component that resolves to nothing turns every dependent hook into a
+     * silent no-op - the hardest failure to diagnose from behaviour alone - so
+     * this is what makes it a single visible line in logcat.
+     */
+    fun noteComponent(component: String, resolved: String?) {
+        components[component] = resolved ?: "missing"
+    }
 
     /** Monotonic count of methods/constructors hooked in this process. */
     fun countHooked(): Int = totalHooked.get()
@@ -49,7 +61,13 @@ object HookStatus {
         } else {
             failures.entries.joinToString(", ") { "${it.key}(${it.value})" }
         }
-        return "pacer hooks: total=${totalHooked.get()} | installed[$ok] | failed[$bad]"
+        val resolved = if (components.isEmpty()) {
+            "none"
+        } else {
+            components.entries.sortedBy { it.key }.joinToString(", ") { "${it.key}=${it.value}" }
+        }
+        return "pacer hooks: total=${totalHooked.get()} | installed[$ok] | " +
+            "components[$resolved] | failed[$bad]"
     }
 
     /** Clears the report; used when re-installing into a reused process. */
@@ -57,5 +75,6 @@ object HookStatus {
         totalHooked.set(0)
         hookedPerTag.clear()
         failures.clear()
+        components.clear()
     }
 }

@@ -58,6 +58,14 @@ object RomRules {
     )
 
     /**
+     * Exactly the properties [detect] and [majorVersion] consult, in preference
+     * order. The Android side reads only these, because reading every system
+     * property on a device is needlessly expensive.
+     */
+    val PROPERTY_KEYS: List<String> =
+        (HYPEROS_PROPERTIES + COLOROS_PROPERTIES + ONEUI_PROPERTIES).distinct()
+
+    /**
      * Decides the family from system properties first, then from the reported
      * manufacturer and brand. Properties win because a brand string can be
      * re-used across a transition (a Xiaomi device may still report the MIUI

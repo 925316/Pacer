@@ -23,6 +23,8 @@ import org.pacer.hook.hooks.system.RawGnssSuppressionHooker
 import org.pacer.hook.hooks.system.SystemAppOpsHooker
 import org.pacer.hook.hooks.system.SystemLocationServiceHooker
 import org.pacer.hook.hooks.system.SystemSettingsProviderHooker
+import org.pacer.hook.hooks.system.vendor.ProcessIdentity
+import org.pacer.hook.hooks.system.vendor.VendorRegistry
 import org.pacer.hook.utils.HookStatus
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
@@ -113,6 +115,11 @@ class PacerHook : XposedModule() {
      */
     private fun logInstallReport() {
         val cfg = PacerRuntimeConfig.snapshot()
+        val vendor = VendorRegistry.active
+        PacerLog.i(
+            "pacer process=${ProcessIdentity.current()} vendor=${vendor.id} " +
+                "family=${VendorRegistry.profile.family} ui=${VendorRegistry.profile.majorVersion}",
+        )
         PacerLog.i(
             "pacer config: active=${cfg.active} speed=${cfg.speedMps} " +
                 "at=(${cfg.latitude},${cfg.longitude}) route=${cfg.routeJson.isNotEmpty()} " +
