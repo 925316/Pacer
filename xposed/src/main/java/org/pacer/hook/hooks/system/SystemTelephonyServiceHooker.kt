@@ -12,6 +12,7 @@
 // Both layers feed the same CellPayload, so the two views describe one device.
 package org.pacer.hook.hooks.system
 
+import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.env.CellPayload
 import org.pacer.hook.hooks.env.EnvGeo
@@ -30,6 +31,21 @@ object SystemTelephonyServiceHooker {
      */
     private const val OPERATOR_PROPERTY = "gsm.operator.numeric"
 
+    /**
+     * The callback an app passes to requestCellInfoUpdate arrives here as the
+     * app's REMOTE proxy for the internal interface. Matching on the internal name
+     * is what finds it; the public TelephonyManager.CellInfoCallback name is kept
+     * as a fallback for builds that pass a local one.
+     */
+    private const val INTERNAL_CELL_INFO_CALLBACK = "android.telephony.ICellInfoCallback"
+    private const val PUBLIC_CELL_INFO_CALLBACK = "android.telephony.TelephonyManager\$CellInfoCallback"
+
+    /** Both spellings: the second was added later and returns a result code. */
+    private val REQUEST_METHODS = arrayOf(
+        "requestCellInfoUpdate",
+        "requestCellInfoUpdateWithWorkSource",
+    )
+
     fun install(classLoader: ClassLoader) {
         val manager = SystemClassLocator.locate(SystemComponent.TELEPHONY_PHONE_MANAGER, classLoader) ?: return
         var hooked = 0
@@ -38,27 +54,62 @@ object SystemTelephonyServiceHooker {
             if (!serving()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
             // Any failure must degrade to "no cells", never to an exception in the
             // telephony stack: this process serves every app on the device.
-            runCatching { CellPayload.payload(HookUtils.systemProperty(OPERATOR_PROPERTY), classLoader) }
-                .getOrNull() ?: ArrayList<Any>()
+            payload(classLoader) ?: ArrayList<Any>()
         }
 
         hooked += HookUtils.hookAllMethods(manager, "getCellLocation") { chain ->
             // Matches the app-process hooker: a device that reports no cells has
-            // no serving cell location either. Deliberately independent of
-            // whether fabrication succeeded, so the two answers stay consistent.
+            // no serving cell location either. Deliberately independent of whether
+            // fabrication succeeded, so the two answers stay consistent.
             if (!serving()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
             null
         }
 
-        // requestCellInfoUpdate is deliberately NOT covered yet. In this process
-        // its argument is the app's remote binder callback, so the app-process
-        // technique of hooking the callback class cannot work: that class is not
-        // loaded here. Covering it needs a dynamic proxy around the binder
-        // argument to rewrite the list it delivers - the approach the Tencent
-        // SDK hooker already uses - which is worth doing once this layer has been
-        // confirmed on a device.
+        for (method in REQUEST_METHODS) {
+            hooked += HookUtils.hookAllMethods(manager, method) { chain ->
+                if (!serving()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+                if (answerCallback(chain, classLoader)) null
+                else chain.proceed(chain.args.toTypedArray())
+            }
+        }
+
         PacerLog.i("phone process cell hooks installed (targets=$hooked)")
     }
+
+    /**
+     * Answers the caller's callback directly and skips the original.
+     *
+     * The argument is the app's remote proxy, so invoking its onCellInfo() is
+     * itself the reverse IPC that delivers the list to the app: no wrapper is
+     * needed, and none is used. An earlier version of this file claimed a dynamic
+     * proxy was required; that was wrong, and a wrapper would only have to
+     * reimplement binder death and threading for no benefit.
+     *
+     * Returning false leaves the original call in place, so a build whose callback
+     * cannot be found or invoked still behaves exactly as it did before.
+     */
+    private fun answerCallback(chain: XposedInterface.Chain, classLoader: ClassLoader): Boolean {
+        val callback = chain.args.firstOrNull { isCellInfoCallback(it) } ?: return false
+        val onCellInfo = callback.javaClass.methods
+            .firstOrNull { it.name == "onCellInfo" && it.parameterCount == 1 } ?: return false
+        return try {
+            // An empty list rather than the real answer: the async path must not
+            // leak the real surroundings just because fabrication failed.
+            onCellInfo.invoke(callback, payload(classLoader) ?: ArrayList<Any>())
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun isCellInfoCallback(arg: Any?): Boolean {
+        if (arg == null) return false
+        return HookUtils.hasTypeByName(arg.javaClass, INTERNAL_CELL_INFO_CALLBACK) ||
+            HookUtils.hasTypeByName(arg.javaClass, PUBLIC_CELL_INFO_CALLBACK)
+    }
+
+    private fun payload(classLoader: ClassLoader): List<Any>? =
+        runCatching { CellPayload.payload(HookUtils.systemProperty(OPERATOR_PROPERTY), classLoader) }.getOrNull()
 
     private fun serving(): Boolean {
         val cfg = PacerRuntimeConfig.snapshot()

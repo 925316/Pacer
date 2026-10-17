@@ -65,6 +65,7 @@ object CellSpoofHooker {
         hookCellInfoUpdate(telephonyManager)
         hookTelephonyCallbackRegistration(telephonyManager)
         hookNetworkType(telephonyManager)
+        hookServiceStateCellIdentity(loader)
         PacerLog.i("cell environment hooks installed")
     }
 
@@ -162,6 +163,35 @@ object CellSpoofHooker {
             }
         }
     }
+
+    /**
+     * Android 10+ carries the camping cell identity inside ServiceState, behind a
+     * getter that is entirely separate from getAllCellInfo(). Left alone it hands
+     * the app the REAL serving cell while every other cell answer is fabricated;
+     * this path is easy to miss. The identity is taken from the same payload, so
+     * ServiceState and getAllCellInfo agree.
+     */
+    private fun hookServiceStateCellIdentity(loader: ClassLoader) {
+        val serviceState = HookUtils.findClassIfExists("android.telephony.ServiceState", loader) ?: return
+        HookUtils.hookAllMethods(serviceState, "getCellIdentity") { chain ->
+            if (!suppressing()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            servingIdentity() ?: chain.proceed(chain.args.toTypedArray())
+        }
+    }
+
+    /** The identity of the fabricated serving cell, taken from the payload itself. */
+    private fun servingIdentity(): Any? {
+        val cells = cellsFor() ?: return null
+        val serving = cells.firstOrNull { read(it, "isRegistered") == true } ?: cells.firstOrNull() ?: return null
+        return read(serving, "getCellIdentity")
+    }
+
+    private fun read(target: Any, getter: String): Any? =
+        try {
+            HookUtils.noArgAccessor(target.javaClass, getter)?.invoke(target)
+        } catch (_: Throwable) {
+            null
+        }
 
     // ---- payload ----
 
