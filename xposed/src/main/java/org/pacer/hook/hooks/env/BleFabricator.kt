@@ -1,36 +1,41 @@
 // Builds synthetic BLE advertisements from the deterministic beacon model, so the
 // Bluetooth view agrees with the simulated fix instead of being suppressed.
 //
-// What makes this safe, given that none of it can be checked from CI:
-//   - The DEVICE is built with the PUBLIC BluetoothAdapter.getRemoteDevice(),
-//     which validates the address and needs no hidden constructor. The hidden
-//     BluetoothDevice(String) constructor is only a fallback.
-//   - The advertisement bytes are built by hand and then handed to the platform's
-//     own ScanRecord.parseFromBytes, so the object the app receives is one the
-//     platform produced. A record that fails to parse is DROPPED rather than
-//     delivered: getScanRecord() returning null is a crash in most scan callers.
-//   - Only the four-argument ScanResult(BluetoothDevice, ScanRecord, int, long)
-//     constructor is accepted. The longer signatures gained extra parameters with
-//     unknown relative order, and a wrong guess there would silently fill real
-//     fields with garbage, which readback cannot distinguish from a valid build.
-//   - Everything built is validated by reading it back through the public API,
-//     and if nothing can be built the fabricator disables itself and reports so.
-//     The worst case is the behaviour Pacer had before: suppression.
+// What makes this safe, given how little of it a device-free environment can
+// check:
+//   - Everything that CAN be typed is typed. The four-argument
+//     ScanResult(BluetoothDevice, ScanRecord, int, long) constructor and the
+//     public getRemoteDevice() factory are both public API in the compile SDK, so
+//     the compiler checks them and CI fails if a future SDK moves them. The
+//     ten-argument constructor is deliberately not used: its parameters turned out
+//     to be ordered (device, seven ints, record, long), so the ints cannot be
+//     filled by position without knowing which is which, and a wrong guess would
+//     silently write garbage that readback cannot distinguish from a valid build.
+//   - The record is the one part with no usable constructor, so its bytes are
+//     built by hand and handed to the platform's own parser. A record that fails
+//     to parse is DROPPED rather than delivered: getScanRecord() returning null is
+//     a crash in most scan callers.
+//   - Every constructed result is read back through the public API before it can
+//     reach the app, and if nothing can be built the fabricator disables itself
+//     and reports so. The worst case is the behaviour Pacer had before:
+//     suppression.
 package org.pacer.hook.hooks.env
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.le.ScanRecord
+import android.bluetooth.le.ScanResult
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import java.io.ByteArrayOutputStream
-import java.lang.reflect.Constructor
 
 object BleFabricator {
 
-    private const val SCAN_RESULT_CLASS = "android.bluetooth.le.ScanResult"
     private const val SCAN_RECORD_CLASS = "android.bluetooth.le.ScanRecord"
     private const val BLUETOOTH_DEVICE_CLASS = "android.bluetooth.BluetoothDevice"
 
-    /** Advertising structures cap a legacy payload at 31 bytes per field. */
+    /** A legacy advertising field carries at most 31 bytes; stay well inside it. */
     private const val MAX_NAME_BYTES = 20
 
     /** Set once construction has proven impossible on this build. */
@@ -39,8 +44,8 @@ object BleFabricator {
     @Volatile private var reported = false
 
     /**
-     * ScanResult objects for the beacons visible at the current fix, or null when
-     * the caller must suppress instead. Never throws.
+     * Scan results for the beacons visible at the current fix, or null when the
+     * caller must suppress instead. Never throws.
      *
      * @param nowMs elapsed realtime in milliseconds; converted to the nanosecond
      *   timestamp real scan results carry.
@@ -52,7 +57,6 @@ object BleFabricator {
     ): List<Any>? {
         if (unavailable) return null
         return try {
-            val resultClass = HookUtils.findClassIfExists(SCAN_RESULT_CLASS, classLoader) ?: return null
             val beacons = FakeRadioEnvironment.beacons(
                 cfg.latitude,
                 cfg.longitude,
@@ -64,7 +68,7 @@ object BleFabricator {
             val timestampNanos = nowMs * 1_000_000L
             val out = ArrayList<Any>(beacons.size)
             for (beacon in beacons) {
-                buildScanResult(resultClass, beacon, classLoader, timestampNanos)?.let { out.add(it) }
+                buildScanResult(beacon, classLoader, timestampNanos)?.let { out.add(it) }
             }
 
             if (out.isEmpty()) {
@@ -88,9 +92,9 @@ object BleFabricator {
     /**
      * A minimal, valid advertisement: flags, complete local name, transmit power.
      *
-     * The platform re-parses these bytes, so the layout has to be exactly what
-     * the AD grammar expects; a malformed one yields a null ScanRecord, which is
-     * why the caller drops the beacon in that case.
+     * The platform re-parses these bytes, so the layout has to match the AD
+     * grammar exactly; a malformed one yields a null ScanRecord, which is why the
+     * caller drops the beacon in that case.
      */
     fun advertiseBytes(name: String, txPowerDbm: Int): ByteArray {
         val out = ByteArrayOutputStream(32)
@@ -114,47 +118,61 @@ object BleFabricator {
     }
 
     private fun buildScanResult(
-        resultClass: Class<*>,
         beacon: FakeRadioEnvironment.Beacon,
         classLoader: ClassLoader,
         timestampNanos: Long,
-    ): Any? {
+    ): ScanResult? {
         val device = deviceFor(beacon.address, classLoader) ?: return null
         val record = recordFor(beacon, classLoader) ?: return null
-        val rssi = beacon.rssi
 
-        val ctor = fourArgumentConstructor(resultClass, device.javaClass, record.javaClass) ?: return null
-        val candidate = instantiate(ctor, arrayOf<Any?>(device, record, rssi, timestampNanos)) ?: return null
-        return if (matches(candidate, rssi, timestampNanos)) candidate else null
+        val result = try {
+            ScanResult(device, record, beacon.rssi, timestampNanos)
+        } catch (_: Throwable) {
+            null
+        } ?: return null
+
+        // Read it back through the public API before the app can ever see it.
+        if (result.rssi != beacon.rssi) return null
+        if (result.timestampNanos != timestampNanos) return null
+        if (result.scanRecord == null) return null
+        if (result.device == null) return null
+        return result
     }
 
     /**
      * The public factory first: it validates the address and creates the object
-     * without touching a hidden constructor.
+     * without touching a hidden constructor or the Bluetooth service.
      */
-    private fun deviceFor(address: String, classLoader: ClassLoader): Any? {
-        publicRemoteDevice(address)?.let { return it }
-        return hiddenDevice(address, classLoader)
-    }
+    private fun deviceFor(address: String, classLoader: ClassLoader): BluetoothDevice? =
+        publicRemoteDevice(address) ?: hiddenDevice(address, classLoader)
 
-    private fun publicRemoteDevice(address: String): Any? =
+    private fun publicRemoteDevice(address: String): BluetoothDevice? =
         try {
-            android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.getRemoteDevice(address)
+            BluetoothAdapter.getDefaultAdapter()?.getRemoteDevice(address)
         } catch (_: Throwable) {
             null
         }
 
-    private fun hiddenDevice(address: String, classLoader: ClassLoader): Any? {
+    private fun hiddenDevice(address: String, classLoader: ClassLoader): BluetoothDevice? {
         val clazz = HookUtils.findClassIfExists(BLUETOOTH_DEVICE_CLASS, classLoader) ?: return null
         for (ctor in clazz.declaredConstructors) {
             if (ctor.parameterCount != 1 || ctor.parameterTypes[0] != String::class.java) continue
-            val candidate = instantiate(ctor, arrayOf<Any?>(address)) ?: continue
-            if (addressOf(candidate)?.equals(address, ignoreCase = true) == true) return candidate
+            val candidate = try {
+                ctor.isAccessible = true
+                ctor.newInstance(address) as? BluetoothDevice
+            } catch (_: Throwable) {
+                null
+            } ?: continue
+            if (candidate.address.equals(address, ignoreCase = true)) return candidate
         }
         return null
     }
 
-    private fun recordFor(beacon: FakeRadioEnvironment.Beacon, classLoader: ClassLoader): Any? {
+    /**
+     * ScanRecord has no usable constructor, so the bytes go through the platform
+     * parser: whatever comes back is an object the platform itself built.
+     */
+    private fun recordFor(beacon: FakeRadioEnvironment.Beacon, classLoader: ClassLoader): ScanRecord? {
         val recordClass = HookUtils.findClassIfExists(SCAN_RECORD_CLASS, classLoader) ?: return null
         val parse = try {
             HookUtils.findMethodExact(recordClass, "parseFromBytes", ByteArray::class.java)
@@ -163,52 +181,16 @@ object BleFabricator {
         } ?: return null
         val bytes = advertiseBytes(beacon.name, txPowerFor(beacon))
         return try {
-            parse.invoke(null, bytes)
+            parse.invoke(null, bytes) as? ScanRecord
         } catch (_: Throwable) {
             null
         }
     }
 
-    /** Transmit power at one metre, varied a little per device so all beacons do not agree. */
+    /**
+     * Transmit power at one metre, varied a little per device so every beacon does
+     * not report the same value.
+     */
     private fun txPowerFor(beacon: FakeRadioEnvironment.Beacon): Int =
         -59 - Math.floorMod(beacon.address.hashCode(), 5)
-
-    private fun fourArgumentConstructor(
-        resultClass: Class<*>,
-        deviceClass: Class<*>,
-        recordClass: Class<*>,
-    ): Constructor<*>? =
-        resultClass.declaredConstructors.firstOrNull { ctor ->
-            ctor.parameterCount == 4 &&
-                ctor.parameterTypes[0].isAssignableFrom(deviceClass) &&
-                ctor.parameterTypes[1].isAssignableFrom(recordClass) &&
-                ctor.parameterTypes[2] == Integer.TYPE &&
-                ctor.parameterTypes[3] == java.lang.Long.TYPE
-        }
-
-    private fun instantiate(ctor: Constructor<*>, args: Array<Any?>): Any? =
-        try {
-            ctor.isAccessible = true
-            ctor.newInstance(*args)
-        } catch (_: Throwable) {
-            null
-        }
-
-    private fun matches(result: Any, rssi: Int, timestampNanos: Long): Boolean {
-        if (HookUtils.intAccessor(result, "getRssi") != rssi) return false
-        if (readLong(result, "getTimestampNanos") != timestampNanos) return false
-        if (read(result, "getScanRecord") == null) return false
-        return read(result, "getDevice") != null
-    }
-
-    private fun addressOf(device: Any): String? = read(device, "getAddress") as? String
-
-    private fun read(target: Any, getter: String): Any? =
-        try {
-            HookUtils.noArgAccessor(target.javaClass, getter)?.invoke(target)
-        } catch (_: Throwable) {
-            null
-        }
-
-    private fun readLong(target: Any, getter: String): Long? = read(target, getter) as? Long
 }
