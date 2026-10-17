@@ -10,6 +10,8 @@ package org.pacer.hook.hooks.system
 
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.system.vendor.SystemClassLocator
+import org.pacer.hook.hooks.system.vendor.SystemComponent
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
@@ -19,11 +21,6 @@ object SystemAppOpsHooker {
     private const val MODE_IGNORED = 1
     private const val FALLBACK_OP_MOCK_LOCATION = 58
     private const val OP_NAME = "android:mock_location"
-
-    private val serviceCandidates = listOf(
-        "com.android.server.appop.AppOpsService",
-        "com.android.server.AppOpsService",
-    )
 
     private val serviceMethods = arrayOf(
         "checkOperation",
@@ -47,10 +44,10 @@ object SystemAppOpsHooker {
     fun install(classLoader: ClassLoader) {
         val mockOp = resolveMockLocationOp(classLoader)
         var hooked = 0
-        for (name in serviceCandidates) {
-            val clazz = HookUtils.findClassIfExists(name, classLoader) ?: continue
+        val service = SystemClassLocator.locate(SystemComponent.APPOPS_SERVICE, classLoader)
+        if (service != null) {
             for (method in serviceMethods) {
-                hooked += HookUtils.hookAllMethods(clazz, method) { chain -> decide(chain, mockOp) }
+                hooked += HookUtils.hookAllMethods(service, method) { chain -> decide(chain, mockOp) }
             }
         }
         val manager = HookUtils.findClassIfExists("android.app.AppOpsManager", classLoader)
@@ -70,8 +67,7 @@ object SystemAppOpsHooker {
     private fun resolveMockLocationOp(classLoader: ClassLoader): Int {
         val candidates = listOfNotNull(
             HookUtils.findClassIfExists("android.app.AppOpsManager", classLoader),
-            HookUtils.findClassIfExists("com.android.server.appop.AppOpsService", classLoader),
-            HookUtils.findClassIfExists("com.android.server.AppOpsService", classLoader),
+            SystemClassLocator.locate(SystemComponent.APPOPS_SERVICE, classLoader),
         )
         for (clazz in candidates) {
             val one = try {

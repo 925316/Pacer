@@ -23,8 +23,13 @@ object AospVendor : SystemHookVendor {
     override fun appliesTo(profile: DeviceProfile): Boolean = true
 
     override fun classCandidates(component: SystemComponent): List<String> = when (component) {
-        SystemComponent.LOCATION_MANAGER_SERVICE ->
-            listOf("com.android.server.location.LocationManagerService")
+        SystemComponent.LOCATION_MANAGER_SERVICE -> listOf(
+            "com.android.server.location.LocationManagerService",
+            "com.android.server.LocationManagerService",
+        )
+
+        SystemComponent.LOCATION_PROVIDER_MANAGER ->
+            listOf("com.android.server.location.provider.LocationProviderManager")
 
         SystemComponent.WIFI_SERVICE ->
             listOf("com.android.server.wifi.WifiServiceImpl")
@@ -41,8 +46,10 @@ object AospVendor : SystemHookVendor {
             "com.android.server.ConnectivityService",
         )
 
-        SystemComponent.APPOPS_SERVICE ->
-            listOf("com.android.server.appop.AppOpsService")
+        SystemComponent.APPOPS_SERVICE -> listOf(
+            "com.android.server.appop.AppOpsService",
+            "com.android.server.AppOpsService",
+        )
 
         SystemComponent.SETTINGS_PROVIDER ->
             listOf("com.android.providers.settings.SettingsProvider")
