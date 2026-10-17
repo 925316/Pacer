@@ -5,9 +5,11 @@ kotlinSerialization = "1.7.3"
 libxposed = "102.0.0"
 libxposedService = "101.0.0"
 junit = "4.13.2"
+osmdroid = "6.1.20"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+osmdroid = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinSerialization" }
 libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposed" }
 libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "libxposedService" }

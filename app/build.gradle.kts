@@ -40,4 +40,7 @@ dependencies {
     // guard below asserts they really end up inside the APK.
     implementation(project(":xposed"))
     implementation(libs.libxposed.service)
+    // Map tiles for the route picker. osmdroid renders OpenStreetMap tiles with
+    // no API key and, per its published POM, no transitive dependencies.
+    implementation(libs.osmdroid)
 }

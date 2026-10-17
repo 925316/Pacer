@@ -108,6 +108,9 @@ class MainActivity : Activity() {
         }
         root.addView(searchResultLabel)
         root.addView(action("Add searched place as waypoint") { addSearchedPlace() })
+        root.addView(action("Pick waypoints on the map") {
+            startActivity(Intent(this, MapActivity::class.java))
+        })
 
         routeSummary = TextView(this).apply { textSize = 15f; setPadding(0, 16, 0, 8) }
         root.addView(routeSummary)
@@ -141,6 +144,13 @@ class MainActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(root) })
 
         PacerConfigClient.init()
+        renderRoute()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The map screen edits the same persisted draft, so re-read it here.
+        draft = store.load()
         renderRoute()
     }
 
