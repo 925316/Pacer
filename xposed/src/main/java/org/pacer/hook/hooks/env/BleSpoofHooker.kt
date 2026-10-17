@@ -4,30 +4,32 @@
 //
 // BLE environment handling. A risk-control SDK can fingerprint the environment
 // from bonded devices and from LE scan results, so while Bluetooth mocking is
-// enabled the real bonded set is hidden and scan results are replaced with
-// beacons from the deterministic model.
+// enabled the real bonded set is hidden and the scan stream is served from the
+// deterministic beacon model.
 //
-// Delivery design, chosen to avoid the two things that make this fragile
-// elsewhere:
-//   - No timer. The app's own scan cadence is kept by REWRITING each result that
-//     arrives, rather than suppressing results and pushing synthetic ones on a
-//     heartbeat. There is nothing to cancel, nothing to leak on stopScan, and no
-//     re-entrancy: this module never invokes the callback itself.
-//   - Stable identity. Each real device address is hashed onto one fabricated
-//     beacon, so the same real device keeps the same fabricated address across
-//     callbacks instead of appearing to jump between beacons.
-// A build where no beacon can be constructed falls back to passing the real
-// result through; see BleFabricator.
+// DELIVERY, following the structure the mature implementations use: the real
+// results are SWALLOWED and the module delivers its own beacon set on a
+// heartbeat. That is what makes the app's view independent of what happens to be
+// advertising nearby - rewriting the real results would leave the app with
+// nothing to see in a quiet environment. The heartbeat is started from startScan
+// and cancelled from stopScan, and delivery runs inside a CallScope so the
+// module's own callback interception can tell its own delivery from the app's
+// call and let it through.
 //
-// NOT COVERED: the startScan overload that delivers results to a PendingIntent
-// broadcast rather than to a ScanCallback. Rewriting those needs the system-side
-// scan service (the bluetooth process), which is a separate layer.
+// NOT COVERED: the startScan overload that delivers to a PendingIntent broadcast.
+// Rewriting those needs the bluetooth process scan service, a separate layer.
 package org.pacer.hook.hooks.env
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.utils.CallScope
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import java.util.concurrent.ConcurrentHashMap
@@ -37,6 +39,9 @@ object BleSpoofHooker {
     private const val SCAN_CALLBACK = "android.bluetooth.le.ScanCallback"
     private const val LEGACY_CALLBACK = "android.bluetooth.BluetoothAdapter\$LeScanCallback"
 
+    /** Roughly the advertising interval of a real beacon. */
+    private const val DELIVER_INTERVAL_MS = 1200L
+
     /**
      * The beacon model re-jitters its levels on this period, so the payload cache
      * follows it instead of inventing its own.
@@ -44,6 +49,11 @@ object BleSpoofHooker {
     private const val JITTER_BUCKET_MS = 1500L
 
     private val hookedCallbacks = ConcurrentHashMap<Class<*>, Boolean>()
+
+    /** One heartbeat per registered callback, cancelled when the scan stops. */
+    private val deliveries = ConcurrentHashMap<Any, Runnable>()
+
+    private val handler: Handler by lazy { Handler(Looper.getMainLooper()) }
 
     private var classLoader: ClassLoader? = null
 
@@ -57,6 +67,7 @@ object BleSpoofHooker {
         hookBondedDevices(adapter)
         hookLeScanner(loader)
         hookLegacyLeScan(adapter)
+        hookStopScan(loader, adapter)
         PacerLog.i("ble environment hooks installed")
     }
 
@@ -74,12 +85,10 @@ object BleSpoofHooker {
     private fun hookLeScanner(loader: ClassLoader) {
         val scanner = HookUtils.findClassIfExists("android.bluetooth.le.BluetoothLeScanner", loader) ?: return
         HookUtils.hookAllMethods(scanner, "startScan") { chain ->
-            if (suppressing()) {
-                for (arg in chain.args) {
-                    if (arg != null && HookUtils.hasTypeByName(arg.javaClass, SCAN_CALLBACK)) {
-                        hookScanCallback(arg.javaClass)
-                    }
-                }
+            val callback = chain.args.firstOrNull { it != null && HookUtils.hasTypeByName(it.javaClass, SCAN_CALLBACK) }
+            if (callback != null && suppressing()) {
+                hookScanCallback(callback.javaClass)
+                startModernDelivery(callback)
             }
             chain.proceed(chain.args.toTypedArray())
         }
@@ -87,47 +96,35 @@ object BleSpoofHooker {
 
     private fun hookScanCallback(clazz: Class<*>) {
         if (hookedCallbacks.putIfAbsent(clazz, true) != null) return
-        HookUtils.hookAllMethods(clazz, "onScanResult") { chain -> rewriteSingle(chain) }
-        HookUtils.hookAllMethods(clazz, "onBatchScanResults") { chain -> rewriteBatch(chain) }
+        HookUtils.hookAllMethods(clazz, "onScanResult") { chain -> swallow(chain) }
+        HookUtils.hookAllMethods(clazz, "onBatchScanResults") { chain -> swallow(chain) }
     }
 
-    private fun rewriteSingle(chain: XposedInterface.Chain): Any? {
-        val args = chain.args.toTypedArray()
-        if (!suppressing()) return chain.proceed(args)
-        val index = args.indexOfFirst { it is ScanResult }
-        if (index < 0) return chain.proceed(args)
-        val replacement = mappedResult(args[index] as ScanResult) ?: return chain.proceed(args)
-        args[index] = replacement
-        return chain.proceed(args)
-    }
-
-    private fun rewriteBatch(chain: XposedInterface.Chain): Any? {
-        val args = chain.args.toTypedArray()
-        if (!suppressing()) return chain.proceed(args)
-        val index = args.indexOfFirst { it is List<*> }
-        if (index < 0) return chain.proceed(args)
-        val real = (args[index] as List<*>).filterIsInstance<ScanResult>().firstOrNull()
-        val replacement = mappedResult(real) ?: return chain.proceed(args)
-        args[index] = arrayListOf(replacement)
-        return chain.proceed(args)
+    private fun startModernDelivery(callback: Any) {
+        val typed = callback as? ScanCallback ?: return
+        startDelivery(callback) {
+            CallScope.enter {
+                for (result in payload().orEmpty()) {
+                    if (result is ScanResult) {
+                        typed.onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, result)
+                    }
+                }
+            }
+        }
     }
 
     // --- deprecated LE scans -------------------------------------------------
 
     /**
-     * startLeScan is deprecated since API 21, but an app still using it should
-     * see the same virtual beacons as one on the current API, so its
-     * (device, rssi, raw bytes) callback is rewritten from the same mapped
-     * result instead of being suppressed.
+     * startLeScan is deprecated since API 21, but an app still using it is served
+     * from the same beacon set so old and new apps see one virtual environment.
      */
     private fun hookLegacyLeScan(adapter: Class<*>) {
         HookUtils.hookAllMethods(adapter, "startLeScan") { chain ->
-            if (suppressing()) {
-                for (arg in chain.args) {
-                    if (arg != null && HookUtils.hasTypeByName(arg.javaClass, LEGACY_CALLBACK)) {
-                        hookLegacyCallback(arg.javaClass)
-                    }
-                }
+            val callback = chain.args.firstOrNull { it != null && HookUtils.hasTypeByName(it.javaClass, LEGACY_CALLBACK) }
+            if (callback != null && suppressing()) {
+                hookLegacyCallback(callback.javaClass)
+                startLegacyDelivery(callback)
             }
             chain.proceed(chain.args.toTypedArray())
         }
@@ -135,14 +132,71 @@ object BleSpoofHooker {
 
     private fun hookLegacyCallback(clazz: Class<*>) {
         if (hookedCallbacks.putIfAbsent(clazz, true) != null) return
-        HookUtils.hookAllMethods(clazz, "onLeScan") { chain ->
-            val args = chain.args.toTypedArray()
-            if (!suppressing() || args.size < 3) return@hookAllMethods chain.proceed(args)
-            val mapped = mappedResult(null) ?: return@hookAllMethods chain.proceed(args)
-            args[0] = mapped.device
-            args[1] = mapped.rssi
-            args[2] = mapped.scanRecord?.bytes ?: ByteArray(0)
-            chain.proceed(args)
+        HookUtils.hookAllMethods(clazz, "onLeScan") { chain -> swallow(chain) }
+    }
+
+    private fun startLegacyDelivery(callback: Any) {
+        val typed = callback as? BluetoothAdapter.LeScanCallback ?: return
+        startDelivery(callback) {
+            CallScope.enter {
+                for (result in payload().orEmpty()) {
+                    if (result is ScanResult) {
+                        typed.onLeScan(result.device, result.rssi, result.scanRecord?.bytes ?: ByteArray(0))
+                    }
+                }
+            }
+        }
+    }
+
+    // --- delivery plumbing ---------------------------------------------------
+
+    /**
+     * Swallows a real result: the app is served from the virtual environment on a
+     * heartbeat instead, so what it sees does not depend on the real surroundings.
+     * The CallScope check is what lets the module's own delivery through.
+     */
+    private fun swallow(chain: XposedInterface.Chain): Any? {
+        if (!suppressing() || CallScope.active()) return chain.proceed(chain.args.toTypedArray())
+        return null
+    }
+
+    private fun startDelivery(key: Any, deliver: () -> Unit) {
+        stopDelivery(key)
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!suppressing()) {
+                    // Stopping the simulation must stop the heartbeat too, instead
+                    // of leaving a timer delivering nothing forever.
+                    deliveries.remove(key)
+                    return
+                }
+                try {
+                    deliver()
+                } catch (_: Throwable) {
+                    // A delivery failure must not kill the heartbeat silently
+                    // forever, so the next tick is still scheduled below.
+                }
+                if (deliveries[key] === this) handler.postDelayed(this, DELIVER_INTERVAL_MS)
+            }
+        }
+        deliveries[key] = runnable
+        handler.postDelayed(runnable, DELIVER_INTERVAL_MS)
+    }
+
+    private fun stopDelivery(key: Any) {
+        deliveries.remove(key)?.let { handler.removeCallbacks(it) }
+    }
+
+    private fun hookStopScan(loader: ClassLoader, adapter: Class<*>) {
+        HookUtils.findClassIfExists("android.bluetooth.le.BluetoothLeScanner", loader)?.let { scanner ->
+            HookUtils.hookAllMethods(scanner, "stopScan") { chain ->
+                chain.args.forEach { if (it != null) stopDelivery(it) }
+                chain.proceed(chain.args.toTypedArray())
+            }
+        }
+        HookUtils.hookAllMethods(adapter, "stopLeScan") { chain ->
+            chain.args.forEach { if (it != null) stopDelivery(it) }
+            chain.proceed(chain.args.toTypedArray())
         }
     }
 
@@ -150,9 +204,8 @@ object BleSpoofHooker {
 
     /**
      * The fabricated results for the current fix, cached per beacon area and
-     * jitter bucket: a scan delivers many results per second and each rebuild
-     * costs a reflective parse, while the model only changes its levels once per
-     * bucket.
+     * jitter bucket: a heartbeat delivers repeatedly and each rebuild costs a
+     * reflective parse, while the model only changes its levels once per bucket.
      */
     private fun payload(): List<Any>? {
         val loader = classLoader ?: return null
@@ -170,14 +223,6 @@ object BleSpoofHooker {
         val built = BleFabricator.scanResults(cfg, loader, now) ?: return null
         cache = PayloadCache(areaKey, bucket, built)
         return built
-    }
-
-    private fun mappedResult(real: ScanResult?): ScanResult? {
-        val results = payload() ?: return null
-        if (results.isEmpty()) return null
-        val address = real?.device?.address
-        val index = if (address == null) 0 else Math.floorMod(address.hashCode(), results.size)
-        return results[index] as? ScanResult
     }
 
     private fun suppressing(): Boolean {
