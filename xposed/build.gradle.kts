@@ -28,4 +28,13 @@ android {
 dependencies {
     compileOnly(libs.libxposed.api)
     implementation(project(":core-motion"))
+    testImplementation(libs.junit)
+}
+
+// The contract test prints the platform surface it probes; without this Gradle
+// swallows it and the report never reaches the CI log.
+tasks.withType<Test> {
+    testLogging {
+        showStandardStreams = true
+    }
 }

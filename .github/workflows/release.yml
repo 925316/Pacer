@@ -40,6 +40,8 @@ jobs:
         run: |
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Check every named hook target against the compile SDK
+        run: gradle :xposed:testDebugUnitTest --stacktrace
       - name: Assemble debug APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Verify the APK carries the libxposed module
