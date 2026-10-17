@@ -69,8 +69,8 @@ class HookTargetContractTest {
         report.append("Caveat: \"absent\" means absent from the SDK stub jar. @hide\n")
         report.append("members never appear here even though they exist on a device.\n")
 
-        report.append("-- constructors of the types a fabricated cell needs --\n")
-        for (name in CELL_TYPES) {
+        report.append("-- constructors of the types a fabricated radio payload needs --\n")
+        for (name in CELL_TYPES + WIFI_TYPES) {
             val clazz = load(name)
             if (clazz == null) {
                 report.append("  $name: ABSENT\n")
@@ -291,6 +291,9 @@ class HookTargetContractTest {
             ),
             "android.telephony.CellSignalStrengthGsm" to listOf("getDbm", "getBitErrorRate"),
             "android.telephony.CellSignalStrengthWcdma" to listOf("getDbm"),
+            "android.content.pm.ParceledListSlice" to listOf("getList", "setList"),
+            "android.net.wifi.WifiInfo\$Builder" to listOf("setBssid", "setSsid", "setRssi", "build"),
+            "android.net.wifi.WifiSsid" to listOf("fromBytes", "createFromAsciiEncoded", "getBytes"),
             "android.telephony.ServiceState" to listOf(
                 "getOperatorAlphaLong", "getOperatorAlphaShort", "getNrState",
             ),
@@ -334,6 +337,18 @@ class HookTargetContractTest {
             "android.telephony.CellSignalStrengthNr",
             "android.telephony.ServiceState",
             "android.telephony.SignalStrength",
+        )
+
+        /**
+         * Types whose constructors decide how a fabricated WiFi payload can be
+         * built, including the parcelable slice that the system-side scan result
+         * call returns across Binder.
+         */
+        val WIFI_TYPES = listOf(
+            "android.net.wifi.ScanResult",
+            "android.net.wifi.WifiInfo",
+            "android.net.wifi.WifiSsid",
+            "android.content.pm.ParceledListSlice",
         )
     }
 }
