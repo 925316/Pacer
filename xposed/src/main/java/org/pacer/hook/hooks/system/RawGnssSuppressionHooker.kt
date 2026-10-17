@@ -1,8 +1,22 @@
 // Refuses raw GNSS callback registrations that would leak real pseudoranges,
-// navigation messages or antenna state to a client. Matching is deliberately
-// by method name only: the registration entry points keep their names across
-// AOSP generations even when their parameter lists move, and a candidate class
-// that does not exist on the ROM is skipped quietly.
+// navigation messages or antenna state to a client.
+//
+// BOTH registration families are covered, because the names differ across releases.
+// AOSP shipped registerGnssMeasurementsCallback / registerGnssNavigationMessageCallback
+// / registerGnssAntennaInfoCallback / registerGnssBatchingCallback, deprecated
+// them in favour of addGnssMeasurementsListener / addGnssNavigationMessageListener
+// / addGnssAntennaInfoListener / addGnssBatchingCallback, and some firmware has
+// dropped the old names outright - ColorOS 16 / API 36 has
+// registerGnssMeasurementsCallback and registerGnssNavigationMessageCallback
+// removed from the platform, which would silently disable suppression for a module
+// that only hooked the old pair. Matching by NAME and skipping whatever a ROM
+// does not have is the portable answer; matching by parameter shape is not,
+// because the two families do not share an argument layout (the add* ones lead
+// with a request object, the register* ones do not).
+//
+// GNSS status registrations are deliberately NOT refused: GnssStatusHooker answers
+// those with a sanitised status, and refusing them would leave the app with no
+// satellite view at all.
 package org.pacer.hook.hooks.system
 
 import io.github.libxposed.api.XposedInterface
@@ -19,11 +33,18 @@ object RawGnssSuppressionHooker {
     )
 
     private val refusedMethods = arrayOf(
+        // Current naming.
         "addGnssMeasurementsListener",
         "addGnssNavigationMessageListener",
         "addGnssAntennaInfoListener",
         "addGnssBatchingCallback",
         "startGnssBatch",
+        // Deprecated naming: the only spelling on older releases, and still the
+        // one a few ROMs kept while others removed it.
+        "registerGnssMeasurementsCallback",
+        "registerGnssNavigationMessageCallback",
+        "registerGnssAntennaInfoCallback",
+        "registerGnssBatchingCallback",
     )
 
     fun install(classLoader: ClassLoader) {
