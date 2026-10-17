@@ -20,7 +20,10 @@ import org.pacer.hook.hooks.system.RawGnssSuppressionHooker
 import org.pacer.hook.hooks.system.SystemAppOpsHooker
 import org.pacer.hook.hooks.system.SystemLocationServiceHooker
 import org.pacer.hook.hooks.system.SystemSettingsProviderHooker
+import org.pacer.hook.hooks.system.SystemTelephonyServiceHooker
+import org.pacer.hook.hooks.system.SystemWifiServiceHooker
 import org.pacer.hook.hooks.system.vendor.ProcessIdentity
+import org.pacer.hook.hooks.system.vendor.SystemProcess
 import org.pacer.hook.hooks.system.vendor.VendorRegistry
 import org.pacer.hook.utils.HookStatus
 import org.pacer.hook.utils.HookUtils
@@ -33,6 +36,9 @@ import org.pacer.hook.utils.PacerLog
  */
 class PacerHook : XposedModule() {
 
+    /** One layer per process; both package callbacks race to set this. */
+    private val layerInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
+
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
         HookUtils.bind(this)
         ConfigSync.install(this)
@@ -40,7 +46,60 @@ class PacerHook : XposedModule() {
     }
 
     override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
-        val classLoader = param.defaultClassLoader
+        installLayer(classLoaderQuietly(param))
+    }
+
+    /**
+     * The package whose class loader is ready.
+     *
+     * Both callbacks are kept, and the guard in [installLayer] makes whichever
+     * arrives first win. That matters because the interface documents
+     * onPackageLoaded's class loader accessor as API 29+: on Android 8 and 9 it
+     * is not there, and relying on onPackageLoaded alone would leave those
+     * releases with no hooks at all while everything still looked fine.
+     */
+    override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
+        installLayer(param.classLoader)
+    }
+
+    private fun classLoaderQuietly(param: XposedModuleInterface.PackageLoadedParam): ClassLoader? =
+        try {
+            param.defaultClassLoader
+        } catch (_: Throwable) {
+            null
+        }
+
+    /**
+     * Installs the layer that matches THIS process, once.
+     *
+     * The process matters because a module declaring system processes in its
+     * scope is injected into them too, and running the app-process environment
+     * hooks inside the telephony or Bluetooth process is a known cause of system
+     * instability. Those two get only their own layer, system server has its own
+     * callback, and everything else is an ordinary app.
+     */
+    private fun installLayer(classLoader: ClassLoader?) {
+        if (classLoader == null || !layerInstalled.compareAndSet(false, true)) return
+        when (ProcessIdentity.current()) {
+            SystemProcess.PHONE -> HookUtils.runCatchingLogged("phone-cells") {
+                SystemTelephonyServiceHooker.install(classLoader)
+            }
+
+            SystemProcess.BLUETOOTH -> {
+                // Bluetooth fabrication does not exist yet. Installing the
+                // app-process environment hooks here would be actively harmful.
+                PacerLog.i("bluetooth process: no layer installed yet")
+            }
+
+            SystemProcess.SYSTEM_SERVER ->
+                PacerLog.i("system server layer comes from onSystemServerStarting")
+
+            SystemProcess.UNKNOWN -> installAppLayer(classLoader)
+        }
+        logInstallReport()
+    }
+
+    private fun installAppLayer(classLoader: ClassLoader) {
         HookUtils.runCatchingLogged("location-injection") {
             LocationInjector.install(classLoader)
         }
@@ -80,7 +139,6 @@ class PacerHook : XposedModule() {
         HookUtils.runCatchingLogged("raw-gnss") {
             RawGnssSuppressionHooker.install(classLoader)
         }
-        logInstallReport()
     }
 
     /**
@@ -101,6 +159,9 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("system-rawgnss") {
             RawGnssSuppressionHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("system-wifi") {
+            SystemWifiServiceHooker.install(classLoader)
         }
         logInstallReport()
     }
