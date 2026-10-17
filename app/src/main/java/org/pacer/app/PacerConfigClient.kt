@@ -52,6 +52,7 @@ object PacerConfigClient {
         bearing: Float,
         accuracy: Float = 5f,
         routeJson: String = "",
+        mockBluetooth: Boolean = true,
     ) {
         val p = prefs ?: run {
             Log.w(TAG, "config channel not ready yet")
@@ -67,7 +68,7 @@ object PacerConfigClient {
             .putLong("altitude", java.lang.Double.doubleToRawLongBits(0.0))
             .putFloat("bearing", bearing)
             .putBoolean("step_enabled", true)
-            .putBoolean("mock_bt", false)
+            .putBoolean("mock_bt", mockBluetooth)
             .putString("route_json", routeJson)
             .apply()
         Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")

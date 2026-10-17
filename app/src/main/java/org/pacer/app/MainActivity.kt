@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -45,6 +46,8 @@ class MainActivity : Activity() {
     private lateinit var rideBtn: RadioButton
     private lateinit var customBtn: RadioButton
     private lateinit var speedInput: EditText
+
+    private lateinit var bluetoothToggle: CheckBox
 
     private lateinit var latInput: EditText
     private lateinit var lonInput: EditText
@@ -123,6 +126,18 @@ class MainActivity : Activity() {
 
         // --- simulation ------------------------------------------------------
         root.addView(section("Simulation"))
+        bluetoothToggle = CheckBox(this).apply {
+            text = "Simulate the Bluetooth surroundings too"
+            isChecked = true
+        }
+        root.addView(bluetoothToggle)
+        root.addView(
+            hint(
+                "Without this, Bluetooth scans still report the real surroundings while WiFi and " +
+                    "cells are simulated. It also hides paired devices for the apps in scope while " +
+                    "the simulation runs, so switch it off if you are pairing hardware.",
+            ),
+        )
         root.addView(action("Start straight line from coordinates") { startStraight() })
         root.addView(action("Start humanized route simulation") { startRoute() })
         root.addView(action("Stop simulation") {
@@ -244,7 +259,13 @@ class MainActivity : Activity() {
         val lat = latInput.text.toString().toDoubleOrNull() ?: 39.9042
         val lon = lonInput.text.toString().toDoubleOrNull() ?: 116.4074
         val speed = speedMps()
-        PacerConfigClient.start(lat = lat, lon = lon, speed = speed, bearing = 45f)
+        PacerConfigClient.start(
+            lat = lat,
+            lon = lon,
+            speed = speed,
+            bearing = 45f,
+            mockBluetooth = bluetoothToggle.isChecked,
+        )
         output.text = String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
     }
 
@@ -262,6 +283,7 @@ class MainActivity : Activity() {
             speed = speed,
             bearing = 45f,
             routeJson = draft.toJson(),
+            mockBluetooth = bluetoothToggle.isChecked,
         )
         output.text = String.format(
             Locale.US,
