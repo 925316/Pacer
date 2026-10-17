@@ -204,6 +204,19 @@ object FakeRadioEnvironment {
         .maxWithOrNull(compareBy<WifiAp>({ it.baseLevel }, { it.bssid }))
         ?.copy(networkId = 0)
 
+    /**
+     * Stable key for the coarse area that decides the tower set. Callers use it
+     * to cache a fabricated payload, because the tower set only changes when the
+     * fix crosses a CELL_GRID_METERS square.
+     */
+    fun cellAreaKey(latitude: Double, longitude: Double): Long {
+        val latSpan = EnvGeo.metersToLatDegrees(CELL_GRID_METERS)
+        val lonSpan = EnvGeo.metersToLonDegrees(latitude, CELL_GRID_METERS)
+        val cellX = EnvGeo.gridIndex(longitude, lonSpan)
+        val cellY = EnvGeo.gridIndex(latitude, latSpan)
+        return (cellX shl 32) xor (cellY and 0xFFFFFFFFL)
+    }
+
     /** Serving cell plus neighbours for the coarse area that contains the fix. */
     fun cells(latitude: Double, longitude: Double, sessionSeed: Long): List<Cell> {
         val latSpan = EnvGeo.metersToLatDegrees(CELL_GRID_METERS)
