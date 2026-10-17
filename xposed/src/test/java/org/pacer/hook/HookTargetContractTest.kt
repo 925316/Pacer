@@ -44,6 +44,12 @@ class HookTargetContractTest {
             }
         }
 
+        if (missing.isNotEmpty()) {
+            // Printed before failing so the list is always visible in the CI log,
+            // not only in the HTML report.
+            println("MISSING HOOK TARGETS:\n" + missing.joinToString("\n"))
+        }
+
         assertTrue(
             "Hook targets that do not exist in the compile SDK. Fix the string, or " +
                 "move it to PROBED_PLATFORM_MEMBERS if the API was deliberately " +
@@ -163,7 +169,7 @@ class HookTargetContractTest {
                 "getLastKnownLocation", "requestLocationUpdates", "isProviderEnabled",
                 "getProviders", "getAllProviders", "registerGnssStatusCallback",
                 "addGnssMeasurementsListener", "addGnssNavigationMessageListener",
-                "addGnssAntennaInfoListener", "getCurrentLocation",
+                "getCurrentLocation",
             ),
             "android.location.GnssStatus" to listOf(
                 "getSatelliteCount", "getSvid", "getCn0DbHz", "usedInFix",
@@ -174,7 +180,7 @@ class HookTargetContractTest {
                 "getBearing", "getSpeed", "getTime", "getElapsedRealtimeNanos",
                 "getProvider", "setLatitude", "setLongitude", "setAccuracy",
                 "setAltitude", "setBearing", "setSpeed", "setTime",
-                "setElapsedRealtimeNanos", "distanceTo", "bearingTo",
+                "distanceTo", "bearingTo",
             ),
             "android.telephony.TelephonyManager" to listOf(
                 "getAllCellInfo", "getNetworkOperator", "getNetworkOperatorName",
@@ -183,8 +189,7 @@ class HookTargetContractTest {
                 "registerTelephonyCallback", "unregisterTelephonyCallback",
             ),
             "android.telephony.CellInfo" to listOf(
-                "isRegistered", "getTimeStamp", "getCellIdentity",
-                "getCellSignalStrength", "getCellConnectionStatus",
+                "isRegistered", "getTimeStamp", "getCellIdentity", "getCellSignalStrength",
             ),
             "android.app.AppOpsManager" to listOf(
                 "checkOp", "checkOpNoThrow", "noteOp", "noteOpNoThrow", "startWatchingMode",
@@ -211,7 +216,7 @@ class HookTargetContractTest {
             ),
             "android.bluetooth.BluetoothAdapter" to listOf(
                 "getRemoteDevice", "isEnabled", "getState", "getBluetoothLeScanner",
-                "getBondedDevices", "startDiscovery", "cancelDiscovery", "getDefaultAdapter",
+                "getBondedDevices", "startDiscovery", "cancelDiscovery",
             ),
             "android.bluetooth.BluetoothDevice" to listOf(
                 "getAddress", "getName", "getType", "getBondState", "getUuids", "connectGatt",
@@ -232,18 +237,17 @@ class HookTargetContractTest {
                 "getDefaultSensor", "registerListener", "unregisterListener", "getSensorList",
             ),
             "android.hardware.Sensor" to listOf(
-                "getType", "getName", "getStringType", "getReportingMode",
-                "getMaxDelay", "getMinDelay", "getPower", "getVendor", "getVersion",
+                "getType", "getName", "getMaxDelay", "getMinDelay",
+                "getPower", "getVendor", "getVersion",
             ),
             "android.os.SystemClock" to listOf(
                 "elapsedRealtimeNanos", "elapsedRealtime", "uptimeMillis",
             ),
             "android.telephony.ServiceState" to listOf(
-                "getState", "getNetworkOperator", "getOperatorAlphaLong",
-                "getOperatorAlphaShort",
+                "getState", "getNetworkOperator",
             ),
             "android.telephony.SignalStrength" to listOf(
-                "getLevel", "getCellSignalStrengths", "isGsm",
+                "getLevel", "getCellSignalStrengths",
             ),
         )
 
@@ -252,8 +256,16 @@ class HookTargetContractTest {
             "android.location.LocationManager" to listOf(
                 "addGpsStatusListener", "removeGpsStatusListener", "requestSingleUpdate",
                 "addTestProvider", "removeTestProvider", "setTestProviderEnabled",
-                "setTestProviderLocation", "getGnssAntennaInfos",
+                "setTestProviderLocation", "getGnssAntennaInfos", "addGnssAntennaInfoListener",
             ),
+            "android.location.Location" to listOf(
+                "setElapsedRealtimeNanos", "isFromMockProvider", "isMock",
+            ),
+            "android.telephony.CellInfo" to listOf("getCellConnectionStatus"),
+            "android.telephony.ServiceState" to listOf(
+                "getOperatorAlphaLong", "getOperatorAlphaShort", "getNrState",
+            ),
+            "android.telephony.SignalStrength" to listOf("isGsm"),
             "android.location.GpsStatus" to listOf("getSatelliteCount"),
             "android.telephony.TelephonyManager" to listOf(
                 "getCellLocation", "getNeighboringCellInfo", "getSimOperator",
@@ -272,7 +284,7 @@ class HookTargetContractTest {
                 "startLeScan", "stopLeScan", "getAddress", "getLeState",
             ),
             "android.bluetooth.le.ScanRecord" to listOf("getBytes"),
-            "android.hardware.Sensor" to listOf("getHandle"),
+            "android.hardware.Sensor" to listOf("getHandle", "getStringType", "getReportingMode"),
             "android.app.AppOpsManager" to listOf("strOpToOp", "opToName"),
         )
 
