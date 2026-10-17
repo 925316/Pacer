@@ -74,7 +74,7 @@ class HookTargetContractTest {
         report.append("members never appear here even though they exist on a device.\n")
 
         report.append("-- constructors of the types a fabricated radio payload needs --\n")
-        for (name in CELL_TYPES + WIFI_TYPES) {
+        for (name in CELL_TYPES + WIFI_TYPES + BT_TYPES) {
             val clazz = load(name)
             if (clazz == null) {
                 report.append("  $name: ABSENT\n")
@@ -162,6 +162,8 @@ class HookTargetContractTest {
             "android.bluetooth.le.ScanResult",
             "android.bluetooth.le.ScanRecord",
             "android.bluetooth.le.ScanFilter",
+            "android.bluetooth.le.ScanCallback",
+            "android.os.ParcelUuid",
             "android.content.pm.PackageManager",
             "android.hardware.Sensor",
             "android.hardware.SensorManager",
@@ -251,6 +253,10 @@ class HookTargetContractTest {
             "android.bluetooth.BluetoothManager" to listOf(
                 "getAdapter", "getConnectedDevices", "getDevicesMatchingConnectionStates",
             ),
+            "android.bluetooth.le.ScanCallback" to listOf(
+                "onScanResult", "onBatchScanResults", "onScanFailed",
+            ),
+            "android.os.ParcelUuid" to listOf("fromString"),
             "android.content.pm.PackageManager" to listOf("hasSystemFeature"),
             "android.hardware.SensorManager" to listOf(
                 "getDefaultSensor", "registerListener", "unregisterListener", "getSensorList",
@@ -318,7 +324,14 @@ class HookTargetContractTest {
             ),
             "android.bluetooth.BluetoothAdapter" to listOf(
                 "startLeScan", "stopLeScan", "getAddress", "getLeState",
+                "getRemoteDevice", "checkBluetoothAddress",
             ),
+            "android.bluetooth.BluetoothAdapter\$LeScanCallback" to listOf("onLeScan"),
+            "android.bluetooth.BluetoothDevice" to listOf("getBluetoothClass", "createBond"),
+            "android.bluetooth.le.ScanRecord" to listOf(
+                "getBytes", "parseFromBytes", "getAdvertiseFlags",
+            ),
+            "android.os.ParcelUuid" to listOf("getUuid", "toString"),
             "android.bluetooth.le.ScanRecord" to listOf("getBytes"),
             "android.hardware.Sensor" to listOf("getHandle", "getStringType", "getReportingMode"),
             "android.app.AppOpsManager" to listOf("strOpToOp", "opToName"),
@@ -353,6 +366,19 @@ class HookTargetContractTest {
             "android.net.wifi.WifiInfo",
             "android.net.wifi.WifiSsid",
             "android.content.pm.ParceledListSlice",
+        )
+
+        /**
+         * Types whose constructors decide how a fabricated Bluetooth payload can
+         * be built. BluetoothDevice and ScanResult both have hidden constructors
+         * whose parameter shapes moved between releases, so the shipped code
+         * validates whatever it builds by reading it back.
+         */
+        val BT_TYPES = listOf(
+            "android.bluetooth.BluetoothDevice",
+            "android.bluetooth.le.ScanResult",
+            "android.bluetooth.le.ScanRecord",
+            "android.os.ParcelUuid",
         )
     }
 }
