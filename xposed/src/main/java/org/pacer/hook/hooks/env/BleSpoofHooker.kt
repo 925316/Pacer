@@ -12,8 +12,11 @@
 // module's own callback interception can tell its own delivery from the app's
 // call and let it through.
 //
-// NOT COVERED: the startScan overload that delivers to a PendingIntent broadcast.
-// Rewriting those needs the bluetooth process scan service, a separate layer.
+// The startScan overload that delivers to a PendingIntent broadcast is not
+// rewritten HERE, because this layer never sees that callback: the platform builds
+// it itself and turns results into broadcasts. It is covered by the bluetooth
+// process layer (SystemBluetoothServiceHooker), which serves whatever callback the
+// scan service was handed, that one included.
 package org.pacer.hook.hooks.env
 
 import android.bluetooth.BluetoothAdapter
@@ -85,8 +88,13 @@ object BleSpoofHooker {
             val callback = chain.args.firstOrNull { it != null && HookUtils.hasTypeByName(it.javaClass, SCAN_CALLBACK) }
             val settings = chain.args.firstOrNull { it is ScanSettings } as? ScanSettings
             if (callback != null && suppressing()) {
-                hookScanCallback(callback.javaClass)
-                startModernDelivery(callback, settings?.callbackType ?: ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                // The callback class is only intercepted when the delivery that serves
+                // it is actually running. Intercepting a class that nothing will
+                // answer with is one of those bugs that only shows up as "no
+                // results", so the two halves start together.
+                if (startModernDelivery(callback, settings?.callbackType ?: ScanSettings.CALLBACK_TYPE_ALL_MATCHES)) {
+                    hookScanCallback(callback.javaClass)
+                }
             }
             chain.proceed(chain.args.toTypedArray())
         }
@@ -112,8 +120,8 @@ object BleSpoofHooker {
         HookUtils.hookAllMethods(clazz, "onBatchScanResults") { chain -> swallow(chain) }
     }
 
-    private fun startModernDelivery(callback: Any, callbackType: Int) {
-        val typed = callback as? ScanCallback ?: return
+    private fun startModernDelivery(callback: Any, callbackType: Int): Boolean {
+        val typed = callback as? ScanCallback ?: return false
         startDelivery(callback) {
             CallScope.enter {
                 for (result in payload().orEmpty()) {
@@ -123,6 +131,7 @@ object BleSpoofHooker {
                 }
             }
         }
+        return true
     }
 
     // --- deprecated LE scans -------------------------------------------------
@@ -135,8 +144,7 @@ object BleSpoofHooker {
         HookUtils.hookAllMethods(adapter, "startLeScan") { chain ->
             val callback = chain.args.firstOrNull { it != null && HookUtils.hasTypeByName(it.javaClass, LEGACY_CALLBACK) }
             if (callback != null && suppressing()) {
-                hookLegacyCallback(callback.javaClass)
-                startLegacyDelivery(callback)
+                if (startLegacyDelivery(callback)) hookLegacyCallback(callback.javaClass)
             }
             chain.proceed(chain.args.toTypedArray())
         }
@@ -147,8 +155,8 @@ object BleSpoofHooker {
         HookUtils.hookAllMethods(clazz, "onLeScan") { chain -> swallow(chain) }
     }
 
-    private fun startLegacyDelivery(callback: Any) {
-        val typed = callback as? BluetoothAdapter.LeScanCallback ?: return
+    private fun startLegacyDelivery(callback: Any): Boolean {
+        val typed = callback as? BluetoothAdapter.LeScanCallback ?: return false
         startDelivery(callback) {
             CallScope.enter {
                 for (result in payload().orEmpty()) {
@@ -158,17 +166,25 @@ object BleSpoofHooker {
                 }
             }
         }
+        return true
     }
 
     // --- delivery plumbing ---------------------------------------------------
 
     /**
-     * Swallows a real result: the app is served from the virtual environment on a
-     * heartbeat instead, so what it sees does not depend on the real surroundings.
-     * The CallScope check is what lets the module's own delivery through.
+     * Swallows a real result, but only one this layer is serving. The delivery that
+     * answers a callback is started in the same call that intercepts its class, so
+     * a callback with no delivery is left alone instead of being silenced. That
+     * matters because the bluetooth process layer can hand a result to a callback
+     * whose app-side delivery never started; swallowing that one would leave the
+     * app with nothing at all. CallScope is checked first, since it marks the
+     * module's own delivery.
      */
     private fun swallow(chain: XposedInterface.Chain): Any? {
-        if (!suppressing() || CallScope.active()) return chain.proceed(chain.args.toTypedArray())
+        val target = chain.thisObject
+        if (!suppressing() || CallScope.active() || target == null || !deliveries.containsKey(target)) {
+            return chain.proceed(chain.args.toTypedArray())
+        }
         return null
     }
 
