@@ -8,12 +8,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
-import kotlinx.serialization.Serializable
 
 /**
  * Immutable geographic point.
  */
-@Serializable
 data class GeoPoint(val lat: Double, val lon: Double)
 
 /**
