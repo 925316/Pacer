@@ -209,9 +209,16 @@ object FakeRadioEnvironment {
      * to cache a fabricated payload, because the tower set only changes when the
      * fix crosses a CELL_GRID_METERS square.
      */
-    fun cellAreaKey(latitude: Double, longitude: Double): Long {
-        val latSpan = EnvGeo.metersToLatDegrees(CELL_GRID_METERS)
-        val lonSpan = EnvGeo.metersToLonDegrees(latitude, CELL_GRID_METERS)
+    fun cellAreaKey(latitude: Double, longitude: Double): Long =
+        areaKey(latitude, longitude, CELL_GRID_METERS)
+
+    /** The same, for the shorter ranged beacon set. */
+    fun beaconAreaKey(latitude: Double, longitude: Double): Long =
+        areaKey(latitude, longitude, BEACON_GRID_METERS)
+
+    private fun areaKey(latitude: Double, longitude: Double, gridMeters: Double): Long {
+        val latSpan = EnvGeo.metersToLatDegrees(gridMeters)
+        val lonSpan = EnvGeo.metersToLonDegrees(latitude, gridMeters)
         val cellX = EnvGeo.gridIndex(longitude, lonSpan)
         val cellY = EnvGeo.gridIndex(latitude, latSpan)
         return (cellX shl 32) xor (cellY and 0xFFFFFFFFL)
