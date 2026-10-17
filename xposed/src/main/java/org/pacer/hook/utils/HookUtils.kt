@@ -188,13 +188,22 @@ object HookUtils {
         }
     }
 
-    inline fun <T> runCatchingLogged(tag: String, block: () -> T): T? =
-        try {
-            block()
+    /**
+     * Runs an installer, records the outcome in [HookStatus], and never lets a
+     * failure escape: a broken hooker must not take the target process with it.
+     */
+    inline fun <T> runCatchingLogged(tag: String, block: () -> T): T? {
+        val before = HookStatus.countHooked()
+        return try {
+            val result = block()
+            HookStatus.recordOk(tag, HookStatus.countHooked() - before)
+            result
         } catch (t: Throwable) {
             PacerLog.w(tag, t)
+            HookStatus.recordFailure(tag, t)
             null
         }
+    }
 }
 
 /** Small logging facade so hooks never crash the target process. */

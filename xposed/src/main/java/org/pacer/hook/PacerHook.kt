@@ -6,6 +6,7 @@ package org.pacer.hook
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 import org.pacer.hook.config.ConfigSync
+import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.AntiDetectionHooker
 import org.pacer.hook.hooks.GnssStatusHooker
 import org.pacer.hook.hooks.GmsFusedHooker
@@ -22,6 +23,7 @@ import org.pacer.hook.hooks.system.RawGnssSuppressionHooker
 import org.pacer.hook.hooks.system.SystemAppOpsHooker
 import org.pacer.hook.hooks.system.SystemLocationServiceHooker
 import org.pacer.hook.hooks.system.SystemSettingsProviderHooker
+import org.pacer.hook.utils.HookStatus
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
@@ -79,6 +81,7 @@ class PacerHook : XposedModule() {
         HookUtils.runCatchingLogged("raw-gnss") {
             RawGnssSuppressionHooker.install(classLoader)
         }
+        logInstallReport()
     }
 
     /**
@@ -100,5 +103,21 @@ class PacerHook : XposedModule() {
         HookUtils.runCatchingLogged("system-rawgnss") {
             RawGnssSuppressionHooker.install(classLoader)
         }
+        logInstallReport()
+    }
+
+    /**
+     * One summary line per process, so a device test can be read straight out
+     * of logcat: which installers attached how many hooks, which failed, and
+     * whether the config channel actually delivered a simulation.
+     */
+    private fun logInstallReport() {
+        val cfg = PacerRuntimeConfig.snapshot()
+        PacerLog.i(
+            "pacer config: active=${cfg.active} speed=${cfg.speedMps} " +
+                "at=(${cfg.latitude},${cfg.longitude}) route=${cfg.routeJson.isNotEmpty()} " +
+                "steps=${cfg.enableStepSimulation}",
+        )
+        PacerLog.i(HookStatus.summary())
     }
 }
