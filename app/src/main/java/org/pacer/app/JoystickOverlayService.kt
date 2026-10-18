@@ -1,5 +1,9 @@
 package org.pacer.app
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -7,6 +11,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.IBinder
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -31,6 +36,7 @@ class JoystickOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        startAsForeground()
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
 
@@ -55,6 +61,41 @@ class JoystickOverlayService : Service() {
         joystick?.let { windowManager?.removeView(it) }
         joystick = null
         super.onDestroy()
+    }
+
+    /**
+     * A foreground service, because of when this overlay is useful: the user is
+     * steering a simulation that the TARGET app is reading, which means Pacer is in
+     * the background. The system may kill a background service at any moment, so
+     * without this the control would disappear exactly when it is needed.
+     *
+     * Android 14 and later require a declared foreground service type; "specialUse"
+     * with the property in the manifest is the honest one for a control overlay.
+     */
+    private fun startAsForeground() {
+        try {
+            val channel = NotificationChannel(CHANNEL_ID, "Simulation control", NotificationManager.IMPORTANCE_LOW)
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
+            val open = PendingIntent.getActivity(
+                this,
+                0,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                .setContentTitle("Pacer")
+                .setContentText("Speed and heading controls are on screen.")
+                .setContentIntent(open)
+                .setOngoing(true)
+                .build()
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            // A refused notification must not take the overlay down with it: the view
+            // is already added, and the service still runs while the activity lives.
+            Log.w(TAG, "foreground notification refused", t)
+        }
     }
 
     private inner class JoystickView(context: Context) : View(context) {
@@ -155,5 +196,9 @@ class JoystickOverlayService : Service() {
 
         /** Knob size as a fraction of the base radius, shared by drawing and hit testing. */
         const val KNOB_FRACTION = 0.32f
+
+        const val CHANNEL_ID = "pacer-joystick"
+        const val NOTIFICATION_ID = 1
+        const val TAG = "Pacer"
     }
 }

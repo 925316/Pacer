@@ -467,7 +467,7 @@ class MainActivity : Activity() {
 
     private fun showJoystick() {
         if (Settings.canDrawOverlays(this)) {
-            startService(Intent(this, JoystickOverlayService::class.java))
+            startForegroundService(Intent(this, JoystickOverlayService::class.java))
             output.text = "Joystick shown. Drag the knob to steer (releasing keeps the last " +
                 "heading), drag the ring to move it, tap to stop."
         } else {
