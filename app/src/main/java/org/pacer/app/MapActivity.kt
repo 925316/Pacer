@@ -13,6 +13,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.RouteDraft
 import java.io.File
@@ -130,10 +131,28 @@ class MapActivity : Activity() {
             line.outlinePaint.strokeWidth = 8f
             view.overlays.add(line)
         }
-        for (p in points) {
+        for ((index, p) in points.withIndex()) {
             val marker = Marker(view)
             marker.position = p
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            // A waypoint can be dragged to where it really is: the draft is the single
+            // source of truth, so the drag writes through it and re-renders. Re-rendering
+            // is posted because this runs while osmdroid is still iterating its overlays.
+            marker.isDraggable = true
+            marker.setOnMarkerDragListener(
+                object : Marker.OnMarkerDragListener {
+                    override fun onMarkerDragStart(marker: Marker) = Unit
+
+                    override fun onMarkerDrag(marker: Marker) = Unit
+
+                    override fun onMarkerDragEnd(marker: Marker) {
+                        val pos = marker.position ?: return
+                        if (!draft.replaceAt(index, GeoPoint(pos.latitude, pos.longitude))) return
+                        store.save(draft)
+                        view.post { render() }
+                    }
+                },
+            )
             view.overlays.add(marker)
         }
 
@@ -149,13 +168,12 @@ class MapActivity : Activity() {
                     }
 
                     override fun longPressHelper(p: OsmGeoPoint): Boolean {
-                        // Tap keeps meaning "append a waypoint", so moving the running
-                        // simulation needs its own gesture rather than a mode switch.
-                        if (!PacerConfigClient.canTeleport()) {
-                            info.text = "Long press moves a running straight-line simulation here; " +
-                                "none is running (or a route simulation is)."
-                            return true
-                        }
+                        // Two long-press meanings share the map, so they are told apart by
+                        // what is under the finger: a waypoint means "drag me", anything
+                        // else means "move the running simulation here". Returning false
+                        // hands the gesture to the marker underneath; consuming it here
+                        // would make markers impossible to drag.
+                        if (isOnWaypoint(p) || !PacerConfigClient.canTeleport()) return false
                         PacerConfigClient.teleport(p.latitude, p.longitude)
                         info.text = String.format(
                             Locale.US,
@@ -171,10 +189,28 @@ class MapActivity : Activity() {
         view.invalidate()
     }
 
+    /**
+     * True when [p] is close enough to an existing waypoint to mean "drag that one".
+     *
+     * Measured in screen pixels, not metres: how close a finger has to be depends on the
+     * zoom, and a fixed metre radius would be uselessly tight when zoomed out. The
+     * conversion is osmdroid's own and is only exact at the equator, which is fine for a
+     * grab radius.
+     */
+    private fun isOnWaypoint(p: OsmGeoPoint): Boolean {
+        val view = map ?: return false
+        val pxPerMeter = view.projection.metersToEquatorPixels(1f).toDouble()
+        if (pxPerMeter <= 0.0) return false
+        val grabMeters = WAYPOINT_GRAB_PIXELS / pxPerMeter
+        val here = GeoPoint(p.latitude, p.longitude)
+        return draft.points.any { GeoMath.haversine(here, it) <= grabMeters }
+    }
+
     private fun updateInfo() {
         info.text = String.format(
             Locale.US,
-            "Tap the map to append a waypoint; long press to move a running simulation here." +
+            "Tap to append a waypoint; drag a waypoint to move it; long press elsewhere to " +
+                "move a running simulation here." +
                 "  Waypoints: %d   Length: %.0f m",
             draft.size,
             draft.totalLengthMeters(),
@@ -191,5 +227,8 @@ class MapActivity : Activity() {
         const val USER_AGENT = "Pacer/1.0 (Android research tool; https://github.com/925316/Pacer)"
         val ROUTE_COLOR = 0xFF1E88E5.toInt()
         val DEFAULT_CENTER = GeoPoint(39.9042, 116.4074)
+
+        /** Finger radius, in screen pixels, that counts as touching a waypoint. */
+        const val WAYPOINT_GRAB_PIXELS = 28.0
     }
 }
