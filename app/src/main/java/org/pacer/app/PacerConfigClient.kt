@@ -79,7 +79,10 @@ object PacerConfigClient {
     /** What the UI needs to show the configuration that is actually stored. */
     data class Stored(
         val active: Boolean,
+        /** Wall-clock millis the run started; the clock every derived position uses. */
+        val startedAtMs: Long,
         val onRoute: Boolean,
+        val routeJson: String,
         val lat: Double,
         val lon: Double,
         val speed: Double,
@@ -103,7 +106,9 @@ object PacerConfigClient {
         if (!p.contains("active")) return null
         return Stored(
             active = p.getBoolean("active", false),
+            startedAtMs = p.getLong("start_ts", 0L),
             onRoute = !p.getString("route_json", "").isNullOrEmpty(),
+            routeJson = p.getString("route_json", "") ?: "",
             lat = readDouble(p, "lat", 0.0),
             lon = readDouble(p, "lon", 0.0),
             speed = readDouble(p, "speed_mps", 0.0),

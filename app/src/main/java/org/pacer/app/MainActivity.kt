@@ -125,7 +125,7 @@ class MainActivity : Activity() {
         }
         root.addView(searchResultLabel)
         root.addView(action("Add searched place as waypoint") { addSearchedPlace() })
-        root.addView(action("Pick waypoints on the map") {
+        root.addView(action("Open the map and controls") {
             startActivity(Intent(this, MapActivity::class.java))
         })
 

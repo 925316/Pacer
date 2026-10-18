@@ -2,7 +2,12 @@ package org.pacer.app
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.InputType
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.osmdroid.config.Configuration
@@ -15,19 +20,33 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
+import org.pacer.motion.MotionConfig
+import org.pacer.motion.MotionSamples
+import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
+import org.pacer.motion.RouteJson
+import org.pacer.motion.RoutePath
+import org.pacer.motion.RouteSimulator
+import org.pacer.motion.SpeedPlan
+import org.pacer.motion.StraightLine
 import java.io.File
 import java.util.Locale
 
 /**
- * Route picker on OpenStreetMap tiles via osmdroid (no API key, fits the
- * no-backend rule). Tapping the map appends a waypoint to the shared
- * [RouteDraft]; the draft is saved on every change so [MainActivity] picks it up
- * when this screen closes.
+ * The operation page: the route on a map, the simulation controls, and a marker for
+ * where the simulated subject currently is.
  *
- * The map is created inside a try/catch and the screen degrades to a plain
- * message if the tile provider cannot start, so a tile problem can never take
- * the app down. All state lives in the draft, never in the map.
+ * Tapping appends a waypoint, dragging one moves it, and a long press elsewhere moves a
+ * running straight-line simulation. The draft is saved on every change so the other
+ * screen sees it, and it is the single source of truth for the route.
+ *
+ * The live marker is DERIVED, not read from the module: it is computed with the same
+ * core-motion code the hook side runs, from the same stored inputs, so a marker that
+ * disagrees with what the target app is told would be a bug in one shared formula rather
+ * than drift between two copies.
+ *
+ * The map is created inside a try/catch and the screen degrades to a plain message if the
+ * tile provider cannot start, so a tile problem can never take the app down.
  */
 class MapActivity : Activity() {
 
@@ -35,6 +54,17 @@ class MapActivity : Activity() {
     private lateinit var draft: RouteDraft
     private lateinit var info: TextView
     private var map: MapView? = null
+
+    private lateinit var speedField: EditText
+    private lateinit var loopCheck: CheckBox
+
+    /** Where the simulated subject is now, drawn on top of the route. */
+    private var liveMarker: Marker? = null
+
+    /** One lap of the stored route, rebuilt only when the stored run changes. */
+    private class LiveRoute(val key: String, val samples: List<org.pacer.motion.FixSample>)
+
+    private var liveRoute: LiveRoute? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,6 +89,24 @@ class MapActivity : Activity() {
         })
         root.addView(bar)
 
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        controls.addView(button("Start this route") { startSimulation() })
+        controls.addView(button("Stop") {
+            PacerConfigClient.stop()
+            info.text = "Simulation stopped."
+            updateLivePosition()
+        })
+        controls.addView(TextView(this).apply { text = "  Speed m/s "; textSize = 13f })
+        speedField = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText("3.0")
+            width = 140
+        }
+        controls.addView(speedField)
+        loopCheck = CheckBox(this).apply { text = "Loop" }
+        controls.addView(loopCheck)
+        root.addView(controls)
+
         map = try {
             createMap()
         } catch (t: Throwable) {
@@ -79,6 +127,19 @@ class MapActivity : Activity() {
 
         setContentView(root)
         render()
+        startLivePolling()
+        // The controls open on the stored run, for the same reason the other screen does:
+        // a screen that opens on its own defaults silently rewrites the user's settings
+        // the next time it starts something.
+        PacerConfigClient.onReady {
+            runOnUiThread {
+                val stored = PacerConfigClient.stored() ?: return@runOnUiThread
+                if (stored.speed > 0.0) {
+                    speedField.setText(String.format(Locale.US, "%.1f", stored.speed))
+                }
+                loopCheck.isChecked = stored.loopRoute
+            }
+        }
     }
 
     override fun onResume() {
@@ -122,6 +183,8 @@ class MapActivity : Activity() {
         val view = map ?: return
 
         view.overlays.clear()
+        // Cleared with the overlays, so the next poll adds a fresh one.
+        liveMarker = null
         val points = draft.points.map { OsmGeoPoint(it.lat, it.lon) }
 
         if (points.size >= 2) {
@@ -187,7 +250,142 @@ class MapActivity : Activity() {
             ),
         )
         view.invalidate()
+        updateLivePosition()
     }
+
+    // ---------------------------------------------------------------------
+    // Simulation control
+    // ---------------------------------------------------------------------
+
+    private fun startSimulation() {
+        val route = draft.toRoutePath()
+        if (route == null) {
+            info.text = "Add at least two waypoints before starting."
+            return
+        }
+        val speed = speedField.text.toString().toDoubleOrNull()?.coerceIn(0.1, 30.0) ?: 3.0
+        // Everything the app does not own here comes from the stored configuration:
+        // starting a route from this screen must not silently reset the signal-realism
+        // switches or the interval plan the user chose on the other screen.
+        val stored = PacerConfigClient.stored()
+        PacerConfigClient.start(
+            lat = route.points.first().lat,
+            lon = route.points.first().lon,
+            speed = speed,
+            bearing = 0f,
+            accuracy = stored?.accuracy ?: 5f,
+            altitudeMeters = stored?.altitude ?: 0.0,
+            routeJson = draft.toJson(),
+            plan = stored?.plan ?: "",
+            loopRoute = loopCheck.isChecked,
+            mockBluetooth = stored?.mockBluetooth ?: true,
+            stepSimulation = stored?.stepSimulation ?: true,
+            realism = stored?.realism ?: RealismToggles(),
+        )
+        info.text = String.format(
+            Locale.US,
+            "Simulating %d waypoints at %.1f m/s%s.",
+            draft.size,
+            speed,
+            if (loopCheck.isChecked) ", repeating" else "",
+        )
+        updateLivePosition()
+    }
+
+    // ---------------------------------------------------------------------
+    // Live position
+    // ---------------------------------------------------------------------
+
+    private fun startLivePolling() {
+        val handler = Handler(Looper.getMainLooper())
+        val tick = object : Runnable {
+            override fun run() {
+                try {
+                    updateLivePosition()
+                } catch (_: Throwable) {
+                } finally {
+                    handler.postDelayed(this, LIVE_POLL_MS)
+                }
+            }
+        }
+        handler.postDelayed(tick, LIVE_POLL_MS)
+    }
+
+    /**
+     * Moves the live marker to the position the simulation is reporting now.
+     *
+     * Derived with the same core-motion code the hook side runs, from the same stored
+     * inputs, so the marker cannot drift from what the target app is being told. The one
+     * lap of samples is cached and only rebuilt when the stored run changes.
+     */
+    private fun updateLivePosition() {
+        val view = map ?: return
+        val stored = PacerConfigClient.stored()
+        if (stored == null || !stored.active) {
+            liveMarker?.let { view.overlays.remove(it) }
+            liveMarker = null
+            view.invalidate()
+            return
+        }
+        val point = livePoint(stored) ?: return
+        val marker = liveMarker ?: Marker(view).apply {
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            title = "Simulated position"
+            icon?.setTint(LIVE_COLOR)
+        }.also {
+            liveMarker = it
+            view.overlays.add(it)
+        }
+        marker.position = OsmGeoPoint(point.lat, point.lon)
+        view.invalidate()
+    }
+
+    /** Where the subject is, from the stored run: route laps, or the straight line. */
+    private fun livePoint(stored: PacerConfigClient.Stored): GeoPoint? {
+        val elapsed = ((System.currentTimeMillis() - stored.startedAtMs).coerceAtLeast(0L)) / 1000.0
+        val routePath = storedRoute(stored)
+        if (routePath != null) {
+            val key = liveKey(stored)
+            val samples = liveRoute?.takeIf { it.key == key }?.samples
+                ?: RouteSimulator(
+                    routePath,
+                    MotionConfig(
+                        baseSpeedMps = if (stored.speed > 0.0) stored.speed else 3.0,
+                        plan = SpeedPlan.parse(stored.plan),
+                    ),
+                    toggles = stored.realism,
+                    steadyAccuracyMeters = stored.accuracy,
+                ).simulate(dtSec = 1.0).also { liveRoute = LiveRoute(key, it) }
+            if (samples.isEmpty()) return null
+            val lapSeconds = if (stored.loopRoute) samples.last().tSec else 0.0
+            val lap = MotionSamples.lapAt(elapsed, lapSeconds)
+            val base = MotionSamples.at(samples, lap.offsetSec) ?: return null
+            return MotionSamples.afterLaps(
+                base,
+                lap.index,
+                samples.last().distanceMeters,
+                samples.last().cumulativeSteps,
+                elapsed,
+            ).point
+        }
+        val meters = SpeedPlan.parse(stored.plan)?.metersAt(elapsed) ?: (stored.speed * elapsed)
+        return StraightLine.byDistance(GeoPoint(stored.lat, stored.lon), stored.bearing.toDouble(), meters)
+    }
+
+    private fun storedRoute(stored: PacerConfigClient.Stored): RoutePath? {
+        if (stored.routeJson.isBlank()) return null
+        return try {
+            val points = RouteJson.decode(stored.routeJson)
+            if (points.size >= 2) RoutePath(points) else null
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Everything that changes the samples, so one lap is rebuilt only when it must be. */
+    private fun liveKey(stored: PacerConfigClient.Stored): String =
+        stored.routeJson + "|" + stored.speed + "|" + stored.plan + "|" + stored.loopRoute + "|" +
+            stored.realism + "|" + stored.accuracy
 
     /**
      * True when [p] is close enough to an existing waypoint to mean "drag that one".
@@ -226,9 +424,13 @@ class MapActivity : Activity() {
     private companion object {
         const val USER_AGENT = "Pacer/1.0 (Android research tool; https://github.com/925316/Pacer)"
         val ROUTE_COLOR = 0xFF1E88E5.toInt()
+        val LIVE_COLOR = 0xFFE53935.toInt()
         val DEFAULT_CENTER = GeoPoint(39.9042, 116.4074)
 
         /** Finger radius, in screen pixels, that counts as touching a waypoint. */
         const val WAYPOINT_GRAB_PIXELS = 28.0
+
+        /** How often the live marker is moved; the simulation advances in seconds. */
+        const val LIVE_POLL_MS = 1000L
     }
 }
