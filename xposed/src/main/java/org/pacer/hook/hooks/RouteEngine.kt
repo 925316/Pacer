@@ -8,6 +8,7 @@ package org.pacer.hook.hooks
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.MotionConfig
+import org.pacer.motion.MotionSamples
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
@@ -36,12 +37,9 @@ object RouteEngine {
         val list = fixes
         if (list.isEmpty()) return null
         val elapsed = ((nowMs - cfg.startTimestamp).coerceAtLeast(0L)) / 1000.0
-        // Linear scan is fine: runs are minutes long at 1 s sampling.
-        var best = list.first()
-        for (f in list) {
-            if (f.tSec <= elapsed) best = f else break
-        }
-        return best
+        // Binary search, not a scan: the sensor callbacks ask this question tens of times
+        // a second and a run holds one sample per second for minutes.
+        return MotionSamples.at(list, elapsed)
     }
 
     private fun build(
