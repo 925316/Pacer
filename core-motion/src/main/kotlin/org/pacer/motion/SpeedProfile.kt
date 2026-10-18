@@ -73,19 +73,23 @@ class SpeedProfile(
             val remaining = distanceMeters - dist
             // Leave room to stop: never plan to overshoot the finish.
             val stopSpeed = remaining / dtSec
+            // Braking into a corner applies whenever the subject is accelerating, not only
+            // while cruising: resuming after a pause into a turn is the same situation as
+            // reaching it at speed, and leaving the ramp uncapped put full-speed samples on
+            // the approach to every turn that followed a stop.
+            val speedCap = speedCapAtDistance?.invoke(dist)?.coerceIn(0.0, 1.0) ?: 1.0
 
             val speed = when (phase) {
                 MotionPhase.ACQUIRE -> {
                     val k = min(1.0, phaseT / config.acquireDurationSec)
                     val ramp = k * k * (3 - 2 * k) // smoothstep
-                    val target = (cruiseBase * ramp).coerceAtLeast(0.0)
+                    val target = (cruiseBase * ramp * speedCap).coerceAtLeast(0.0)
                     if (k >= 1.0) transition(MotionPhase.CRUISE).also { phase = it; phaseT = 0.0 }
                     min(target, stopSpeed)
                 }
                 MotionPhase.CRUISE -> {
                     cruiseBase = fatiguedBase(dist)
-                    val cap = speedCapAtDistance?.invoke(dist) ?: 1.0
-                    val noisy = (cruiseBase * (1 + stepNoise(dtSec)) * cap.coerceIn(0.0, 1.0))
+                    val noisy = (cruiseBase * (1 + stepNoise(dtSec)) * speedCap)
                         .coerceAtLeast(0.0)
                     if (t >= nextPauseAt) {
                         pauseLeft = config.minPauseSec +
