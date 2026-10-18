@@ -39,7 +39,18 @@ class SpeedProfile(
     /** Current value of the mean-reverting cruise-noise process. */
     private var noise = 0.0
 
-    fun generate(distanceMeters: Double, dtSec: Double = 1.0): List<SpeedSample> {
+    /**
+     * @param speedCapAtDistance optional multiplier in (0, 1] for the cruise speed at a
+     *   given travelled distance, used to brake into a turn. It is applied INSIDE the
+     *   integration on purpose: scaling the speed afterwards would report a speed the
+     *   track's own displacement does not show, which is the kind of internal
+     *   disagreement an audit is supposed to find.
+     */
+    fun generate(
+        distanceMeters: Double,
+        dtSec: Double = 1.0,
+        speedCapAtDistance: ((Double) -> Double)? = null,
+    ): List<SpeedSample> {
         require(distanceMeters > 0) { "distanceMeters must be positive" }
         require(dtSec in 0.2..5.0) { "dtSec out of range" }
 
@@ -73,7 +84,9 @@ class SpeedProfile(
                 }
                 MotionPhase.CRUISE -> {
                     cruiseBase = fatiguedBase(dist)
-                    val noisy = (cruiseBase * (1 + stepNoise(dtSec))).coerceAtLeast(0.0)
+                    val cap = speedCapAtDistance?.invoke(dist) ?: 1.0
+                    val noisy = (cruiseBase * (1 + stepNoise(dtSec)) * cap.coerceIn(0.0, 1.0))
+                        .coerceAtLeast(0.0)
                     if (t >= nextPauseAt) {
                         pauseLeft = config.minPauseSec +
                             rng.nextDouble() * (config.maxPauseSec - config.minPauseSec)

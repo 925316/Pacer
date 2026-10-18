@@ -19,9 +19,10 @@ object Humanizer {
         distanceMeters: Double,
         dtSec: Double = 1.0,
         seed: Long = kotlin.random.Random.nextLong(),
+        speedCapAtDistance: ((Double) -> Double)? = null,
     ): RunResult {
         val profile = SpeedProfile(config, seed)
-        val samples = profile.generate(distanceMeters, dtSec)
+        val samples = profile.generate(distanceMeters, dtSec, speedCapAtDistance)
         val steps = StrideLinker.cumulativeSteps(samples)
         return RunResult(
             samples = samples,
