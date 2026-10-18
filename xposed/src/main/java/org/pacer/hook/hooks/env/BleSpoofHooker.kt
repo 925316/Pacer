@@ -64,6 +64,7 @@ object BleSpoofHooker {
         classLoader = loader
         val adapter = HookUtils.findClassIfExists("android.bluetooth.BluetoothAdapter", loader) ?: return
         hookBondedDevices(adapter)
+        hookConnectedDevices(loader)
         hookLeScanner(loader)
         hookLegacyLeScan(adapter)
         hookStopScan(loader, adapter)
@@ -77,6 +78,23 @@ object BleSpoofHooker {
         HookUtils.hookAllMethods(adapter, "getBondedDevices") { chain ->
             if (!suppressing()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
             java.util.HashSet<Any>()
+        }
+    }
+
+    /**
+     * Connected devices are the same class of user fingerprint as bonded ones and are
+     * visible only inside this process, so they follow the same switch: while a
+     * Bluetooth environment is being simulated, no real device is attached. The
+     * device-wide pairing list is left alone for the reason given at the top of the
+     * file - hiding it globally breaks pairing, hiding it here does not.
+     */
+    private fun hookConnectedDevices(loader: ClassLoader) {
+        val manager = HookUtils.findClassIfExists("android.bluetooth.BluetoothManager", loader) ?: return
+        for (method in arrayOf("getConnectedDevices", "getDevicesMatchingConnectionStates")) {
+            HookUtils.hookAllMethods(manager, method) { chain ->
+                if (!suppressing()) return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+                ArrayList<Any>()
+            }
         }
     }
 
