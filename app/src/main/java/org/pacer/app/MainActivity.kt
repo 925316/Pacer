@@ -385,7 +385,21 @@ class MainActivity : Activity() {
             stepSimulation = stepToggle.isChecked,
             realism = realismToggles(),
         )
-        output.text = String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
+        output.text = String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed) +
+            planSummary(plan)
+    }
+
+    /**
+     * A line about the interval plan that is about to run, using the plan's own
+     * arithmetic rather than a second calculation: a mistyped step is then visible
+     * before the run instead of only in its speed curve.
+     */
+    private fun planSummary(plan: String): String {
+        val parsed = SpeedPlan.parse(plan) ?: return ""
+        val pass = String.format(Locale.US, "%.0f s / %.0f m per pass", parsed.passSeconds, parsed.passMeters)
+        val total = parsed.totalMeters?.let { String.format(Locale.US, ", %.0f m in total", it) }
+            ?: ", repeating for the whole route"
+        return " Plan: $pass$total."
     }
 
     /**
@@ -448,13 +462,14 @@ class MainActivity : Activity() {
             draft.size,
             draft.totalLengthMeters(),
             speed,
-        )
+        ) + planSummary(plan)
     }
 
     private fun showJoystick() {
         if (Settings.canDrawOverlays(this)) {
             startService(Intent(this, JoystickOverlayService::class.java))
-            output.text = "Joystick shown. Drag the knob to steer, tap centre to stop."
+            output.text = "Joystick shown. Drag the knob to steer (releasing keeps the last " +
+                "heading), drag the ring to move it, tap to stop."
         } else {
             startActivity(
                 Intent(
