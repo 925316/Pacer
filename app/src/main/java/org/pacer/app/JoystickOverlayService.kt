@@ -125,17 +125,6 @@ class JoystickOverlayService : Service() {
             canvas.drawCircle(cx, cy, radius, basePaint)
             canvas.drawCircle(cx + knobX, cy + knobY, radius * 0.32f, knobPaint)
         }
-
-        /** Update the knob from a normalized joystick vector and push config. */
-        fun push(x: Double, y: Double) {
-            val velocity = JoystickMath.compute(x, y, SPEED_INPUT)
-            knobX = (velocity.vx / SPEED_INPUT * (width / 2f - 16f)).toFloat()
-            knobY = (velocity.vy / SPEED_INPUT * (width / 2f - 16f)).toFloat()
-            invalidate()
-            if (velocity.magnitude > 0.0) {
-                PacerConfigClient.updateMotion(velocity.magnitude * SPEED_INPUT, velocity.angleDeg.toFloat())
-            }
-        }
     }
 
     private companion object {

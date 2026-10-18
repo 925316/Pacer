@@ -65,12 +65,4 @@ object HookStatus {
         return "pacer hooks: total=${totalHooked.get()} | installed[$ok] | " +
             "components[$resolved] | failed[$bad]"
     }
-
-    /** Clears the report; used when re-installing into a reused process. */
-    fun reset() {
-        totalHooked.set(0)
-        hookedPerTag.clear()
-        failures.clear()
-        components.clear()
-    }
 }

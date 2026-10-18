@@ -107,18 +107,10 @@ object HookUtils {
     fun getLongField(obj: Any, name: String): Long =
         field(obj.javaClass, name)?.getLong(obj) ?: 0L
 
-    fun setObjectField(obj: Any, name: String, value: Any?) {
-        field(obj.javaClass, name)?.set(obj, value)
-    }
-
-    fun setIntField(obj: Any, name: String, value: Int) {
-        field(obj.javaClass, name)?.setInt(obj, value)
-    }
-
     /**
      * Sets a field and reports whether it existed and could be written. Code that
-     * must fall back when a field is absent or final cannot use [setObjectField],
-     * because that one silently does nothing.
+     * must fall back when a field is absent or final uses this rather than
+     * [setFieldQuietly], because that one silently does nothing.
      */
     fun trySetField(obj: Any, name: String, value: Any?): Boolean =
         try {
@@ -177,10 +169,6 @@ object HookUtils {
 
     fun setBooleanField(obj: Any, name: String, value: Boolean) {
         field(obj.javaClass, name)?.setBoolean(obj, value)
-    }
-
-    fun setLongField(obj: Any, name: String, value: Long) {
-        field(obj.javaClass, name)?.setLong(obj, value)
     }
 
     fun setField(obj: Any, name: String, value: Any?) {

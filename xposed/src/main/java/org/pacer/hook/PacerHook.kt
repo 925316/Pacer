@@ -184,10 +184,19 @@ class PacerHook : XposedModule() {
     private fun logInstallReport() {
         val cfg = PacerRuntimeConfig.snapshot()
         val vendor = VendorRegistry.active
+        val profile = VendorRegistry.profile
         PacerLog.i(
             "pacer process=${ProcessIdentity.current()} vendor=${vendor.id} " +
-                "family=${VendorRegistry.profile.family} ui=${VendorRegistry.profile.majorVersion}",
+                "family=${profile.family} ui=${profile.majorVersion}",
         )
+        // The ROM properties the adapter matched on. Without them a device report says only
+        // "the wrong adapter was chosen" and the cause has to be guessed; with them the
+        // value that misled RomRules is on the same page as the result.
+        if (profile.properties.isNotEmpty()) {
+            PacerLog.i(
+                "pacer device: " + profile.properties.entries.joinToString(" ") { "${it.key}=${it.value}" },
+            )
+        }
         PacerLog.i(
             "pacer config: active=${cfg.active} speed=${cfg.speedMps} " +
                 "at=(${cfg.latitude},${cfg.longitude}) route=${cfg.routeJson.isNotEmpty()} " +

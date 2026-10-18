@@ -17,15 +17,12 @@ object BinderDeaths {
 
     private val records = ConcurrentHashMap<IBinder, Record>()
 
-    @Volatile private var closed = false
-
     /**
      * Runs [onDeath] at most once if [binder] dies. A repeat watch for the same
      * binder replaces the action and keeps the existing link, so counting on one
      * death per watch is never necessary.
      */
     fun watch(binder: IBinder, onDeath: () -> Unit) {
-        if (closed) return
         val existing = records[binder]
         if (existing != null) {
             records[binder] = Record(existing.recipient, onDeath)
@@ -34,7 +31,7 @@ object BinderDeaths {
         val recipient = IBinder.DeathRecipient {
             // Removed first: the callback runs exactly once even if the death
             // notification is delivered twice.
-            records.remove(binder)?.let { if (!closed) it.onDeath() }
+            records.remove(binder)?.let { it.onDeath() }
         }
         records[binder] = Record(recipient, onDeath)
         try {
@@ -53,11 +50,5 @@ object BinderDeaths {
             binder.unlinkToDeath(record.recipient, 0)
         } catch (_: Throwable) {
         }
-    }
-
-    /** Unlinks everything. Called before the module's class loader is retired. */
-    fun close() {
-        closed = true
-        for (binder in records.keys.toList()) unwatch(binder)
     }
 }
