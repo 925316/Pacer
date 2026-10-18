@@ -57,11 +57,12 @@ object SystemWifiServiceHooker {
             val real = chain.proceed(chain.args.toTypedArray())
             val fake = try {
                 // The real slice doubles as the constructor template.
+                val aps = WifiFabricator.scanAps(cfg, System.currentTimeMillis())
                 WifiFabricator.buildScanResults(
-                    cfg,
                     classLoader,
+                    aps,
                     sliceList(real)?.firstOrNull(),
-                    SystemClock.elapsedRealtime(),
+                    SystemClock.elapsedRealtimeNanos() / 1000L,
                 )
             } catch (t: Throwable) {
                 PacerLog.w("system-wifi-scan", t)

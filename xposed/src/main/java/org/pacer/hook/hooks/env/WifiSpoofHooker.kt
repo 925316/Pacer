@@ -19,23 +19,69 @@
 // they are the honest report of the state everything else here follows.
 package org.pacer.hook.hooks.env
 
+import android.os.SystemClock
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
 object WifiSpoofHooker {
 
+    /**
+     * The last fabricated scan: the access points it reported and the moment it
+     * finished. Real scan results do not change between scans, so a caller that
+     * polls getScanResults() twice must see the same list twice - with the same
+     * timestamps - and only a scheduled scan may replace it.
+     */
+    private class ScanSnapshot(val aps: List<FakeRadioEnvironment.WifiAp>, val baseUs: Long)
+
+    @Volatile private var lastScan: ScanSnapshot? = null
+
+    /**
+     * When the results of an accepted startScan() become available, or 0 when no
+     * scan is pending. A scan takes a moment to walk its channels; results that
+     * appear in the same microsecond as the request are a timing signal.
+     */
+    @Volatile private var scanReadyAtUs = 0L
+
     /** WifiInfo.INVALID_NETWORK_ID: the platform's "not associated with anything". */
     private const val NOT_ASSOCIATED = -1
+
+    /**
+     * Time a scan needs before its results are visible. Long enough for a
+     * channel-dwell scan, short enough that a caller polling once a second still
+     * sees the update on its next poll.
+     */
+    private const val SCAN_SETTLE_US = 1_200_000L
 
     fun install(classLoader: ClassLoader) {
         val wifiManager = HookUtils.findClassIfExists("android.net.wifi.WifiManager", classLoader) ?: return
         hookScanResults(wifiManager, classLoader)
+        hookStartScan(wifiManager)
         hookConnectionInfo(wifiManager, classLoader)
         hookConfiguredNetworks(wifiManager, classLoader)
         hookDhcpInfo(wifiManager, classLoader)
         hookWifiInfoGetters(classLoader)
         PacerLog.i("wifi environment hooks installed")
+    }
+
+    // --- startScan -----------------------------------------------------------
+
+    /**
+     * startScan() tells the caller whether a scan was actually scheduled, and the
+     * platform throttles callers. Mirroring the real answer keeps the story straight:
+     * a scheduled scan replaces the cached results, a throttled one must leave them
+     * exactly as they were. Serving freshly timestamped results after a throttled
+     * call would be a contradiction between two calls describing one radio, and no
+     * throttling model of our own is needed to avoid it.
+     */
+    private fun hookStartScan(wifiManager: Class<*>) {
+        HookUtils.hookAllMethods(wifiManager, "startScan") { chain ->
+            val started = chain.proceed(chain.args.toTypedArray())
+            if (started == true) {
+                scanReadyAtUs = SystemClock.elapsedRealtimeNanos() / 1000L + SCAN_SETTLE_US
+            }
+            started
+        }
     }
 
     // --- getScanResults ------------------------------------------------------
@@ -56,7 +102,21 @@ object WifiSpoofHooker {
             // Settings.Global.WIFI_ON still says 0).
             if (real.isEmpty()) return@hookAllMethods real
             val fake = try {
-                WifiFabricator.buildScanResults(cfg, classLoader, real.firstOrNull(), System.currentTimeMillis())
+                val nowUs = SystemClock.elapsedRealtimeNanos() / 1000L
+                val cached = lastScan
+                val ready = scanReadyAtUs
+                val snapshot = if (cached == null || (ready != 0L && nowUs >= ready)) {
+                    ScanSnapshot(
+                        aps = WifiFabricator.scanAps(cfg, System.currentTimeMillis()),
+                        baseUs = nowUs,
+                    ).also {
+                        lastScan = it
+                        if (ready != 0L && nowUs >= ready) scanReadyAtUs = 0L
+                    }
+                } else {
+                    cached
+                }
+                WifiFabricator.buildScanResults(classLoader, snapshot.aps, real.firstOrNull(), snapshot.baseUs)
             } catch (t: Throwable) {
                 PacerLog.w("wifi-scan", t)
                 null
