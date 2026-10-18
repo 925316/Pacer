@@ -71,7 +71,11 @@ object ConfigSync {
         PacerRuntimeConfig.altitudeMeters = doubleOf(prefs, "altitude", 0.0)
         PacerRuntimeConfig.bearingDeg = prefs.getFloat("bearing", 0f)
         PacerRuntimeConfig.enableStepSimulation = prefs.getBoolean("step_enabled", true)
-        PacerRuntimeConfig.mockBluetooth = prefs.getBoolean("mock_bt", false)
+        // Defaults to ON, matching the app's default: the
+        // environment layers must agree with each other (Wi-Fi and cells are always
+        // simulated while a run is active), so BLE being the odd one out would be the
+        // anomaly. A key that is absent means an app build older than the switch.
+        PacerRuntimeConfig.mockBluetooth = prefs.getBoolean("mock_bt", true)
         // Every realism switch defaults to ON, matching the engine's own defaults: a run
         // started by an older app build that never wrote these keys must still look like
         // a person rather than a perfect line.

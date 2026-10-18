@@ -18,7 +18,12 @@ object PacerRuntimeConfig {
 
     @Volatile var enableStepSimulation: Boolean = true
 
-    @Volatile var mockBluetooth: Boolean = false
+    /**
+     * Whether the Bluetooth environment is simulated. True before any config has
+     * arrived, matching the app's default and ConfigSync's: the environment layers
+     * agree with each other, and this one is no exception.
+     */
+    @Volatile var mockBluetooth: Boolean = true
 
     /**
      * Which signal-realism behaviours to simulate. Held as the engine's own type so the
