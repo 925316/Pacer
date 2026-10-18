@@ -32,6 +32,14 @@ data class MotionConfig(
     /** Pause length range in seconds (typical 8..20). */
     val minPauseSec: Double = 8.0,
     val maxPauseSec: Double = 20.0,
+    /**
+     * Optional interval plan. When set it supplies the speed the run is aiming for at
+     * each moment, in place of [baseSpeedMps]; fatigue, noise, pauses and turn braking
+     * still apply on top, because those are properties of a person rather than of the
+     * session. [baseSpeedMps] remains the reference for anything that needs a single
+     * number, including the acquire ramp's fatigue floor.
+     */
+    val plan: SpeedPlan? = null,
 ) {
     init {
         require(baseSpeedMps > 0) { "baseSpeedMps must be positive" }

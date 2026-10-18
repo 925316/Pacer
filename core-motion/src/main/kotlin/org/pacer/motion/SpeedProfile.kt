@@ -24,7 +24,9 @@ data class SpeedSample(
  *
  * Original Pacer design (not ported from any repo):
  * - ACQUIRE ramp: smooth S-curve 0 -> base over [MotionConfig.acquireDurationSec]
- * - CRUISE: Ornstein-Uhlenbeck noise around a slowly fatiguing base
+ * - CRUISE: Ornstein-Uhlenbeck noise around a slowly fatiguing base, where the base
+ *   comes from [MotionConfig.plan] when an interval session is configured and from
+ *   [MotionConfig.baseSpeedMps] otherwise
  * - PAUSE: exponential inter-arrival, uniform duration, DECEL ramp in/out
  * - distance is integrated with the trapezoidal rule so steps stay consistent
  *
@@ -83,12 +85,12 @@ class SpeedProfile(
                 MotionPhase.ACQUIRE -> {
                     val k = min(1.0, phaseT / config.acquireDurationSec)
                     val ramp = k * k * (3 - 2 * k) // smoothstep
-                    val target = (cruiseBase * ramp * speedCap).coerceAtLeast(0.0)
+                    val target = (targetSpeed(t) * ramp * speedCap).coerceAtLeast(0.0)
                     if (k >= 1.0) transition(MotionPhase.CRUISE).also { phase = it; phaseT = 0.0 }
                     min(target, stopSpeed)
                 }
                 MotionPhase.CRUISE -> {
-                    cruiseBase = fatiguedBase(dist)
+                    cruiseBase = fatigued(targetSpeed(t), dist)
                     val noisy = (cruiseBase * (1 + stepNoise(dtSec)) * speedCap)
                         .coerceAtLeast(0.0)
                     if (t >= nextPauseAt) {
@@ -130,9 +132,15 @@ class SpeedProfile(
 
     private fun transition(to: MotionPhase): MotionPhase = to
 
-    private fun fatiguedBase(distanceMeters: Double): Double {
+    /**
+     * The speed the session is aiming for at [tSec]: the interval plan's current step,
+     * or the flat base speed when there is no plan.
+     */
+    private fun targetSpeed(tSec: Double): Double = config.plan?.speedAt(tSec) ?: config.baseSpeedMps
+
+    private fun fatigued(speedMps: Double, distanceMeters: Double): Double {
         val factor = 1.0 - config.fatiguePerKm * (distanceMeters / 1000.0)
-        return (config.baseSpeedMps * factor).coerceAtLeast(config.baseSpeedMps * 0.5)
+        return (speedMps * factor).coerceAtLeast(speedMps * 0.5)
     }
 
     private fun stepNoise(dtSec: Double): Double {
