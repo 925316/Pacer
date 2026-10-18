@@ -39,6 +39,7 @@ class MapActivity : Activity() {
         super.onCreate(savedInstanceState)
         store = RouteStore(this)
         draft = store.load()
+        PacerConfigClient.init()
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         info = TextView(this).apply { textSize = 14f; setPadding(24, 24, 24, 8) }
@@ -147,7 +148,23 @@ class MapActivity : Activity() {
                         return true
                     }
 
-                    override fun longPressHelper(p: OsmGeoPoint): Boolean = false
+                    override fun longPressHelper(p: OsmGeoPoint): Boolean {
+                        // Tap keeps meaning "append a waypoint", so moving the running
+                        // simulation needs its own gesture rather than a mode switch.
+                        if (!PacerConfigClient.canTeleport()) {
+                            info.text = "Long press moves a running straight-line simulation here; " +
+                                "none is running (or a route simulation is)."
+                            return true
+                        }
+                        PacerConfigClient.teleport(p.latitude, p.longitude)
+                        info.text = String.format(
+                            Locale.US,
+                            "Simulation moved to %.5f, %.5f.",
+                            p.latitude,
+                            p.longitude,
+                        )
+                        return true
+                    }
                 },
             ),
         )
@@ -157,7 +174,8 @@ class MapActivity : Activity() {
     private fun updateInfo() {
         info.text = String.format(
             Locale.US,
-            "Tap the map to append a waypoint.  Waypoints: %d   Length: %.0f m",
+            "Tap the map to append a waypoint; long press to move a running simulation here." +
+                "  Waypoints: %d   Length: %.0f m",
             draft.size,
             draft.totalLengthMeters(),
         )

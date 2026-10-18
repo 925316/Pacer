@@ -4,7 +4,9 @@ import android.content.SharedPreferences
 import android.util.Log
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
+import org.pacer.motion.GeoPoint
 import org.pacer.motion.RealismToggles
+import org.pacer.motion.StraightLine
 
 /**
  * Writes the simulation config into the Xposed framework's shared preference
@@ -19,7 +21,14 @@ object PacerConfigClient {
     @Volatile private var service: XposedService? = null
     @Volatile private var prefs: SharedPreferences? = null
 
+    private val pendingReady = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    /** Guards against a second listener: the bind callback is process wide. */
+    @Volatile private var listening = false
+
     fun init() {
+        if (listening) return
+        listening = true
         XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
             override fun onServiceBind(s: XposedService) {
                 service = s
@@ -29,6 +38,7 @@ object PacerConfigClient {
                 } catch (t: Throwable) {
                     Log.e(TAG, "getRemotePreferences failed", t)
                 }
+                flushReady()
             }
 
             override fun onServiceDied(s: XposedService) {
@@ -40,7 +50,74 @@ object PacerConfigClient {
         })
     }
 
+    /**
+     * Runs [action] once the config channel is usable, immediately when it already
+     * is. The service binds asynchronously, so a screen that wants to show what is
+     * configured cannot simply read it in onCreate.
+     */
+    fun onReady(action: () -> Unit) {
+        if (prefs != null) {
+            action()
+            return
+        }
+        pendingReady.add(action)
+    }
+
+    private fun flushReady() {
+        if (prefs == null) return
+        for (action in pendingReady) {
+            try {
+                action()
+            } catch (t: Throwable) {
+                Log.w(TAG, "deferred config action failed", t)
+            }
+        }
+        pendingReady.clear()
+    }
+
     val isReady: Boolean get() = prefs != null
+
+    /** What the UI needs to show the configuration that is actually stored. */
+    data class Stored(
+        val active: Boolean,
+        val onRoute: Boolean,
+        val lat: Double,
+        val lon: Double,
+        val speed: Double,
+        val bearing: Float,
+        val accuracy: Float,
+        val altitude: Double,
+        val stepSimulation: Boolean,
+        val mockBluetooth: Boolean,
+        val realism: RealismToggles,
+    )
+
+    /** The stored configuration, or null while the channel is not ready or unused. */
+    fun stored(): Stored? {
+        val p = prefs ?: return null
+        // No key at all means nothing was ever pushed; reporting fallbacks then would
+        // make the UI claim settings the hook side has never seen.
+        if (!p.contains("active")) return null
+        return Stored(
+            active = p.getBoolean("active", false),
+            onRoute = !p.getString("route_json", "").isNullOrEmpty(),
+            lat = readDouble(p, "lat", 0.0),
+            lon = readDouble(p, "lon", 0.0),
+            speed = readDouble(p, "speed_mps", 0.0),
+            bearing = p.getFloat("bearing", 0f),
+            accuracy = p.getFloat("accuracy", 5f),
+            altitude = readDouble(p, "altitude", 0.0),
+            stepSimulation = p.getBoolean("step_enabled", true),
+            mockBluetooth = p.getBoolean("mock_bt", true),
+            realism = RealismToggles(
+                bearingHold = p.getBoolean("bearing_hold", true),
+                altitudeDrift = p.getBoolean("altitude_drift", true),
+                accuracyWarmup = p.getBoolean("accuracy_warmup", true),
+                satelliteJitter = p.getBoolean("satellite_jitter", true),
+                signalDropout = p.getBoolean("signal_dropout", true),
+            ),
+        )
+    }
 
     /** Start a simulation at [lat]/[lon] (WGS84) at [speed] m/s along [bearing]. */
     fun start(
@@ -89,12 +166,66 @@ object PacerConfigClient {
         Log.i(TAG, "simulation stopped")
     }
 
-    /** Live update from the floating joystick: speed and heading only. */
+    /**
+     * Live update from the floating joystick.
+     *
+     * The position is derived from the start point and the clock, so changing the
+     * motion has to move the anchor first: without that, the whole straight line is
+     * recomputed from where the run began under the new heading and the subject jumps.
+     * Route mode is left alone - it derives its own sample from the route, and
+     * re-anchoring would restart the route from its first waypoint.
+     */
     fun updateMotion(speed: Double, bearing: Float) {
         val p = prefs ?: return
-        p.edit()
+        val edit = p.edit()
             .putLong("speed_mps", java.lang.Double.doubleToRawLongBits(speed))
             .putFloat("bearing", bearing)
-            .apply()
+        if (p.getString("route_json", "").isNullOrEmpty()) {
+            anchorHere(p, edit, System.currentTimeMillis())
+        }
+        edit.apply()
     }
+
+    /**
+     * Moves the simulated subject to [lat]/[lon] now, keeping its speed and heading.
+     * An active route ignores this: its position comes from the route, and starting
+     * that over is a different action, so the caller asks first (see [canTeleport]).
+     */
+    fun teleport(lat: Double, lon: Double) {
+        val p = prefs ?: return
+        if (!canTeleport()) return
+        p.edit()
+            .putLong("lat", java.lang.Double.doubleToRawLongBits(lat))
+            .putLong("lon", java.lang.Double.doubleToRawLongBits(lon))
+            .putLong("start_ts", System.currentTimeMillis())
+            .apply()
+        Log.i(TAG, "simulation moved to $lat, $lon")
+    }
+
+    /** True when a running straight-line simulation is there to be moved. */
+    fun canTeleport(): Boolean {
+        val state = stored() ?: return false
+        return state.active && !state.onRoute
+    }
+
+    /**
+     * Writes the current derived position as the new start point, so a motion change
+     * continues from where the subject is rather than from where the run began.
+     */
+    private fun anchorHere(p: SharedPreferences, edit: SharedPreferences.Editor, nowMs: Long) {
+        val start = GeoPoint(readDouble(p, "lat", 0.0), readDouble(p, "lon", 0.0))
+        val elapsed = ((nowMs - p.getLong("start_ts", nowMs)).coerceAtLeast(0L)) / 1000.0
+        val here = StraightLine.at(
+            start = start,
+            bearingDeg = p.getFloat("bearing", 0f).toDouble(),
+            speedMps = readDouble(p, "speed_mps", 0.0),
+            elapsedSec = elapsed,
+        )
+        edit.putLong("lat", java.lang.Double.doubleToRawLongBits(here.lat))
+            .putLong("lon", java.lang.Double.doubleToRawLongBits(here.lon))
+            .putLong("start_ts", nowMs)
+    }
+
+    private fun readDouble(p: SharedPreferences, key: String, fallback: Double): Double =
+        if (p.contains(key)) java.lang.Double.longBitsToDouble(p.getLong(key, 0L)) else fallback
 }
