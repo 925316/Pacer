@@ -25,15 +25,25 @@ object StraightLine {
      */
     fun at(start: GeoPoint, bearingDeg: Double, speedMps: Double, elapsedSec: Double): GeoPoint {
         if (speedMps <= 0.0 || elapsedSec <= 0.0) return start
-        val distance = speedMps * elapsedSec
+        return byDistance(start, bearingDeg, speedMps * elapsedSec)
+    }
+
+    /**
+     * Position [meters] along [bearingDeg] from [start]. This is the one formula:
+     * [at] is this with the distance written as speed x time, and a caller whose speed
+     * varies during the run (an interval plan) supplies its own distance instead of a
+     * product, so both paths keep the same geometry.
+     */
+    fun byDistance(start: GeoPoint, bearingDeg: Double, meters: Double): GeoPoint {
+        if (meters <= 0.0) return start
         val bearing = Math.toRadians(bearingDeg)
-        val dLat = distance * cos(bearing) / METERS_PER_DEGREE_LAT
+        val dLat = meters * cos(bearing) / METERS_PER_DEGREE_LAT
         // Degrees of longitude shrink towards the poles. At a pole the conversion is
         // undefined, so the heading is allowed to move latitude only rather than
         // producing an infinite offset.
         val metersPerDegreeLon = METERS_PER_DEGREE_LAT * cos(Math.toRadians(start.lat))
         if (metersPerDegreeLon == 0.0) return GeoPoint(start.lat + dLat, start.lon)
-        val dLon = distance * sin(bearing) / metersPerDegreeLon
+        val dLon = meters * sin(bearing) / metersPerDegreeLon
         return GeoPoint(start.lat + dLat, start.lon + dLon)
     }
 }

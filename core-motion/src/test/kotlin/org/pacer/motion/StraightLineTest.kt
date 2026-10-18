@@ -62,6 +62,17 @@ class StraightLineTest {
         assertEquals(2.0, d2 / d1, 1e-6)
     }
 
+    @Test
+    fun `byDistance agrees with speed times time`() {
+        // One formula behind both paths: a caller that has a distance (an interval plan
+        // integrates its own) and a caller that has a speed and a clock must land on the
+        // same place, or the two would report different tracks for one run.
+        val bySpeed = StraightLine.at(start, bearingDeg = 137.0, speedMps = 2.5, elapsedSec = 240.0)
+        val byMeters = StraightLine.byDistance(start, bearingDeg = 137.0, meters = 2.5 * 240.0)
+        assertEquals(bySpeed, byMeters)
+        assertEquals(start, StraightLine.byDistance(start, bearingDeg = 137.0, meters = 0.0))
+    }
+
     private fun distanceMeters(a: GeoPoint, b: GeoPoint): Double {
         val dLat = (b.lat - a.lat) * 111_320.0
         val dLon = (b.lon - a.lon) * 111_320.0 * kotlin.math.cos(Math.toRadians(a.lat))
