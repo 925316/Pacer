@@ -2,6 +2,7 @@ package org.pacer.hook.hooks
 
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.CoordinateTransform
@@ -19,7 +20,10 @@ object MapSdkHooker {
     private fun activeWgs84(): GeoPoint? {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active || cfg.latitude == 0.0 || cfg.longitude == 0.0) return null
-        return GeoPoint(cfg.latitude, cfg.longitude)
+        // The CURRENT position, not the configured start: a location SDK that answers
+        // with the origin while android.location walks the route is the most visible
+        // disagreement there is, and these SDKs are the primary path for many apps.
+        return CurrentFix.of(cfg)
     }
 
     fun install(classLoader: ClassLoader) {

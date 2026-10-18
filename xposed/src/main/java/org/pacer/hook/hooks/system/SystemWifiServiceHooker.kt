@@ -16,6 +16,7 @@ package org.pacer.hook.hooks.system
 import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.env.FakeRadioEnvironment
 import org.pacer.hook.hooks.env.WifiFabricator
@@ -190,9 +191,10 @@ object SystemWifiServiceHooker {
 
     private fun connectedAp(cfg: PacerRuntimeConfig.Snapshot): FakeRadioEnvironment.WifiAp? =
         try {
+            val fix = CurrentFix.of(cfg)
             FakeRadioEnvironment.connectedAp(
-                cfg.latitude,
-                cfg.longitude,
+                fix.lat,
+                fix.lon,
                 EnvGeo.sessionSeed(cfg.startTimestamp),
                 SystemClock.elapsedRealtime(),
             )

@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 
@@ -108,8 +109,13 @@ object LocationInjector {
         } else 0.0
         val fx = realism.next(elapsedSec, cfg.speedMps, dtSec, cfg.bearingDeg)
 
-        var lat = cfg.latitude
-        var lon = cfg.longitude
+        // The nominal position for this moment, from the one source every layer uses.
+        // Route mode replaces it with the route sample below, which carries the rest of
+        // the reported state; the straight-line case is the reason to ask here at all,
+        // because it is now derived from the clock instead of accumulated by a timer.
+        val nominal = CurrentFix.of(cfg)
+        var lat = nominal.lat
+        var lon = nominal.lon
         var accuracy = fx.accuracyMeters
         var altitude = cfg.altitudeMeters + fx.altitudeMeters
         var bearing = fx.bearingDeg
@@ -221,10 +227,9 @@ object LocationInjector {
     private fun refreshTarget() {
         val now = SystemClock.elapsedRealtime()
         if (now - targetAtMs <= TARGET_TTL_MS) return
-        val cfg = PacerRuntimeConfig.snapshot()
-        val sample = RouteEngine.sampleAt()
-        targetLat = sample?.point?.lat ?: cfg.latitude
-        targetLon = sample?.point?.lon ?: cfg.longitude
+        val fix = CurrentFix.of(PacerRuntimeConfig.snapshot())
+        targetLat = fix.lat
+        targetLon = fix.lon
         targetAtMs = now
     }
 

@@ -243,7 +243,10 @@ object BleSpoofHooker {
 
         val now = SystemClock.elapsedRealtime()
         val bucket = now / JITTER_BUCKET_MS
-        val areaKey = FakeRadioEnvironment.beaconAreaKey(cfg.latitude, cfg.longitude)
+        // The cache key follows the CURRENT position, not the configured start, or a
+        // run that moves on would keep serving the origin's beacon set from the cache.
+        val fix = CurrentFix.of(cfg)
+        val areaKey = FakeRadioEnvironment.beaconAreaKey(fix.lat, fix.lon)
         cache?.let {
             if (it.areaKey == areaKey && it.bucket == bucket) return it.results
         }

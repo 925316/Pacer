@@ -15,10 +15,10 @@
 package org.pacer.hook.hooks
 
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.CoordinateTransform
-import org.pacer.motion.GeoPoint
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -82,13 +82,12 @@ object TencentLocationHooker {
         if (!cfg.active || (cfg.latitude == 0.0 && cfg.longitude == 0.0)) return null
         val iface = interfaceByName(real.javaClass, LOCATION_FQN) ?: return null
 
-        val gcj = CoordinateTransform.wgs84ToGcj02(GeoPoint(cfg.latitude, cfg.longitude))
         return try {
             Proxy.newProxyInstance(
                 iface.classLoader,
                 arrayOf(iface),
                 InvocationHandler { _, method, rawArgs ->
-                    spoofed(method, gcj, cfg) ?: invokeReal(real, method, rawArgs)
+                    spoofed(method) ?: invokeReal(real, method, rawArgs)
                 },
             )
         } catch (t: Throwable) {
@@ -101,16 +100,17 @@ object TencentLocationHooker {
      * Value for a spoofed accessor, adapted to the method's real return type so
      * the proxy never hands back a wrongly typed object. Returns null for every
      * method we do not spoof, which makes the caller delegate to the real fix.
+     *
+     * The position is resolved PER CALL rather than captured when the proxy is built.
+     * The proxy outlives the call that created it, so a captured value would leave a
+     * long-lived client reporting wherever the subject stood when it registered.
      */
-    private fun spoofed(
-        method: Method,
-        gcj: GeoPoint,
-        cfg: PacerRuntimeConfig.Snapshot,
-    ): Any? {
+    private fun spoofed(method: Method): Any? {
+        val cfg = PacerRuntimeConfig.snapshot()
         val name = method.name
         val number: Double = when (name) {
-            "getLatitude" -> gcj.lat
-            "getLongitude" -> gcj.lon
+            "getLatitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lat
+            "getLongitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lon
             "getSpeed" -> cfg.speedMps
             "getBearing" -> cfg.bearingDeg.toDouble()
             "getAccuracy" -> cfg.accuracyMeters.toDouble()

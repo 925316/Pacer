@@ -37,12 +37,15 @@ object CellPayload {
         if (!cfg.active || !EnvGeo.hasFix(cfg.latitude, cfg.longitude)) return null
 
         val seed = EnvGeo.sessionSeed(cfg.startTimestamp)
-        val areaKey = FakeRadioEnvironment.cellAreaKey(cfg.latitude, cfg.longitude)
+        // Quantized around the CURRENT position: as the run moves, the cell set changes
+        // at area boundaries instead of staying the origin's neighbourhood forever.
+        val fix = CurrentFix.of(cfg)
+        val areaKey = FakeRadioEnvironment.cellAreaKey(fix.lat, fix.lon)
         cache?.let {
             if (it.areaKey == areaKey && it.seed == seed && it.operator == operatorNumeric) return it.cells
         }
 
-        val model = FakeRadioEnvironment.cells(cfg.latitude, cfg.longitude, seed)
+        val model = FakeRadioEnvironment.cells(fix.lat, fix.lon, seed)
         val built = CellFabricator.fabricate(onOperator(model, operatorNumeric), classLoader) ?: return null
         cache = AreaCache(areaKey, seed, operatorNumeric, built)
         return built

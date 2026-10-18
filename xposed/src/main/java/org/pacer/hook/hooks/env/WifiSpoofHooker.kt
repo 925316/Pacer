@@ -147,9 +147,10 @@ object WifiSpoofHooker {
     ): List<Any>? {
         val configClass =
             HookUtils.findClassIfExists("android.net.wifi.WifiConfiguration", classLoader) ?: return null
+        val fix = CurrentFix.of(cfg)
         val aps = FakeRadioEnvironment.scanResults(
-            cfg.latitude,
-            cfg.longitude,
+            fix.lat,
+            fix.lon,
             EnvGeo.sessionSeed(cfg.startTimestamp),
             System.currentTimeMillis(),
         ).filter { it.ssid.isNotEmpty() }.take(8)
@@ -237,9 +238,10 @@ object WifiSpoofHooker {
     internal fun connectedAp(cfg: PacerRuntimeConfig.Snapshot): FakeRadioEnvironment.WifiAp? {
         if (!cfg.active || !EnvGeo.hasFix(cfg.latitude, cfg.longitude)) return null
         return try {
+            val fix = CurrentFix.of(cfg)
             FakeRadioEnvironment.connectedAp(
-                cfg.latitude,
-                cfg.longitude,
+                fix.lat,
+                fix.lon,
                 EnvGeo.sessionSeed(cfg.startTimestamp),
                 System.currentTimeMillis(),
             )

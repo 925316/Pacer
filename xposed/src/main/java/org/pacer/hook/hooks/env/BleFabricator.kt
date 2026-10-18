@@ -57,9 +57,10 @@ object BleFabricator {
     ): List<Any>? {
         if (unavailable) return null
         return try {
+            val fix = CurrentFix.of(cfg)
             val beacons = FakeRadioEnvironment.beacons(
-                cfg.latitude,
-                cfg.longitude,
+                fix.lat,
+                fix.lon,
                 EnvGeo.sessionSeed(cfg.startTimestamp),
                 nowMs,
             )

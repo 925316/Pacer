@@ -42,6 +42,7 @@ import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.env.BleFabricator
+import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.env.FakeRadioEnvironment
 import org.pacer.hook.hooks.system.vendor.SystemClassLocator
@@ -317,7 +318,10 @@ object SystemBluetoothServiceHooker {
         val loader = classLoader ?: return null
         val now = SystemClock.elapsedRealtime()
         val bucket = now / JITTER_BUCKET_MS
-        val areaKey = FakeRadioEnvironment.beaconAreaKey(cfg.latitude, cfg.longitude)
+        // The cache key follows the CURRENT position, not the configured start, or a run
+        // that moves on would keep serving the origin's beacon set from the cache.
+        val fix = CurrentFix.of(cfg)
+        val areaKey = FakeRadioEnvironment.beaconAreaKey(fix.lat, fix.lon)
         cache?.let {
             if (it.areaKey == areaKey && it.bucket == bucket) return it.results
         }

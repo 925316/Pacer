@@ -30,9 +30,12 @@ object WifiFabricator {
     ): List<Any>? {
         val scanResultClass =
             HookUtils.findClassIfExists("android.net.wifi.ScanResult", classLoader) ?: return null
+        // The current position, not the configured start: a run that walks away from
+        // where it began must not keep reporting the access points around its origin.
+        val fix = CurrentFix.of(cfg)
         val aps = FakeRadioEnvironment.scanResults(
-            cfg.latitude,
-            cfg.longitude,
+            fix.lat,
+            fix.lon,
             EnvGeo.sessionSeed(cfg.startTimestamp),
             nowMs,
         )

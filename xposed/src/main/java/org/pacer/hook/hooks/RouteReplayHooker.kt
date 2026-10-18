@@ -83,7 +83,11 @@ object RouteReplayHooker {
     private fun pushTick() {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active) return
-        advancePosition(cfg)
+        // No position bookkeeping here: the current position is derived from the clock
+        // by CurrentFix, which is the same value the injected location and every
+        // environment layer read, so a tick only has to deliver what that says now.
+        // Advancing a stored position here is what used to fight the config channel's
+        // re-read and pull a straight-line run back to its start every few seconds.
         val loc = fakeIfActive(LocationManager.GPS_PROVIDER) ?: return
         for (sink in sinks.toList()) {
             try {
@@ -117,20 +121,6 @@ object RouteReplayHooker {
         } catch (_: Throwable) {
             null
         }
-
-    /** Move the configured lat/lon forward along bearing by speed * 1s. */
-    private fun advancePosition(cfg: PacerRuntimeConfig.Snapshot) {
-        // Route mode advances position through RouteEngine instead.
-        if (cfg.routeJson.isNotBlank()) return
-        if (cfg.speedMps <= 0.0) return
-        val dist = cfg.speedMps // 1s tick
-        val latRad = Math.toRadians(cfg.latitude)
-        val dLat = dist * Math.cos(Math.toRadians(cfg.bearingDeg.toDouble())) / 111320.0
-        val dLon = dist * Math.sin(Math.toRadians(cfg.bearingDeg.toDouble())) /
-            (111320.0 * Math.cos(latRad))
-        PacerRuntimeConfig.latitude = cfg.latitude + dLat
-        PacerRuntimeConfig.longitude = cfg.longitude + dLon
-    }
 
     private fun fakeIfActive(provider: String): Location? {
         val cfg = PacerRuntimeConfig.snapshot()

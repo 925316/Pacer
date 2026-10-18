@@ -9,6 +9,7 @@ import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.NmeaFormatter
@@ -75,8 +76,12 @@ object NmeaHooker {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active) return
         val sample = RouteEngine.sampleAt()
-        val lat = sample?.point?.lat ?: cfg.latitude
-        val lon = sample?.point?.lon ?: cfg.longitude
+        // The NMEA sentences follow the same derived position as everything else; falling
+        // back to the configured start would leave a straight-line run reporting a point
+        // that never moves.
+        val fix = CurrentFix.of(cfg)
+        val lat = sample?.point?.lat ?: fix.lat
+        val lon = sample?.point?.lon ?: fix.lon
         if (lat == 0.0 && lon == 0.0) return
         val speedKn = (sample?.speedMps ?: cfg.speedMps) * 1.94384
         val bearing = (sample?.bearingDeg ?: cfg.bearingDeg).toDouble()
