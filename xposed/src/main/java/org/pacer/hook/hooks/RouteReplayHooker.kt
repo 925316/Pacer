@@ -39,9 +39,13 @@ object RouteReplayHooker {
             }
             if (PacerRuntimeConfig.snapshot().active && (listener != null || pendingIntent != null)) {
                 if (listener != null) {
+                    // No synchronous first fix and no onProviderEnabled() here. The real
+                    // manager delivers nothing inside the registration call, and it only
+                    // reports a provider-state change when the state changes. A caller
+                    // that registers and immediately removes again must receive nothing -
+                    // otherwise one deliberately minimal pair of calls proves the caller
+                    // is not talking to the platform.
                     sinks.add(Sink(listener, handler, provider))
-                    listener.onProviderEnabled(provider)
-                    fakeIfActive(provider)?.let { listener.onLocationChanged(it) }
                 }
                 if (pendingIntent != null) {
                     piSinks.add(PiSink(pendingIntent, provider))
@@ -93,6 +97,9 @@ object RouteReplayHooker {
             try {
                 (sink.handler ?: Handler(Looper.getMainLooper())).post {
                     try {
+                        // The registration may have been removed between the snapshot and
+                        // this post; delivering then would be a callback after removeUpdates.
+                        if (!sinks.contains(sink)) return@post
                         sink.listener?.onLocationChanged(Location(loc))
                     } catch (_: Throwable) {
                     }
