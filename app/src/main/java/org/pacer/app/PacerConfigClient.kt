@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
+import org.pacer.motion.RealismToggles
 
 /**
  * Writes the simulation config into the Xposed framework's shared preference
@@ -50,6 +51,8 @@ object PacerConfigClient {
         accuracy: Float = 5f,
         routeJson: String = "",
         mockBluetooth: Boolean = true,
+        stepSimulation: Boolean = true,
+        realism: RealismToggles = RealismToggles(),
     ) {
         val p = prefs ?: run {
             Log.w(TAG, "config channel not ready yet")
@@ -64,8 +67,13 @@ object PacerConfigClient {
             .putFloat("accuracy", accuracy)
             .putLong("altitude", java.lang.Double.doubleToRawLongBits(0.0))
             .putFloat("bearing", bearing)
-            .putBoolean("step_enabled", true)
+            .putBoolean("step_enabled", stepSimulation)
             .putBoolean("mock_bt", mockBluetooth)
+            .putBoolean("bearing_hold", realism.bearingHold)
+            .putBoolean("altitude_drift", realism.altitudeDrift)
+            .putBoolean("accuracy_warmup", realism.accuracyWarmup)
+            .putBoolean("satellite_jitter", realism.satelliteJitter)
+            .putBoolean("signal_dropout", realism.signalDropout)
             .putString("route_json", routeJson)
             .apply()
         Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")

@@ -9,6 +9,7 @@ import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
+import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteResampler
@@ -39,9 +40,12 @@ object RouteEngine {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active) return null
         val route = parseRoute(cfg.routeJson) ?: return null
-        val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp
+        // The switches are part of the cache key: they change the samples (accuracy,
+        // altitude, bearing, satellites, dropout), so a run configured differently must
+        // not reuse the previous build.
+        val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp + "|" + cfg.realism
         if (key != cacheKey) {
-            build(route, key, cfg.speedMps)
+            build(route, key, cfg.speedMps, cfg.realism)
         }
         val list = fixes
         if (list.isEmpty()) return null
@@ -60,14 +64,14 @@ object RouteEngine {
      */
     internal fun resampledRoute(): List<GeoPoint> = resampledPoints
 
-    private fun build(route: RoutePath, key: String, speedMps: Double) {
+    private fun build(route: RoutePath, key: String, speedMps: Double, toggles: RealismToggles) {
         try {
             val config = if (speedMps > 0.0) {
                 MotionConfig(baseSpeedMps = speedMps)
             } else {
                 MotionConfig.run()
             }
-            val sim = RouteSimulator(route, config)
+            val sim = RouteSimulator(route, config, toggles = toggles)
             fixes = sim.simulate(dtSec = 1.0)
             resampledPoints = try {
                 RouteResampler.resample(route.points, RESAMPLE_SPACING_METERS)

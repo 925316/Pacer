@@ -1,5 +1,7 @@
 package org.pacer.hook.config
 
+import org.pacer.motion.RealismToggles
+
 /**
  * In-process runtime configuration consulted by the hooks.
  *
@@ -17,6 +19,13 @@ object PacerRuntimeConfig {
     @Volatile var enableStepSimulation: Boolean = true
 
     @Volatile var mockBluetooth: Boolean = false
+
+    /**
+     * Which signal-realism behaviours to simulate. Held as the engine's own type so the
+     * hook passes it straight through: the switch that a user flips and the value the
+     * model reads are then the same thing rather than two lists that have to agree.
+     */
+    @Volatile var realism: RealismToggles = RealismToggles()
 
     /** Wall-clock millis when the current simulation started. */
     @Volatile var startTimestamp: Long = 0L
@@ -36,6 +45,7 @@ object PacerRuntimeConfig {
         speedMps = speedMps,
         enableStepSimulation = enableStepSimulation,
         mockBluetooth = mockBluetooth,
+        realism = realism,
         startTimestamp = startTimestamp,
         latitude = latitude,
         longitude = longitude,
@@ -50,6 +60,7 @@ object PacerRuntimeConfig {
         val speedMps: Double,
         val enableStepSimulation: Boolean,
         val mockBluetooth: Boolean,
+        val realism: RealismToggles,
         val startTimestamp: Long,
         val latitude: Double,
         val longitude: Double,

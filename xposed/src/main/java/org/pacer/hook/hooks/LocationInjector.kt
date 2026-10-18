@@ -35,7 +35,7 @@ object LocationInjector {
      * phase into the new one.
      */
     private class RunNoise(
-        val key: Long,
+        val key: Any,
         val realism: SignalRealism,
         val jitter: StationaryJitter,
     )
@@ -43,14 +43,17 @@ object LocationInjector {
     @Volatile private var noise: RunNoise? = null
 
     private fun noiseFor(cfg: PacerRuntimeConfig.Snapshot): RunNoise {
-        val key = cfg.startTimestamp
+        // Keyed on the run AND the switches: flipping one of them has to take effect
+        // immediately, and both engines carry state that must not survive into a run
+        // configured differently.
+        val key = cfg.startTimestamp to cfg.realism
         noise?.let { if (it.key == key) return it }
         synchronized(this) {
             noise?.let { if (it.key == key) return it }
-            val seed = EnvGeo.sessionSeed(key)
+            val seed = EnvGeo.sessionSeed(cfg.startTimestamp)
             val fresh = RunNoise(
                 key = key,
-                realism = SignalRealism(seed = seed),
+                realism = SignalRealism(toggles = cfg.realism, seed = seed),
                 jitter = StationaryJitter(seed = seed xor 0x5DEECE66DL),
             )
             noise = fresh

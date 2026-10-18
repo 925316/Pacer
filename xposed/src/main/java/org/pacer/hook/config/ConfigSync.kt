@@ -7,6 +7,7 @@ package org.pacer.hook.config
 import android.content.SharedPreferences
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import org.pacer.motion.RealismToggles
 
 object ConfigSync {
 
@@ -71,6 +72,16 @@ object ConfigSync {
         PacerRuntimeConfig.bearingDeg = prefs.getFloat("bearing", 0f)
         PacerRuntimeConfig.enableStepSimulation = prefs.getBoolean("step_enabled", true)
         PacerRuntimeConfig.mockBluetooth = prefs.getBoolean("mock_bt", false)
+        // Every realism switch defaults to ON, matching the engine's own defaults: a run
+        // started by an older app build that never wrote these keys must still look like
+        // a person rather than a perfect line.
+        PacerRuntimeConfig.realism = RealismToggles(
+            bearingHold = prefs.getBoolean("bearing_hold", true),
+            altitudeDrift = prefs.getBoolean("altitude_drift", true),
+            accuracyWarmup = prefs.getBoolean("accuracy_warmup", true),
+            satelliteJitter = prefs.getBoolean("satellite_jitter", true),
+            signalDropout = prefs.getBoolean("signal_dropout", true),
+        )
         PacerRuntimeConfig.routeJson = prefs.getString("route_json", "") ?: ""
     }
 

@@ -18,6 +18,7 @@ import android.widget.TextView
 import org.pacer.motion.CoordinateInput
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
+import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
@@ -44,7 +45,13 @@ class MainActivity : Activity() {
     private lateinit var customBtn: RadioButton
     private lateinit var speedInput: EditText
 
+    private lateinit var stepToggle: CheckBox
     private lateinit var bluetoothToggle: CheckBox
+    private lateinit var bearingHoldToggle: CheckBox
+    private lateinit var altitudeDriftToggle: CheckBox
+    private lateinit var accuracyWarmupToggle: CheckBox
+    private lateinit var satelliteJitterToggle: CheckBox
+    private lateinit var signalDropoutToggle: CheckBox
 
     private lateinit var latInput: EditText
     private lateinit var lonInput: EditText
@@ -123,18 +130,53 @@ class MainActivity : Activity() {
 
         // --- simulation ------------------------------------------------------
         root.addView(section("Simulation"))
-        bluetoothToggle = CheckBox(this).apply {
-            text = "Simulate the Bluetooth surroundings too"
-            isChecked = true
-        }
-        root.addView(bluetoothToggle)
+        stepToggle = option(
+            root,
+            "Step and sensor simulation",
+            "The step counter, the step detector and the accelerometer follow the route.",
+        )
+        bluetoothToggle = option(
+            root,
+            "Simulate the Bluetooth surroundings",
+            "Without this, Bluetooth scans still report the real surroundings while WiFi and cells " +
+                "are simulated. It also hides paired devices for the apps in scope, so switch it off " +
+                "while pairing hardware.",
+        )
+
+        // --- signal realism --------------------------------------------------
+        root.addView(section("Signal realism"))
         root.addView(
             hint(
-                "Without this, Bluetooth scans still report the real surroundings while WiFi and " +
-                    "cells are simulated. It also hides paired devices for the apps in scope while " +
-                    "the simulation runs, so switch it off if you are pairing hardware.",
+                "Each of these makes the track look less machine-made. Switch one off to keep that " +
+                    "part of the signal steady.",
             ),
         )
+        bearingHoldToggle = option(
+            root,
+            "Hold the heading while standing still",
+            "A stationary receiver keeps reporting its last course instead of snapping to north.",
+        )
+        altitudeDriftToggle = option(
+            root,
+            "Drift the altitude",
+            "A slow random walk of a few centimetres per second.",
+        )
+        accuracyWarmupToggle = option(
+            root,
+            "Warm up the accuracy",
+            "30 m converging to 5 m over the first half minute, as a cold fix does.",
+        )
+        satelliteJitterToggle = option(
+            root,
+            "Vary the satellite count",
+            "A plausible 7 to 14 instead of one fixed number.",
+        )
+        signalDropoutToggle = option(
+            root,
+            "Lose the signal occasionally",
+            "A few seconds of dropout now and then, which is the one a strict receiver may reject.",
+        )
+
         root.addView(action("Start straight line from coordinates") { startStraight() })
         root.addView(action("Start humanized route simulation") { startRoute() })
         root.addView(action("Stop simulation") {
@@ -262,9 +304,20 @@ class MainActivity : Activity() {
             speed = speed,
             bearing = 45f,
             mockBluetooth = bluetoothToggle.isChecked,
+            stepSimulation = stepToggle.isChecked,
+            realism = realismToggles(),
         )
         output.text = String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
     }
+
+    /** The signal-realism switches as the engine's own type, so nothing has to list them twice. */
+    private fun realismToggles(): RealismToggles = RealismToggles(
+        bearingHold = bearingHoldToggle.isChecked,
+        altitudeDrift = altitudeDriftToggle.isChecked,
+        accuracyWarmup = accuracyWarmupToggle.isChecked,
+        satelliteJitter = satelliteJitterToggle.isChecked,
+        signalDropout = signalDropoutToggle.isChecked,
+    )
 
     private fun startRoute() {
         val route = draft.toRoutePath()
@@ -281,6 +334,8 @@ class MainActivity : Activity() {
             bearing = 45f,
             routeJson = draft.toJson(),
             mockBluetooth = bluetoothToggle.isChecked,
+            stepSimulation = stepToggle.isChecked,
+            realism = realismToggles(),
         )
         output.text = String.format(
             Locale.US,
@@ -364,6 +419,21 @@ class MainActivity : Activity() {
         this.text = text
         textSize = 12f
         setPadding(0, 4, 0, 16)
+    }
+
+    /**
+     * A switch that is added to [into] already checked, with a one-line explanation
+     * underneath. The explanation is part of the control on purpose: every one of these
+     * changes what the simulated track looks like, and none is obvious from its label.
+     */
+    private fun option(into: LinearLayout, label: String, explanation: String): CheckBox {
+        val box = CheckBox(this).apply {
+            text = label
+            isChecked = true
+        }
+        into.addView(box)
+        into.addView(hint(explanation))
+        return box
     }
 
     private fun section(text: String): TextView = TextView(this).apply {
