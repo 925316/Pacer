@@ -107,13 +107,17 @@ object TencentLocationHooker {
      */
     private fun spoofed(method: Method): Any? {
         val cfg = PacerRuntimeConfig.snapshot()
+        // The last fix actually reported, when there is one: the SDK's own accuracy and
+        // bearing accessors have to describe that fix, not the raw configuration, or a
+        // warm-up ramp would exist in one API and not in the other.
+        val reported = LocationInjector.lastReported()
         val name = method.name
         val number: Double = when (name) {
             "getLatitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lat
             "getLongitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lon
-            "getSpeed" -> CurrentFix.speedAt(cfg)
-            "getBearing" -> cfg.bearingDeg.toDouble()
-            "getAccuracy" -> cfg.accuracyMeters.toDouble()
+            "getSpeed" -> reported?.speedMps?.toDouble() ?: CurrentFix.speedAt(cfg)
+            "getBearing" -> reported?.bearingDeg?.toDouble() ?: cfg.bearingDeg.toDouble()
+            "getAccuracy" -> reported?.accuracyMeters?.toDouble() ?: cfg.accuracyMeters.toDouble()
             "getTime" -> System.currentTimeMillis().toDouble()
             // 0 == not mock; the SDK exposes this as an int, not a boolean.
             "isMockGps", "getMockGps" -> 0.0

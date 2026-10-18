@@ -88,17 +88,19 @@ object NmeaHooker {
         // while the track moved under a plan was a disagreement between two of the three
         // things that describe one moment.
         val speedKn = (sample?.speedMps ?: CurrentFix.linearSpeedAt(cfg)) * 1.94384
-        val bearing = (sample?.bearingDeg ?: cfg.bearingDeg).toDouble()
+        // Bearing and altitude come from the fix that was actually reported: it carries
+        // the bearing held while the subject stands still and the configured start
+        // altitude added to the route's own drift. A sentence that disagrees with the
+        // Location object is a contradiction between two descriptions of one moment.
+        val reported = LocationInjector.lastReported()
+        val bearing = reported?.bearingDeg?.toDouble() ?: (sample?.bearingDeg ?: cfg.bearingDeg).toDouble()
         // GGA carries the number of satellites used in the fix, and that number is
         // already published for the Location extras and the GnssStatus patch. A third
         // answer count here would contradict the other two for anyone reading NMEA
         // alongside them.
         val sats = LastSky.current().usedInFix
-        // The altitude of the ground under the subject, which is what the injected
-        // Location reports: the configured start plus the route's own drift. Reporting
-        // the drift alone made a fix at 50 m look like one at 1 m to a reader that
-        // compared the two.
-        val altitude = cfg.altitudeMeters + (sample?.altitudeMeters ?: 0.0)
+        val altitude = reported?.altitudeMeters
+            ?: (cfg.altitudeMeters + (sample?.altitudeMeters ?: 0.0))
         val gga = NmeaFormatter.gga(lat, lon, sats, altitude)
         val rmc = NmeaFormatter.rmc(lat, lon, speedKn, bearing)
         for (sink in sinks.toList()) {

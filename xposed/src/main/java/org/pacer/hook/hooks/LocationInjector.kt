@@ -23,6 +23,9 @@ object LocationInjector {
     /** How long the coordinate getter hook may reuse the last computed position. */
     private const val TARGET_TTL_MS = 500L
 
+    /** How long a reported fix stays answerable to the adapters of other SDKs. */
+    private const val STALE_REPORT_MS = 2000L
+
     /**
      * Satellites a receiver tracks but does not use. A fix that uses every
      * satellite it can see is a receiver that never had to drop a weak signal,
@@ -76,6 +79,30 @@ object LocationInjector {
     }
 
     @Volatile private var lastNanos = 0L
+
+    /**
+     * The state of the last fix this module reported.
+     *
+     * Adapters that spoof their OWN API surface - the map SDKs - have to answer
+     * accuracy, bearing and speed as well, and reading the raw configuration would make
+     * them describe a different fix from the one every Location getter describes: the
+     * accuracy warm-up and the altitude drift live in the reported values, not in the
+     * configuration. Null when the last report is old, so a client that asks before any
+     * injection has happened falls back instead of being handed a stale fix.
+     */
+    data class Reported(
+        val accuracyMeters: Float,
+        val speedMps: Float,
+        val bearingDeg: Float,
+        val altitudeMeters: Double,
+    )
+
+    /** See [Reported]. */
+    fun lastReported(): Reported? {
+        val at = targetReportedAtMs
+        if (at == 0L || SystemClock.elapsedRealtime() - at > STALE_REPORT_MS) return null
+        return Reported(targetAccuracy, targetSpeed, targetBearing, targetAltitude)
+    }
 
     /** Provider names that mean "the platform produced this fix". */
     private val SYSTEM_PROVIDERS = setOf(
