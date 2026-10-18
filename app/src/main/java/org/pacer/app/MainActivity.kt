@@ -215,6 +215,46 @@ class MainActivity : Activity() {
 
         PacerConfigClient.init()
         renderRoute()
+        // Opens on the stored configuration rather than on this screen's defaults.
+        // Every start writes ALL of these keys, so opening on defaults meant that
+        // touching one switch silently restored the others - a user who had switched
+        // the Bluetooth simulation off got it switched back on by an unrelated tap.
+        PacerConfigClient.onReady { runOnUiThread { restoreFromStore() } }
+    }
+
+    /** Shows what is actually configured. See the call site for why this exists. */
+    private fun restoreFromStore() {
+        val stored = PacerConfigClient.stored() ?: return
+        if (stored.lat != 0.0 || stored.lon != 0.0) {
+            latInput.setText(String.format(Locale.US, "%.5f", stored.lat))
+            lonInput.setText(String.format(Locale.US, "%.5f", stored.lon))
+        }
+        accuracyInput.setText(String.format(Locale.US, "%.1f", stored.accuracy))
+        altitudeInput.setText(String.format(Locale.US, "%.1f", stored.altitude))
+        bearingInput.setText(String.format(Locale.US, "%.0f", stored.bearing))
+        // A stopped run stores speed 0, which is a state and not a speed the user
+        // chose; the field keeps its previous value in that case.
+        if (stored.speed > 0.0) {
+            speedInput.setText(String.format(Locale.US, "%.1f", stored.speed))
+            when (stored.speed) {
+                WALK_SPEED -> walkBtn.isChecked = true
+                RUN_SPEED -> runBtn.isChecked = true
+                RIDE_SPEED -> rideBtn.isChecked = true
+                else -> customBtn.isChecked = true
+            }
+        }
+        stepToggle.isChecked = stored.stepSimulation
+        bluetoothToggle.isChecked = stored.mockBluetooth
+        bearingHoldToggle.isChecked = stored.realism.bearingHold
+        altitudeDriftToggle.isChecked = stored.realism.altitudeDrift
+        accuracyWarmupToggle.isChecked = stored.realism.accuracyWarmup
+        satelliteJitterToggle.isChecked = stored.realism.satelliteJitter
+        signalDropoutToggle.isChecked = stored.realism.signalDropout
+        output.text = when {
+            stored.onRoute -> "Loaded the stored configuration: a route simulation is configured."
+            stored.active -> "Loaded the stored configuration: a straight-line simulation is running."
+            else -> "Loaded the stored configuration."
+        }
     }
 
     override fun onResume() {
@@ -304,10 +344,10 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------------
 
     private fun speedMps(): Double = when {
-        customBtn.isChecked -> speedInput.text.toString().toDoubleOrNull()?.coerceIn(0.1, 30.0) ?: 3.0
-        rideBtn.isChecked -> 6.0
-        walkBtn.isChecked -> 1.4
-        else -> 3.0
+        customBtn.isChecked -> speedInput.text.toString().toDoubleOrNull()?.coerceIn(0.1, 30.0) ?: RUN_SPEED
+        rideBtn.isChecked -> RIDE_SPEED
+        walkBtn.isChecked -> WALK_SPEED
+        else -> RUN_SPEED
     }
 
     private fun startStraight() {
@@ -564,6 +604,11 @@ class MainActivity : Activity() {
     }
 
     private companion object {
+        /** Speed presets, also used to recognise the stored value when the screen opens. */
+        const val WALK_SPEED = 1.4
+        const val RUN_SPEED = 3.0
+        const val RIDE_SPEED = 6.0
+
         /** Sample campus polygon; [lat,lon] pairs. */
         val SAMPLE_ROUTE: List<GeoPoint> = listOf(
             GeoPoint(39.9042, 116.4074),
