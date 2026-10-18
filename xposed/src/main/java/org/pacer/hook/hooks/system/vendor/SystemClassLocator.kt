@@ -31,21 +31,40 @@ object SystemClassLocator {
         resolved[component]?.let { return it }
 
         val candidates = VendorRegistry.classCandidates(component)
-        for (name in candidates) {
-            val found = tryLoad(name, classLoader)
-                ?: tryLoad(name, Thread.currentThread().contextClassLoader)
-                ?: tryLoad(name, ClassLoader.getSystemClassLoader())
-                ?: tryLoadFromApex(name)
-            if (found != null) {
-                resolved[component] = found
-                HookStatus.noteComponent(component.name, found.name)
-                return found
+        for ((index, name) in candidates.withIndex()) {
+            val located = locateOne(name, classLoader)
+            if (located != null) {
+                resolved[component] = located.first
+                HookStatus.noteComponent(
+                    component.name, located.first.name, index + 1, candidates.size, located.second,
+                )
+                return located.first
             }
         }
 
-        HookStatus.noteComponent(component.name, null)
+        HookStatus.noteComponent(component.name, null, 0, candidates.size, null)
         PacerLog.i("system component ${component.name}: none of ${candidates.size} candidate(s) resolved")
         return null
+    }
+
+    /**
+     * Tries the loader chain for one candidate name and reports which loader
+     * answered. The label belongs in the install report because "caller" and
+     * "apex" mean different things: the APEX loaders exist for services the
+     * ordinary loaders genuinely cannot see on Android 12 and later.
+     */
+    private fun locateOne(name: String, caller: ClassLoader?): Pair<Class<*>, String>? {
+        val chain = arrayOf(
+            "caller" to caller,
+            "context" to Thread.currentThread().contextClassLoader,
+            "system" to ClassLoader.getSystemClassLoader(),
+        )
+        for ((label, loader) in chain) {
+            val found = tryLoad(name, loader)
+            if (found != null) return found to label
+        }
+        val fromApex = tryLoadFromApex(name)
+        return if (fromApex != null) fromApex to "apex" else null
     }
 
     private fun tryLoad(name: String, loader: ClassLoader?): Class<*>? =

@@ -17,17 +17,35 @@ object HookStatus {
     private val totalHooked = AtomicInteger(0)
     private val hookedPerTag = ConcurrentHashMap<String, Int>()
     private val failures = ConcurrentHashMap<String, String>()
-    private val components = ConcurrentHashMap<String, String>()
+
+    /** How a system component resolved: the class, the candidate that matched, the loader. */
+    private data class Resolution(
+        val resolved: String?,
+        val candidateIndex: Int,
+        val candidateCount: Int,
+        val loader: String?,
+    )
+
+    private val components = ConcurrentHashMap<String, Resolution>()
 
     /**
-     * Records the class a system component resolved to, or "missing".
+     * Records which class a system component resolved to, and how.
      *
      * A component that resolves to nothing turns every dependent hook into a
-     * silent no-op - the hardest failure to diagnose from behaviour alone - so
-     * this is what makes it a single visible line in logcat.
+     * silent no-op - the hardest failure to diagnose from behaviour alone - so a
+     * miss reports how many names were searched before giving up. A hit reports
+     * the loader only when it is not the obvious one: "via apex" means the default
+     * loader could not see the service, which is the normal state of Wi-Fi,
+     * connectivity and telephony on Android 12 and later.
      */
-    fun noteComponent(component: String, resolved: String?) {
-        components[component] = resolved ?: "missing"
+    fun noteComponent(
+        component: String,
+        resolved: String?,
+        candidateIndex: Int,
+        candidateCount: Int,
+        loader: String?,
+    ) {
+        components[component] = Resolution(resolved, candidateIndex, candidateCount, loader)
     }
 
     /** Monotonic count of methods/constructors hooked in this process. */
@@ -60,9 +78,22 @@ object HookStatus {
         val resolved = if (components.isEmpty()) {
             "none"
         } else {
-            components.entries.sortedBy { it.key }.joinToString(", ") { "${it.key}=${it.value}" }
+            components.entries.sortedBy { it.key }.joinToString(", ") { describe(it.key, it.value) }
         }
         return "pacer hooks: total=${totalHooked.get()} | installed[$ok] | " +
             "components[$resolved] | failed[$bad]"
+    }
+
+    /**
+     * One component as it reads in the report. The quiet case is just
+     * `NAME=class`; `#2/3` says a later candidate matched, `via apex` says the
+     * ordinary loaders could not see the class, and `missing(3 searched)` says
+     * nothing matched at all.
+     */
+    private fun describe(component: String, r: Resolution): String {
+        val name = r.resolved ?: return "$component=missing(${r.candidateCount} searched)"
+        val at = if (r.candidateIndex > 1) "#${r.candidateIndex}/${r.candidateCount}" else ""
+        val via = if (r.loader != null && r.loader != "caller") " via ${r.loader}" else ""
+        return "$component=$name$at$via"
     }
 }
