@@ -85,7 +85,11 @@ object NmeaHooker {
         if (lat == 0.0 && lon == 0.0) return
         val speedKn = (sample?.speedMps ?: cfg.speedMps) * 1.94384
         val bearing = (sample?.bearingDeg ?: cfg.bearingDeg).toDouble()
-        val sats = sample?.satellites ?: 9
+        // GGA carries the number of satellites used in the fix, and that number is
+        // already published for the Location extras and the GnssStatus patch. A third
+        // answer count here would contradict the other two for anyone reading NMEA
+        // alongside them.
+        val sats = LastSky.current().usedInFix
         val altitude = sample?.altitudeMeters ?: cfg.altitudeMeters
         val gga = NmeaFormatter.gga(lat, lon, sats, altitude)
         val rmc = NmeaFormatter.rmc(lat, lon, speedKn, bearing)

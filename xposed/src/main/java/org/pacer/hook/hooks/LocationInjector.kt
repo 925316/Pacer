@@ -11,6 +11,7 @@ import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import org.pacer.motion.SatelliteStatus
 import org.pacer.motion.SignalRealism
 import org.pacer.motion.StationaryJitter
 
@@ -21,6 +22,13 @@ object LocationInjector {
 
     /** How long the coordinate getter hook may reuse the last computed position. */
     private const val TARGET_TTL_MS = 500L
+
+    /**
+     * Satellites a receiver tracks but does not use. A fix that uses every
+     * satellite it can see is a receiver that never had to drop a weak signal,
+     * which is not what a phone in a pocket looks like.
+     */
+    private const val IN_VIEW_MARGIN = 6
 
     /**
      * The noise engines, one set per run.
@@ -84,6 +92,19 @@ object LocationInjector {
     @Volatile private var targetLat = 0.0
     @Volatile private var targetLon = 0.0
     @Volatile private var targetAtMs = 0L
+
+    /**
+     * The rest of the state a fix reported last: accuracy, speed, bearing,
+     * altitude and the satellite counts. An aligned system fix is given these
+     * instead of keeping the real device's, so one object cannot say "you are
+     * here" while carrying the real speed and altitude.
+     */
+    @Volatile private var targetAccuracy = 5f
+    @Volatile private var targetBearing = 0f
+    @Volatile private var targetSpeed = 0f
+    @Volatile private var targetAltitude = 0.0
+    @Volatile private var targetSky: SatelliteStatus = SatelliteStatus.withFix(11, 9)
+    @Volatile private var targetReportedAtMs = 0L
 
     /** Always expose a fabricated position while a simulation is active. */
     fun install(classLoader: ClassLoader) {
@@ -200,15 +221,36 @@ object LocationInjector {
         location.speed = speed.toFloat()
         location.time = System.currentTimeMillis()
         if (Build.VERSION.SDK_INT >= 17) location.elapsedRealtimeNanos = nowNanos
-        val bundle = Bundle()
-        bundle.putInt("satellites", satellites)
-        bundle.putInt("satellitesvalue", satellites)
+        // One publication for every interface that describes the sky: the extras on
+        // this fix and the GnssStatus patch read the same numbers. Publishing also
+        // caps them to what the real status has proved its arrays can list.
+        val sky = LastSky.publish(inView = satellites + IN_VIEW_MARGIN, usedInFix = satellites)
+        targetAccuracy = accuracy
+        targetBearing = bearing
+        targetSpeed = speed.toFloat()
+        targetAltitude = altitude
+        targetSky = sky
+        targetReportedAtMs = targetAtMs
         try {
-            location.extras = bundle
+            location.extras = skyExtras(sky)
         } catch (_: Throwable) {
         }
         scrub(location)
         return location
+    }
+
+    /**
+     * The satellite counts a platform fix carries in its extras. Four keys because
+     * different readers pick different ones, filled from one source so no two of
+     * them can disagree.
+     */
+    private fun skyExtras(sky: SatelliteStatus): Bundle {
+        val bundle = Bundle()
+        bundle.putInt("satellites", sky.inView)
+        bundle.putInt("satellitesvalue", sky.inView)
+        bundle.putInt("satellites_in_view", sky.inView)
+        bundle.putInt("satellites_used_in_fix", sky.usedInFix)
+        return bundle
     }
 
     /** Clear the AOSP mock flags on a Location instance via reflection. */
@@ -263,9 +305,38 @@ object LocationInjector {
             if (HookUtils.doubleField(location, "mLongitude") != targetLon) {
                 HookUtils.trySetField(location, "mLongitude", targetLon)
             }
+            // Only while the last reported state is still current: asserting a speed
+            // from a run that stopped a minute ago would be its own contradiction.
+            if (SystemClock.elapsedRealtime() - targetReportedAtMs <= TARGET_TTL_MS) {
+                copyReportedState(location)
+            }
             location
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    /**
+     * Gives an aligned system fix the rest of the state the simulation reports.
+     *
+     * Coordinates alone leave an object that says "you are here" while still
+     * claiming the real device's speed, accuracy, altitude and satellite counts -
+     * a contradiction inside one object, which needs no hook to detect. The has*
+     * flags are written with the values because getSpeed() reads the value while
+     * hasSpeed() reads the flag, and a reader that checks both must see them agree.
+     */
+    private fun copyReportedState(location: Location) {
+        HookUtils.trySetField(location, "mAccuracy", targetAccuracy)
+        HookUtils.trySetField(location, "mSpeed", targetSpeed)
+        HookUtils.trySetField(location, "mBearing", targetBearing)
+        HookUtils.trySetField(location, "mAltitude", targetAltitude)
+        HookUtils.trySetField(location, "mHasAccuracy", true)
+        HookUtils.trySetField(location, "mHasSpeed", true)
+        HookUtils.trySetField(location, "mHasBearing", true)
+        HookUtils.trySetField(location, "mHasAltitude", true)
+        try {
+            location.extras = skyExtras(targetSky)
+        } catch (_: Throwable) {
         }
     }
 

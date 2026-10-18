@@ -3,13 +3,12 @@ package org.pacer.hook.hooks
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
-import java.util.Random
+import android.os.SystemClock
 import java.util.concurrent.ConcurrentHashMap
 
 object GnssStatusHooker {
 
     private val hookedCallbacks = ConcurrentHashMap<Class<*>, Boolean>()
-    private val rng = Random()
 
     /**
      * Fields that getSvid(i) / getCn0DbHz(i) / usedInFix(i) /
@@ -83,33 +82,66 @@ object GnssStatusHooker {
      * satellite count requires a synthetic GnssStatus, which the OEM-specific hidden
      * constructors make fragile.
      *
-     * Only the signal quality is rewritten. Satellite ids, constellation types,
-     * elevations and azimuths are left exactly as received: they already agree
-     * with each other, and replacing them can only introduce contradictions.
+     * Only the signal quality and the counts are rewritten. Satellite ids,
+     * constellation types, elevations and azimuths are left exactly as received:
+     * they already agree with each other, and replacing them can only introduce
+     * contradictions.
+     *
+     * The counts come from [LastSky], which the location injector publishes, so the
+     * status and the Location extras describe the same sky. Inventing a second
+     * number here would let an app read two answers to one question.
      */
     fun spoof(status: Any): Boolean {
         var patched = false
 
+        // Report the published counts, clamped to what this status can actually carry:
+        // its array lengths and the count the receiver itself reports. Reporting more
+        // than the real sky holds would mean advertising satellites whose entries are
+        // zeroes, and iterating past the arrays would crash the host app.
         val capacity = capacity(status)
         if (capacity > 0) {
-            // 8..14 is a healthy outdoor fix, but never more than can be listed.
-            val count = minOf(8 + rng.nextInt(7), capacity)
+            val reported = realCount(status)
+            val limit = if (reported > 0) minOf(reported, capacity) else capacity
+            LastSky.noteCapacity(limit)
+            val sky = LastSky.current()
+            val count = minOf(sky.inView, limit)
             if (setIntQuietly(status, "mSvCount", count)) patched = true
             if (setIntQuietly(status, "mSvidCount", count)) patched = true
+
+            // A fix good enough to be reported must use enough satellites for a 3D
+            // solution, and it must use exactly the number the extras claim. The used
+            // set is rotated rather than always the first N: a real receiver drops
+            // individual satellites, it does not sort its sky into a prefix.
+            val used = minOf(sky.usedInFix, count)
+            val rotation = if (count <= 0) 0 else (SystemClock.elapsedRealtime() / 60000L % count).toInt()
+            patchBoolArray(status, "mSvUsedInFix") { index, _ ->
+                if (used <= 0) false else Math.floorMod(index - rotation, count) < used
+            }
         }
 
-        // Lift weak C/N0 into a healthy band, never degrade a good value.
-        patchFloatArray(status, "mCn0DbHz") { existing ->
-            maxOf(existing, 22f + rng.nextFloat() * 20f) // 22..42 dB-Hz
-        }
-
-        // A fix good enough to be reported must use enough satellites for a 3D
-        // solution, otherwise the status contradicts the fix it accompanies.
-        patchBoolArray(status, "mSvUsedInFix") { index, total ->
-            index < minOf(total, maxOf(4, total * 3 / 4))
+        // Lift weak C/N0 into a healthy band, never degrade a good value. The lift
+        // depends on the index, so a satellite reports the same signal quality on
+        // every callback instead of flickering between random values.
+        patchFloatArray(status, "mCn0DbHz") { index, existing ->
+            maxOf(existing, 30f + (index % 4) * 3f) // 30..39 dB-Hz
         }
 
         return patched
+    }
+
+    /** The count the receiver itself puts in the status, or 0 when unreadable. */
+    private fun realCount(status: Any): Int {
+        for (name in arrayOf("mSvCount", "mSvidCount")) {
+            val value = try {
+                val f = status.javaClass.getDeclaredField(name)
+                f.isAccessible = true
+                f.getInt(status)
+            } catch (_: Throwable) {
+                -1
+            }
+            if (value > 0) return value
+        }
+        return 0
     }
 
     /** Smallest length among the arrays that are indexed by satellite. */
@@ -142,12 +174,12 @@ object GnssStatusHooker {
             false
         }
 
-    private fun patchFloatArray(obj: Any, name: String, transform: (Float) -> Float) {
+    private fun patchFloatArray(obj: Any, name: String, transform: (Int, Float) -> Float) {
         try {
             val f = obj.javaClass.getDeclaredField(name)
             f.isAccessible = true
             val arr = f.get(obj) as? FloatArray ?: return
-            for (i in arr.indices) arr[i] = transform(arr[i])
+            for (i in arr.indices) arr[i] = transform(i, arr[i])
         } catch (_: Throwable) {
         }
     }
