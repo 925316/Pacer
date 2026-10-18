@@ -13,8 +13,13 @@ import android.view.WindowManager
 import org.pacer.motion.JoystickMath
 
 /**
- * Draggable floating joystick. Dragging sets live speed and bearing through the
- * config channel; tapping the center stops the simulation.
+ * Floating joystick overlay.
+ *
+ * Three gestures, and each one has to be told apart by where the touch lands and
+ * whether it travels, because an overlay has no menu: touching the knob steers,
+ * touching the ring moves the overlay itself, and a touch that never travels is a
+ * tap, which stops the simulation. Releasing after steering keeps the last heading
+ * and speed, so a long run does not need a finger held on the screen.
  */
 class JoystickOverlayService : Service() {
 
@@ -65,15 +70,21 @@ class JoystickOverlayService : Service() {
         private var knobY = 0f
         private var dragDx = 0f
         private var dragDy = 0f
-        private var movingWindow = false
+
+        /** True while this gesture steers rather than moving the overlay. */
+        private var steering = false
+
+        /** True once the touch has travelled: a gesture that never moves is a tap. */
+        private var travelled = false
 
         init {
             setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        movingWindow = false
                         dragDx = event.rawX
                         dragDy = event.rawY
+                        travelled = false
+                        steering = isOnKnob(event.x, event.y)
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
@@ -81,17 +92,15 @@ class JoystickOverlayService : Service() {
                         val dy = event.rawY - dragDy
                         dragDx = event.rawX
                         dragDy = event.rawY
-                        if (movingWindow) {
-                            params.x += dx.toInt()
-                            params.y += dy.toInt()
-                            windowManager?.updateViewLayout(this, params)
-                        } else {
-                            steer(dx, dy)
-                        }
+                        if (dx != 0f || dy != 0f) travelled = true
+                        if (steering) steer(dx, dy) else moveOverlay(dx, dy)
                         true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!movingWindow) {
+                        // Only a tap stops the simulation, not every release: steering
+                        // ends when the finger comes off the knob, and stopping on that
+                        // release would end the run the moment the user let go.
+                        if (!travelled) {
                             knobX = 0f
                             knobY = 0f
                             invalidate()
@@ -104,7 +113,20 @@ class JoystickOverlayService : Service() {
             }
         }
 
-        /** Long-press-free heuristic: dragging from the rim moves the window. */
+        /** The knob is drawn at its current offset, so the hit test uses that offset too. */
+        private fun isOnKnob(x: Float, y: Float): Boolean {
+            val knobRadius = (width / 2f - 8f) * KNOB_FRACTION
+            val dx = x - (width / 2f + knobX)
+            val dy = y - (height / 2f + knobY)
+            return dx * dx + dy * dy <= knobRadius * knobRadius
+        }
+
+        private fun moveOverlay(dx: Float, dy: Float) {
+            params.x += dx.toInt()
+            params.y += dy.toInt()
+            windowManager?.updateViewLayout(this, params)
+        }
+
         private fun steer(dx: Float, dy: Float) {
             val maxOffset = width / 2f - 16f
             knobX = (knobX + dx).coerceIn(-maxOffset, maxOffset)
@@ -123,12 +145,15 @@ class JoystickOverlayService : Service() {
             val cy = height / 2f
             val radius = width / 2f - 8f
             canvas.drawCircle(cx, cy, radius, basePaint)
-            canvas.drawCircle(cx + knobX, cy + knobY, radius * 0.32f, knobPaint)
+            canvas.drawCircle(cx + knobX, cy + knobY, radius * KNOB_FRACTION, knobPaint)
         }
     }
 
     private companion object {
         const val SIZE = 220
         const val SPEED_INPUT = 6.0
+
+        /** Knob size as a fraction of the base radius, shared by drawing and hit testing. */
+        const val KNOB_FRACTION = 0.32f
     }
 }
