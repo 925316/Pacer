@@ -18,12 +18,43 @@ import kotlin.random.Random
  * - jitter +/-0.15 m/s^2
  */
 class SensorWaveGenerator(
-    private val zAmplitude: Double = 3.5,
-    private val yAmplitude: Double = 1.5,
-    private val jitter: Double = 0.15,
+    private val zAmplitude: Double = Z_AMPLITUDE,
+    private val yAmplitude: Double = Y_AMPLITUDE,
+    private val jitter: Double = JITTER,
     seed: Long = Random.nextLong(),
 ) {
     private val rng = Random(seed)
+
+    companion object {
+
+        /** Z amplitude in m/s^2: the vertical bounce of a running body. */
+        const val Z_AMPLITUDE = 3.5
+
+        /** Y amplitude in m/s^2: the smaller lateral sway at the same frequency. */
+        const val Y_AMPLITUDE = 1.5
+
+        /** Uniform jitter added to every axis, in m/s^2. */
+        const val JITTER = 0.15
+
+        /**
+         * The three axis values at [phase] radians, in m/s^2, as (ax, ay, az).
+         *
+         * [generate] below and the live hook both come through here, so the waveform an
+         * app receives IS the one the tests describe. Two separate implementations of one
+         * formula would leave nothing to keep them in step.
+         */
+        fun axes(
+            phase: Double,
+            random: Random,
+            zAmplitude: Double = Z_AMPLITUDE,
+            yAmplitude: Double = Y_AMPLITUDE,
+            jitter: Double = JITTER,
+        ): Triple<Double, Double, Double> = Triple(
+            random.nextDouble(-jitter, jitter),
+            yAmplitude * sin(phase) + random.nextDouble(-jitter, jitter),
+            zAmplitude * sin(phase) + random.nextDouble(-jitter, jitter),
+        )
+    }
 
     /** One accelerometer sample: axis accelerations in m/s^2 plus timestamps. */
     data class AccelSample(
@@ -65,9 +96,7 @@ class SensorWaveGenerator(
             val speed = speedAt(samples, t)
             val cadence = StrideLinker.cadenceForSpeed(speed)
             // Phase accumulates so cadence changes do not jump the waveform.
-            val az = zAmplitude * sin(phase) + rng.nextDouble(-jitter, jitter)
-            val ay = yAmplitude * sin(phase) + rng.nextDouble(-jitter, jitter)
-            val ax = rng.nextDouble(-jitter, jitter)
+            val (ax, ay, az) = axes(phase, rng, zAmplitude, yAmplitude, jitter)
             val tNanos = baseTimeNanos + (t * 1e9).toLong()
             acc += AccelSample(tNanos, ax, ay, az)
 
@@ -98,5 +127,37 @@ class SensorWaveGenerator(
         val span = samples[hi].tSec - samples[lo].tSec
         val f = if (span <= 0) 0.0 else (t - samples[lo].tSec) / span
         return samples[lo].speedMps + (samples[hi].speedMps - samples[lo].speedMps) * f
+    }
+
+    /**
+     * The same waveform advanced by wall clock instead of precomputed over a speed
+     * curve, because the hook is asked for one sample at a time as the platform
+     * dispatches sensor events and has no curve to generate from.
+     *
+     * Stateful on purpose: the phase has to accumulate across calls, or a cadence that
+     * changes mid-run would jump the waveform instead of bending it.
+     */
+    class Live(
+        seed: Long = Random.nextLong(),
+        private val zAmplitude: Double = Z_AMPLITUDE,
+        private val yAmplitude: Double = Y_AMPLITUDE,
+        private val jitter: Double = JITTER,
+    ) {
+        private val rng = Random(seed)
+        private var phase = 0.0
+        private var lastMillis = 0L
+
+        /**
+         * Axis accelerations at [nowMillis], with the phase advanced by [cadenceSpm]
+         * since the previous call. The first call only anchors the clock.
+         */
+        fun at(nowMillis: Long, cadenceSpm: Double): Triple<Double, Double, Double> {
+            if (lastMillis != 0L) {
+                val dtSec = ((nowMillis - lastMillis).coerceAtLeast(0L)) / 1000.0
+                phase += 2 * PI * (cadenceSpm / 60.0) * dtSec
+            }
+            lastMillis = nowMillis
+            return axes(phase, rng, zAmplitude, yAmplitude, jitter)
+        }
     }
 }

@@ -9,13 +9,11 @@ import android.os.SystemClock
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import org.pacer.motion.SensorWaveGenerator
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
-import java.util.Random
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.math.PI
-import kotlin.math.sin
 
 object SensorStepHooker {
 
@@ -24,7 +22,6 @@ object SensorStepHooker {
     private val captured = CopyOnWriteArrayList<CapturedListener>()
     private val hookedListenerClasses = ConcurrentHashMap<Class<*>, Boolean>()
     private val handleToType = ConcurrentHashMap<Int, Int>()
-    private val rng = Random()
 
     private const val INITIAL_BOOT_STEPS = 2350.0
     @Volatile private var stepBase = INITIAL_BOOT_STEPS
@@ -135,7 +132,7 @@ object SensorStepHooker {
                         Sensor.TYPE_STEP_DETECTOR ->
                             values[0] = 1.0f
                         Sensor.TYPE_ACCELEROMETER ->
-                            if (values.size >= 3) syntheticAccel(values, cfg.startTimestamp, cfg.speedMps)
+                            if (values.size >= 3) syntheticAccel(values, cfg.speedMps)
                     }
                 }
             }
@@ -159,7 +156,7 @@ object SensorStepHooker {
                             event.timestamp = SystemClock.elapsedRealtimeNanos()
                         }
                         Sensor.TYPE_ACCELEROMETER -> if (event.values.size >= 3) {
-                            syntheticAccel(event.values, cfg.startTimestamp, cfg.speedMps)
+                            syntheticAccel(event.values, cfg.speedMps)
                             event.timestamp = SystemClock.elapsedRealtimeNanos()
                         }
                     }
@@ -194,24 +191,31 @@ object SensorStepHooker {
     fun autoCadenceSpm(speedMs: Double): Double =
         org.pacer.motion.StrideLinker.cadenceForSpeed(speedMs)
 
-    /** Accelerometer overlay: Z bounce + Y sway at cadence, small jitter. */
-    fun syntheticAccel(values: FloatArray, startTimestampMs: Long, speedMps: Double, now: Long = System.currentTimeMillis()) {
-        val cadence = cadenceFor(speedMps, now)
-        // Accumulate phase so a changing cadence does not jump the waveform.
-        if (lastPhaseMillis != 0L) {
-            val dt = (now - lastPhaseMillis).coerceAtLeast(0L) / 1000.0
-            phaseAccum += 2 * PI * (cadence / 60.0) * dt
-        }
-        lastPhaseMillis = now
-        values[0] = jitter().toFloat()
-        values[1] = (1.5 * sin(phaseAccum) + jitter()).toFloat()
-        values[2] = (3.5 * sin(phaseAccum) + jitter()).toFloat()
+    /**
+     * Accelerometer overlay: Z bounce plus Y sway at cadence, with small jitter.
+     *
+     * The waveform itself lives in the engine ([SensorWaveGenerator.Live]) rather than
+     * here, so the samples an app receives are the ones the unit tests describe. A second
+     * implementation of the same formula would mean the tested waveform is not the
+     * shipped one.
+     */
+    fun syntheticAccel(
+        values: FloatArray,
+        speedMps: Double,
+        now: Long = System.currentTimeMillis(),
+    ) {
+        val (ax, ay, az) = wave.at(now, cadenceFor(speedMps, now))
+        values[0] = ax.toFloat()
+        values[1] = ay.toFloat()
+        values[2] = az.toFloat()
     }
 
-    @Volatile private var phaseAccum = 0.0
-    @Volatile private var lastPhaseMillis = 0L
-
-    private fun jitter(): Double = rng.nextDouble() * 0.3 - 0.15
+    /**
+     * One live waveform per process. The seed is deliberately not derived from the
+     * config: a reproducible waveform would be a fingerprint of the module, which is
+     * the same reason the coordinates carry noise.
+     */
+    private val wave = SensorWaveGenerator.Live()
 
     private fun mockSensor(type: Int, classLoader: ClassLoader): Sensor? {
         when (type) {

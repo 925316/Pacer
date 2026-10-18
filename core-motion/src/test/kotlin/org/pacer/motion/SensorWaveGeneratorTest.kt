@@ -60,4 +60,48 @@ class SensorWaveGeneratorTest {
         assertTrue(high.size > low.size * 2)
         assertEquals(0L, low.first().tNanos)
     }
+
+    // The live waveform is what the hook actually ships, so these assert the property
+    // the app relies on rather than the internal shape.
+
+    @Test
+    fun `live waveform stays inside its amplitude plus jitter`() {
+        val live = SensorWaveGenerator.Live(seed = 11L)
+        var maxZ = 0.0
+        var maxY = 0.0
+        for (i in 0 until 2000) {
+            val (_, ay, az) = live.at(i * 20L, cadenceSpm = 180.0)
+            maxZ = maxOf(maxZ, kotlin.math.abs(az))
+            maxY = maxOf(maxY, kotlin.math.abs(ay))
+        }
+        assertTrue("maxZ=$maxZ", maxZ <= SensorWaveGenerator.Z_AMPLITUDE + SensorWaveGenerator.JITTER + 1e-9)
+        assertTrue("maxY=$maxY", maxY <= SensorWaveGenerator.Y_AMPLITUDE + SensorWaveGenerator.JITTER + 1e-9)
+    }
+
+    @Test
+    fun `live waveform advances smoothly instead of jumping`() {
+        val live = SensorWaveGenerator.Live(seed = 3L)
+        // The first call only anchors the clock; the second is one millisecond later at
+        // a running cadence, so it must land near the same phase.
+        val first = live.at(0L, cadenceSpm = 170.0)
+        val next = live.at(1L, cadenceSpm = 170.0)
+        assertTrue(kotlin.math.abs(next.third - first.third) < 1.0)
+    }
+
+    @Test
+    fun `live waveform is frozen without cadence`() {
+        val live = SensorWaveGenerator.Live(seed = 3L)
+        live.at(0L, cadenceSpm = 0.0)
+        val still = (1..5).map { live.at(it * 1000L, cadenceSpm = 0.0) }
+        // With no cadence the sine term stays at phase zero, so only jitter is left.
+        assertTrue(still.all { kotlin.math.abs(it.third) <= SensorWaveGenerator.JITTER })
+    }
+
+    @Test
+    fun `live waveform skips backwards time without corrupting the phase`() {
+        val live = SensorWaveGenerator.Live(seed = 4L)
+        live.at(10_000L, cadenceSpm = 170.0)
+        val afterBackwards = live.at(9_000L, cadenceSpm = 170.0)
+        assertTrue(kotlin.math.abs(afterBackwards.third) <= SensorWaveGenerator.Z_AMPLITUDE + SensorWaveGenerator.JITTER)
+    }
 }
