@@ -51,7 +51,8 @@ data class SpeedPlan(
         if (elapsedSec <= 0.0) return steps.first().speedMps
         val total = totalSeconds
         if (total != null && elapsedSec >= total) return steps.last().speedMps
-        var left = if (total == null) elapsedSec % passSeconds else elapsedSec
+        // Inside a pass, which is also the second and later pass of a repeated plan.
+        var left = elapsedSec % passSeconds
         for (step in steps) {
             if (left < step.durationSec) return step.speedMps
             left -= step.durationSec
