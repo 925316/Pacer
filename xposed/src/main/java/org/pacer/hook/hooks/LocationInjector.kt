@@ -180,8 +180,8 @@ object LocationInjector {
         // realism engine (which holds a bearing while the subject stands still) and the
         // reported speed both use it, so the number the fix carries is the one that
         // produced the displacement.
-        val targetSpeed = CurrentFix.speedAt(cfg)
-        val fx = engines.realism.next(elapsedSec, targetSpeed, dtSec, cfg.bearingDeg)
+        val motionSpeed = CurrentFix.speedAt(cfg)
+        val fx = engines.realism.next(elapsedSec, motionSpeed, dtSec, cfg.bearingDeg)
 
         // The nominal position for this moment, from the one source every layer uses.
         // Route mode replaces it with the route sample below, which carries the rest of
@@ -194,7 +194,7 @@ object LocationInjector {
         var altitude = cfg.altitudeMeters + fx.altitudeMeters
         var bearing = fx.bearingDeg
         var satellites = fx.satellites
-        var speed = targetSpeed
+        var speed = motionSpeed
 
         // Route mode: route + humanized speed curve take precedence.
         val sample = RouteEngine.sampleAt()
