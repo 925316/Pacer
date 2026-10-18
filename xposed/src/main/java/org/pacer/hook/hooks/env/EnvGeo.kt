@@ -158,4 +158,33 @@ object EnvGeo {
         bytes[0] = (((bytes[0].toInt() and 0xFE) or 0x02) and 0xFF).toByte()
         return mac(bytes)
     }
+
+    /**
+     * Deterministic address for an access point: a vendor prefix plus three varying
+     * bytes.
+     *
+     * Real access points announce a globally administered address from the OUI block
+     * their maker owns. A scan list in which every BSSID has the locally administered
+     * bit set is not a neighbourhood, it is a fabricator - one bit test, no radio
+     * needed. So this differs from [macForSeed] (personal-area devices, where random
+     * addresses are normal) in exactly that bit. The addresses detection code
+     * blacklists (all zeroes, all ones, 02:00:00:00:00:00) cannot be produced by
+     * either generator.
+     */
+    fun apMacForSeed(seed: Long): String {
+        val rng = Rng(mix64(seed))
+        val bytes = ByteArray(6)
+        AP_OUIS[rng.nextInt(AP_OUIS.size)].copyInto(bytes, 0)
+        for (i in 3..5) bytes[i] = rng.nextInt(256).toByte()
+        return mac(bytes)
+    }
+
+    /** Vendor prefixes common in consumer routers; any real OUI block would do. */
+    private val AP_OUIS: Array<ByteArray> = arrayOf(
+        byteArrayOf(0x00, 0x1A, 0x11),
+        byteArrayOf(0x00, 0x25, 0x9C.toByte()),
+        byteArrayOf(0xB0.toByte(), 0xBE.toByte(), 0x76),
+        byteArrayOf(0xF4.toByte(), 0xF5.toByte(), 0xD8.toByte()),
+        byteArrayOf(0x00, 0x50, 0xF2.toByte()),
+    )
 }

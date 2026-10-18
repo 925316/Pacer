@@ -318,7 +318,7 @@ object FakeRadioEnvironment {
         }
         return WifiAp(
             ssid = ssidFor(rng),
-            bssid = EnvGeo.macForSeed(seed),
+            bssid = EnvGeo.apMacForSeed(seed),
             level = level,
             baseLevel = baseLevel,
             frequency = frequency,
