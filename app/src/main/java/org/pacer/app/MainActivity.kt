@@ -16,12 +16,15 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import org.pacer.motion.CoordinateInput
+import org.pacer.motion.FixSample
+import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
+import org.pacer.motion.TrackAudit
 import java.util.Locale
 import kotlin.concurrent.thread
 
@@ -68,6 +71,7 @@ class MainActivity : Activity() {
     private var searchedPlace: Place? = null
 
     private lateinit var previewBtn: Button
+    private lateinit var auditBtn: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -196,6 +200,9 @@ class MainActivity : Activity() {
 
         previewBtn = action("Preview engine locally (no hooks)") { previewLocally() }
         root.addView(previewBtn)
+
+        auditBtn = action("Audit this track (server-side heuristics)") { auditRoute() }
+        root.addView(auditBtn)
 
         output = TextView(this).apply {
             text = "Tip: add the target app to the module scope in LSPosed."
@@ -381,12 +388,79 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Audits the current track the way a server-side heuristic would read an upload, and
+     * reports how far a SECOND simulated run of the same route drifts from it.
+     *
+     * The audit itself judges one track. The comparison is a separate number on purpose:
+     * two runs of the same route necessarily occupy the same grid cells, so the audit's
+     * duplicate-track rule would flag them whether the engine randomizes or not. What
+     * actually says whether the engine randomizes is the distance between the two runs
+     * at the same sample index - a machine repeating itself would report zero.
+     */
+    private fun auditRoute() {
+        val route = draft.toRoutePath() ?: RoutePath(SAMPLE_ROUTE)
+        // Read the controls here: a background thread must not touch the views.
+        val toggles = realismToggles()
+        val accuracy = numberOr(accuracyInput, 5f)
+        auditBtn.isEnabled = false
+        output.text = "Auditing the track..."
+        thread {
+            fun runOnce() = RouteSimulator(
+                route,
+                MotionConfig.run(),
+                toggles = toggles,
+                steadyAccuracyMeters = accuracy,
+            ).simulate(dtSec = 1.0)
+
+            val first = runOnce()
+            val second = runOnce()
+            val report = TrackAudit.audit(second)
+            val divergence = meanDisplacementMeters(first, second)
+            val text = buildString {
+                appendLine(String.format(Locale.US, "Track audit: %s (risk %.2f)", report.verdict, report.risk))
+                appendLine(
+                    String.format(
+                        Locale.US,
+                        "Two runs of this route differ by %.1f m per sample on average " +
+                            "(a machine repeating itself would report 0).",
+                        divergence,
+                    ),
+                )
+                for (finding in report.findings.sortedByDescending { it.score }) {
+                    appendLine(String.format(Locale.US, "%.2f  %s: %s", finding.score, finding.rule, finding.detail))
+                }
+            }
+            runOnUiThread {
+                output.text = text
+                auditBtn.isEnabled = true
+            }
+        }
+    }
+
+    /** Mean distance between two runs' positions at the same sample index. */
+    private fun meanDisplacementMeters(a: List<FixSample>, b: List<FixSample>): Double {
+        val n = minOf(a.size, b.size)
+        if (n == 0) return 0.0
+        var total = 0.0
+        for (i in 0 until n) total += GeoMath.haversine(a[i].point, b[i].point)
+        return total / n
+    }
+
     private fun previewLocally() {
         previewBtn.isEnabled = false
         output.text = "Simulating..."
+        // Read the controls here: a background thread must not touch the views.
+        val toggles = realismToggles()
+        val accuracy = numberOr(accuracyInput, 5f)
         thread {
             val route = draft.toRoutePath() ?: RoutePath(SAMPLE_ROUTE)
-            val fixes = RouteSimulator(route, MotionConfig.run()).simulate(dtSec = 1.0)
+            val fixes = RouteSimulator(
+                route,
+                MotionConfig.run(),
+                toggles = toggles,
+                steadyAccuracyMeters = accuracy,
+            ).simulate(dtSec = 1.0)
             val last = fixes.last()
             val avgPaceMinPerKm = if (last.distanceMeters > 0) {
                 last.tSec / last.distanceMeters * 1000 / 60
