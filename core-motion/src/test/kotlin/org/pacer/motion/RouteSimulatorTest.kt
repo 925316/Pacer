@@ -79,9 +79,12 @@ class RouteSimulatorTest {
         val fixes = RouteSimulator(route = cornerRoute, config = config)
             .simulate(dtSec = 1.0, seed = 6L)
         val cornerAt = cornerRoute.totalLengthMeters / 2
-        // Strictly before the corner: at the corner itself the cap is already off again,
-        // because the point being looked at from there is past the turn.
-        val approach = fixes.filter { it.distanceMeters >= cornerAt - 20.0 && it.distanceMeters < cornerAt }
+        // Strictly inside the approach, and not right at either edge. A sample's speed is
+        // computed at the distance it had BEFORE that step, while its recorded distance is
+        // the one after, so the first sample whose recorded distance falls in the window was
+        // still computed just outside it - legitimately uncapped - and the corner itself is
+        // already past the turn.
+        val approach = fixes.filter { it.distanceMeters >= cornerAt - 15.0 && it.distanceMeters < cornerAt }
         assertTrue(approach.isNotEmpty())
         // The turn model's floor times the cruise noise stays well under the uncapped
         // speed, so a missing cap shows up here as a sample at full speed.

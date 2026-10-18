@@ -9,3 +9,8 @@ local.yml
 .idea/
 *.iml
 .DS_Store
+
+# Third-party APKs analysed for behaviour, and the notes written about them. Held
+# locally on purpose: a commercial build must not be redistributed from this
+# repository, and the notes are research material, not part of the distribution.
+research/
