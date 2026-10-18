@@ -8,8 +8,11 @@ import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.env.CurrentFix
+import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import org.pacer.motion.SignalRealism
+import org.pacer.motion.StationaryJitter
 
 object LocationInjector {
 
@@ -19,8 +22,42 @@ object LocationInjector {
     /** How long the coordinate getter hook may reuse the last computed position. */
     private const val TARGET_TTL_MS = 500L
 
-    private val realism = org.pacer.motion.SignalRealism(seed = 7L)
-    private val jitter = org.pacer.motion.StationaryJitter(seed = 7L)
+    /**
+     * The noise engines, one set per run.
+     *
+     * The seed is derived from the run's start timestamp, so consecutive runs produce
+     * different offsets. A fixed seed made the same input always produce the same
+     * track, which is a fingerprint of the module rather than a simulation of a person
+     * - the same reason the environment layers seed from the session.
+     *
+     * The engines hold state (the bearing held while standing still), so a new run gets
+     * fresh instances instead of a reseeded one, which would carry the previous run's
+     * phase into the new one.
+     */
+    private class RunNoise(
+        val key: Long,
+        val realism: SignalRealism,
+        val jitter: StationaryJitter,
+    )
+
+    @Volatile private var noise: RunNoise? = null
+
+    private fun noiseFor(cfg: PacerRuntimeConfig.Snapshot): RunNoise {
+        val key = cfg.startTimestamp
+        noise?.let { if (it.key == key) return it }
+        synchronized(this) {
+            noise?.let { if (it.key == key) return it }
+            val seed = EnvGeo.sessionSeed(key)
+            val fresh = RunNoise(
+                key = key,
+                realism = SignalRealism(seed = seed),
+                jitter = StationaryJitter(seed = seed xor 0x5DEECE66DL),
+            )
+            noise = fresh
+            return fresh
+        }
+    }
+
     @Volatile private var lastNanos = 0L
 
     /** Provider names that mean "the platform produced this fix". */
@@ -107,7 +144,8 @@ object LocationInjector {
         val elapsedSec = if (cfg.startTimestamp > 0L) {
             (System.currentTimeMillis() - cfg.startTimestamp).coerceAtLeast(0L) / 1000.0
         } else 0.0
-        val fx = realism.next(elapsedSec, cfg.speedMps, dtSec, cfg.bearingDeg)
+        val engines = noiseFor(cfg)
+        val fx = engines.realism.next(elapsedSec, cfg.speedMps, dtSec, cfg.bearingDeg)
 
         // The nominal position for this moment, from the one source every layer uses.
         // Route mode replaces it with the route sample below, which carries the rest of
@@ -134,7 +172,7 @@ object LocationInjector {
             speed = sample.speedMps
         } else if (cfg.speedMps < 0.3) {
             // Straight-line idle: add micro-movement so the point is not pixel-still.
-            val off = jitter.next(dtSec)
+            val off = engines.jitter.next(dtSec)
             lat += off.northMeters / 111320.0
             lon += off.eastMeters / (111320.0 * kotlin.math.cos(Math.toRadians(lat)))
         }
