@@ -64,8 +64,15 @@ object CurrentFix {
      * the step counter has to ask the same question as the coordinates do - steps that
      * accumulate at a rate the track does not show are a contradiction an audit finds.
      */
-    fun speedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double {
-        RouteEngine.sampleAt(nowMs)?.let { return it.speedMps }
-        return cfg.plan?.speedAt(elapsedSeconds(cfg, nowMs)) ?: cfg.speedMps
-    }
+    fun speedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double =
+        RouteEngine.sampleAt(nowMs)?.speedMps ?: linearSpeedAt(cfg, nowMs)
+
+    /**
+     * The straight-line speed at [nowMs]: the interval plan's current step, or the flat
+     * configured speed. Route mode answers a different question, so a caller that has
+     * already asked the route engine for a sample uses this rather than paying for a
+     * second lookup.
+     */
+    fun linearSpeedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double =
+        cfg.plan?.speedAt(elapsedSeconds(cfg, nowMs)) ?: cfg.speedMps
 }

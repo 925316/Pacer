@@ -111,7 +111,7 @@ object TencentLocationHooker {
         val number: Double = when (name) {
             "getLatitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lat
             "getLongitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lon
-            "getSpeed" -> cfg.speedMps
+            "getSpeed" -> CurrentFix.speedAt(cfg)
             "getBearing" -> cfg.bearingDeg.toDouble()
             "getAccuracy" -> cfg.accuracyMeters.toDouble()
             "getTime" -> System.currentTimeMillis().toDouble()

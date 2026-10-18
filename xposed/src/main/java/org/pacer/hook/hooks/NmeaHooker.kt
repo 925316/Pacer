@@ -83,14 +83,22 @@ object NmeaHooker {
         val lat = sample?.point?.lat ?: fix.lat
         val lon = sample?.point?.lon ?: fix.lon
         if (lat == 0.0 && lon == 0.0) return
-        val speedKn = (sample?.speedMps ?: cfg.speedMps) * 1.94384
+        // The interval plan moves the speed too, so the sentence follows whichever
+        // source the coordinates already follow. Reading the flat configured speed here
+        // while the track moved under a plan was a disagreement between two of the three
+        // things that describe one moment.
+        val speedKn = (sample?.speedMps ?: CurrentFix.linearSpeedAt(cfg)) * 1.94384
         val bearing = (sample?.bearingDeg ?: cfg.bearingDeg).toDouble()
         // GGA carries the number of satellites used in the fix, and that number is
         // already published for the Location extras and the GnssStatus patch. A third
         // answer count here would contradict the other two for anyone reading NMEA
         // alongside them.
         val sats = LastSky.current().usedInFix
-        val altitude = sample?.altitudeMeters ?: cfg.altitudeMeters
+        // The altitude of the ground under the subject, which is what the injected
+        // Location reports: the configured start plus the route's own drift. Reporting
+        // the drift alone made a fix at 50 m look like one at 1 m to a reader that
+        // compared the two.
+        val altitude = cfg.altitudeMeters + (sample?.altitudeMeters ?: 0.0)
         val gga = NmeaFormatter.gga(lat, lon, sats, altitude)
         val rmc = NmeaFormatter.rmc(lat, lon, speedKn, bearing)
         for (sink in sinks.toList()) {
