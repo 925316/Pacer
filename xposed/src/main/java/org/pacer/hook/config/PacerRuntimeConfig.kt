@@ -1,6 +1,7 @@
 package org.pacer.hook.config
 
 import org.pacer.motion.RealismToggles
+import org.pacer.motion.SpeedPlan
 
 /**
  * In-process runtime configuration consulted by the hooks.
@@ -45,6 +46,12 @@ object PacerRuntimeConfig {
     /** Compact route polyline as [[lat,lon],...] (empty = straight-line mode). */
     @Volatile var routeJson: String = ""
 
+    /**
+     * Interval plan for the run, or null for one steady speed. Parsed once per config
+     * change rather than per read: the engine asks for it on every sample.
+     */
+    @Volatile var plan: SpeedPlan? = null
+
     fun snapshot(): Snapshot = Snapshot(
         active = active,
         speedMps = speedMps,
@@ -58,6 +65,7 @@ object PacerRuntimeConfig {
         altitudeMeters = altitudeMeters,
         bearingDeg = bearingDeg,
         routeJson = routeJson,
+        plan = plan,
     )
 
     data class Snapshot(
@@ -73,5 +81,6 @@ object PacerRuntimeConfig {
         val altitudeMeters: Double,
         val bearingDeg: Float,
         val routeJson: String,
+        val plan: SpeedPlan?,
     )
 }

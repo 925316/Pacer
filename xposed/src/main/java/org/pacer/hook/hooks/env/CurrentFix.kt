@@ -33,11 +33,15 @@ object CurrentFix {
      */
     fun of(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): GeoPoint {
         RouteEngine.sampleAt(nowMs)?.let { return GeoPoint(it.point.lat, it.point.lon) }
-        return StraightLine.at(
+        val elapsed = elapsedSeconds(cfg, nowMs)
+        // With an interval plan the distance is the plan's own integral rather than
+        // speed x time, so the position stays a pure function of the clock either way
+        // and the reported speed can follow the plan without contradicting it.
+        val meters = cfg.plan?.metersAt(elapsed) ?: (cfg.speedMps * elapsed)
+        return StraightLine.byDistance(
             start = GeoPoint(cfg.latitude, cfg.longitude),
             bearingDeg = cfg.bearingDeg.toDouble(),
-            speedMps = cfg.speedMps,
-            elapsedSec = elapsedSeconds(cfg, nowMs),
+            meters = meters,
         )
     }
 
@@ -49,5 +53,19 @@ object CurrentFix {
     private fun elapsedSeconds(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long): Double {
         if (cfg.startTimestamp <= 0L) return 0.0
         return ((nowMs - cfg.startTimestamp).coerceAtLeast(0L)) / 1000.0
+    }
+
+    /**
+     * The simulated speed at [nowMs].
+     *
+     * Derived from the same inputs as [of]: the route sample's speed in route mode, the
+     * interval plan's current step when there is one, and the flat configured speed
+     * otherwise. A caller cannot report a speed its own displacement contradicts, and
+     * the step counter has to ask the same question as the coordinates do - steps that
+     * accumulate at a rate the track does not show are a contradiction an audit finds.
+     */
+    fun speedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double {
+        RouteEngine.sampleAt(nowMs)?.let { return it.speedMps }
+        return cfg.plan?.speedAt(elapsedSeconds(cfg, nowMs)) ?: cfg.speedMps
     }
 }

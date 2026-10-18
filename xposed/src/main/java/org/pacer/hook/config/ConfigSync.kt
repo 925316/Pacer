@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.RealismToggles
+import org.pacer.motion.SpeedPlan
 
 object ConfigSync {
 
@@ -87,6 +88,10 @@ object ConfigSync {
             signalDropout = prefs.getBoolean("signal_dropout", true),
         )
         PacerRuntimeConfig.routeJson = prefs.getString("route_json", "") ?: ""
+        // Parsed here, once per config change, because the engine asks for the plan on
+        // every sample. An unreadable plan becomes "no plan" rather than a run with
+        // invented intervals.
+        PacerRuntimeConfig.plan = SpeedPlan.parse(prefs.getString("plan", "") ?: "")
     }
 
     private fun doubleOf(p: SharedPreferences, key: String, def: Double): Double =

@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import org.pacer.hook.config.PacerRuntimeConfig
+import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.SensorWaveGenerator
@@ -122,17 +123,22 @@ object SensorStepHooker {
             ?: return
         HookUtils.hookAllMethods(queue, "dispatchSensorEvent") { chain ->
             val cfg = PacerRuntimeConfig.snapshot()
-            if (cfg.active && cfg.enableStepSimulation && cfg.speedMps > 0.05) {
+            // Ask the same source the coordinates come from: with an interval plan the
+            // current speed is not the flat configured one, and steps accumulating at a
+            // rate the track does not show is the disagreement this module exists to
+            // avoid.
+            val speed = if (cfg.active && cfg.enableStepSimulation) CurrentFix.speedAt(cfg) else 0.0
+            if (speed > 0.05) {
                 val handle = chain.args.firstOrNull() as? Int
                 val values = chain.args.getOrNull(1) as? FloatArray
                 if (handle != null && values != null) {
                     when (handleToType[handle]) {
                         Sensor.TYPE_STEP_COUNTER ->
-                            values[0] = currentSteps(cfg.startTimestamp, cfg.speedMps).toFloat()
+                            values[0] = currentSteps(cfg.startTimestamp, speed).toFloat()
                         Sensor.TYPE_STEP_DETECTOR ->
                             values[0] = 1.0f
                         Sensor.TYPE_ACCELEROMETER ->
-                            if (values.size >= 3) syntheticAccel(values, cfg.speedMps)
+                            if (values.size >= 3) syntheticAccel(values, speed)
                     }
                 }
             }
@@ -145,10 +151,11 @@ object SensorStepHooker {
             HookUtils.hookAllMethods(clazz, "onSensorChanged") { chain ->
                 val event = chain.args.firstOrNull() as? SensorEvent
                 val cfg = PacerRuntimeConfig.snapshot()
-                if (event?.sensor != null && cfg.active && cfg.enableStepSimulation && cfg.speedMps > 0.05) {
+                val speed = if (cfg.active && cfg.enableStepSimulation) CurrentFix.speedAt(cfg) else 0.0
+                if (event?.sensor != null && speed > 0.05) {
                     when (event.sensor.type) {
                         Sensor.TYPE_STEP_COUNTER -> if (event.values.isNotEmpty()) {
-                            event.values[0] = currentSteps(cfg.startTimestamp, cfg.speedMps).toFloat()
+                            event.values[0] = currentSteps(cfg.startTimestamp, speed).toFloat()
                             event.timestamp = SystemClock.elapsedRealtimeNanos()
                         }
                         Sensor.TYPE_STEP_DETECTOR -> if (event.values.isNotEmpty()) {
@@ -156,7 +163,7 @@ object SensorStepHooker {
                             event.timestamp = SystemClock.elapsedRealtimeNanos()
                         }
                         Sensor.TYPE_ACCELEROMETER -> if (event.values.size >= 3) {
-                            syntheticAccel(event.values, cfg.speedMps)
+                            syntheticAccel(event.values, speed)
                             event.timestamp = SystemClock.elapsedRealtimeNanos()
                         }
                     }

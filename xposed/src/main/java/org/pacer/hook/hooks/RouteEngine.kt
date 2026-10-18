@@ -12,6 +12,7 @@ import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
+import org.pacer.motion.SpeedPlan
 import org.pacer.motion.FixSample
 
 object RouteEngine {
@@ -28,9 +29,9 @@ object RouteEngine {
         // the samples (accuracy, altitude, bearing, satellites, dropout), so a run
         // configured differently must not reuse the previous build.
         val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp + "|" +
-            cfg.realism + "|" + cfg.accuracyMeters
+            cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "")
         if (key != cacheKey) {
-            build(route, key, cfg.speedMps, cfg.realism, cfg.accuracyMeters)
+            build(route, key, cfg.speedMps, cfg.realism, cfg.accuracyMeters, cfg.plan)
         }
         val list = fixes
         if (list.isEmpty()) return null
@@ -49,12 +50,13 @@ object RouteEngine {
         speedMps: Double,
         toggles: RealismToggles,
         accuracyMeters: Float,
+        plan: SpeedPlan?,
     ) {
         try {
             val config = if (speedMps > 0.0) {
-                MotionConfig(baseSpeedMps = speedMps)
+                MotionConfig(baseSpeedMps = speedMps, plan = plan)
             } else {
-                MotionConfig.run()
+                MotionConfig.run().copy(plan = plan)
             }
             val sim = RouteSimulator(
                 route,

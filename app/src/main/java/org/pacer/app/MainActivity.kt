@@ -24,6 +24,7 @@ import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
+import org.pacer.motion.SpeedPlan
 import org.pacer.motion.TrackAudit
 import java.util.Locale
 import kotlin.concurrent.thread
@@ -53,6 +54,7 @@ class MainActivity : Activity() {
     private lateinit var accuracyInput: EditText
     private lateinit var altitudeInput: EditText
     private lateinit var bearingInput: EditText
+    private lateinit var planInput: EditText
     private lateinit var bearingHoldToggle: CheckBox
     private lateinit var altitudeDriftToggle: CheckBox
     private lateinit var accuracyWarmupToggle: CheckBox
@@ -143,6 +145,18 @@ class MainActivity : Activity() {
         root.addView(altitudeInput)
         bearingInput = numberField("Straight-line bearing (deg, 0 = north)", "45.0")
         root.addView(bearingInput)
+        planInput = EditText(this).apply {
+            hint = "Interval plan (blank = steady speed)"
+            setText("")
+        }
+        root.addView(planInput)
+        root.addView(
+            hint(
+                "Interval plan, for example \"3.0@180;1.4@60#5\": speed in m/s, @, seconds, " +
+                    "\";\" between steps, \"#N\" repeats (0 = forever). Works on a route and " +
+                    "on the straight line; the reported speed follows it.",
+            ),
+        )
         stepToggle = option(
             root,
             "Step and sensor simulation",
@@ -245,6 +259,7 @@ class MainActivity : Activity() {
         }
         stepToggle.isChecked = stored.stepSimulation
         bluetoothToggle.isChecked = stored.mockBluetooth
+        planInput.setText(stored.plan)
         bearingHoldToggle.isChecked = stored.realism.bearingHold
         altitudeDriftToggle.isChecked = stored.realism.altitudeDrift
         accuracyWarmupToggle.isChecked = stored.realism.accuracyWarmup
@@ -354,6 +369,10 @@ class MainActivity : Activity() {
         val lat = latInput.text.toString().toDoubleOrNull() ?: 39.9042
         val lon = lonInput.text.toString().toDoubleOrNull() ?: 116.4074
         val speed = speedMps()
+        val plan = planTextOrNull() ?: run {
+            output.text = "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
+            return
+        }
         PacerConfigClient.start(
             lat = lat,
             lon = lon,
@@ -361,11 +380,25 @@ class MainActivity : Activity() {
             bearing = numberOr(bearingInput, 45f),
             accuracy = numberOr(accuracyInput, 5f),
             altitudeMeters = doubleOr(altitudeInput, 0.0),
+            plan = plan,
             mockBluetooth = bluetoothToggle.isChecked,
             stepSimulation = stepToggle.isChecked,
             realism = realismToggles(),
         )
         output.text = String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
+    }
+
+    /**
+     * The interval plan as typed, or null when it cannot be read.
+     *
+     * Refusing to start beats starting with the text silently ignored: the user would
+     * see one steady speed and have no way to tell whether the plan's syntax or the
+     * engine was at fault.
+     */
+    private fun planTextOrNull(): String? {
+        val text = planInput.text.toString().trim()
+        if (text.isEmpty()) return ""
+        return if (SpeedPlan.parse(text) != null) text else null
     }
 
     /** The signal-realism switches as the engine's own type, so nothing has to list them twice. */
@@ -392,6 +425,10 @@ class MainActivity : Activity() {
         }
         val first = route.points.first()
         val speed = speedMps()
+        val plan = planTextOrNull() ?: run {
+            output.text = "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
+            return
+        }
         PacerConfigClient.start(
             lat = first.lat,
             lon = first.lon,
@@ -400,6 +437,7 @@ class MainActivity : Activity() {
             accuracy = numberOr(accuracyInput, 5f),
             altitudeMeters = doubleOr(altitudeInput, 0.0),
             routeJson = draft.toJson(),
+            plan = plan,
             mockBluetooth = bluetoothToggle.isChecked,
             stepSimulation = stepToggle.isChecked,
             realism = realismToggles(),
@@ -443,12 +481,16 @@ class MainActivity : Activity() {
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
+        // The preview follows the interval plan as well, otherwise it would show a
+        // steady-speed track for a session that will not be one.
+        val plan = SpeedPlan.parse(planInput.text.toString())
+        val speed = speedMps()
         auditBtn.isEnabled = false
         output.text = "Auditing the track..."
         thread {
             fun runOnce() = RouteSimulator(
                 route,
-                MotionConfig.run(),
+                MotionConfig(baseSpeedMps = speed).copy(plan = plan),
                 toggles = toggles,
                 steadyAccuracyMeters = accuracy,
             ).simulate(dtSec = 1.0)
@@ -493,11 +535,13 @@ class MainActivity : Activity() {
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
+        val plan = SpeedPlan.parse(planInput.text.toString())
+        val speed = speedMps()
         thread {
             val route = draft.toRoutePath() ?: RoutePath(SAMPLE_ROUTE)
             val fixes = RouteSimulator(
                 route,
-                MotionConfig.run(),
+                MotionConfig(baseSpeedMps = speed).copy(plan = plan),
                 toggles = toggles,
                 steadyAccuracyMeters = accuracy,
             ).simulate(dtSec = 1.0)

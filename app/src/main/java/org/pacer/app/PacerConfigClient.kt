@@ -6,6 +6,7 @@ import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.RealismToggles
+import org.pacer.motion.SpeedPlan
 import org.pacer.motion.StraightLine
 
 /**
@@ -90,6 +91,8 @@ object PacerConfigClient {
         val stepSimulation: Boolean,
         val mockBluetooth: Boolean,
         val realism: RealismToggles,
+        /** The interval plan as the user typed it; empty means one steady speed. */
+        val plan: String,
     )
 
     /** The stored configuration, or null while the channel is not ready or unused. */
@@ -116,6 +119,7 @@ object PacerConfigClient {
                 satelliteJitter = p.getBoolean("satellite_jitter", true),
                 signalDropout = p.getBoolean("signal_dropout", true),
             ),
+            plan = p.getString("plan", "") ?: "",
         )
     }
 
@@ -128,6 +132,7 @@ object PacerConfigClient {
         accuracy: Float = 5f,
         altitudeMeters: Double = 0.0,
         routeJson: String = "",
+        plan: String = "",
         mockBluetooth: Boolean = true,
         stepSimulation: Boolean = true,
         realism: RealismToggles = RealismToggles(),
@@ -152,6 +157,7 @@ object PacerConfigClient {
             .putBoolean("accuracy_warmup", realism.accuracyWarmup)
             .putBoolean("satellite_jitter", realism.satelliteJitter)
             .putBoolean("signal_dropout", realism.signalDropout)
+            .putString("plan", plan)
             .putString("route_json", routeJson)
             .apply()
         Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")
@@ -215,11 +221,14 @@ object PacerConfigClient {
     private fun anchorHere(p: SharedPreferences, edit: SharedPreferences.Editor, nowMs: Long) {
         val start = GeoPoint(readDouble(p, "lat", 0.0), readDouble(p, "lon", 0.0))
         val elapsed = ((nowMs - p.getLong("start_ts", nowMs)).coerceAtLeast(0L)) / 1000.0
-        val here = StraightLine.at(
+        // An interval plan supplies the distance directly: speed x time would describe a
+        // different track from the one the hook side derives from the same plan.
+        val meters = SpeedPlan.parse(p.getString("plan", "") ?: "")?.metersAt(elapsed)
+            ?: (readDouble(p, "speed_mps", 0.0) * elapsed)
+        val here = StraightLine.byDistance(
             start = start,
             bearingDeg = p.getFloat("bearing", 0f).toDouble(),
-            speedMps = readDouble(p, "speed_mps", 0.0),
-            elapsedSec = elapsed,
+            meters = meters,
         )
         edit.putLong("lat", java.lang.Double.doubleToRawLongBits(here.lat))
             .putLong("lon", java.lang.Double.doubleToRawLongBits(here.lon))
