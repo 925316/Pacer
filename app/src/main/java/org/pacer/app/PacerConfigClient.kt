@@ -49,6 +49,7 @@ object PacerConfigClient {
         speed: Double,
         bearing: Float,
         accuracy: Float = 5f,
+        altitudeMeters: Double = 0.0,
         routeJson: String = "",
         mockBluetooth: Boolean = true,
         stepSimulation: Boolean = true,
@@ -65,7 +66,7 @@ object PacerConfigClient {
             .putLong("lat", java.lang.Double.doubleToRawLongBits(lat))
             .putLong("lon", java.lang.Double.doubleToRawLongBits(lon))
             .putFloat("accuracy", accuracy)
-            .putLong("altitude", java.lang.Double.doubleToRawLongBits(0.0))
+            .putLong("altitude", java.lang.Double.doubleToRawLongBits(altitudeMeters))
             .putFloat("bearing", bearing)
             .putBoolean("step_enabled", stepSimulation)
             .putBoolean("mock_bt", mockBluetooth)

@@ -29,7 +29,11 @@ class RouteSimulator(
     private val route: RoutePath,
     private val config: MotionConfig,
     private val toggles: RealismToggles = RealismToggles(),
-    private val realism: SignalRealism = SignalRealism(toggles = toggles),
+    steadyAccuracyMeters: Float = 5f,
+    private val realism: SignalRealism = SignalRealism(
+        toggles = toggles,
+        steadyAccuracyMeters = steadyAccuracyMeters,
+    ),
 ) {
     fun simulate(dtSec: Double = 1.0, seed: Long = Random.nextLong()): List<FixSample> {
         val run = Humanizer.simulate(config, route.totalLengthMeters, dtSec, seed)

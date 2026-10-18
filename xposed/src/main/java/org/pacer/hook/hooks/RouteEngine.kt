@@ -40,12 +40,13 @@ object RouteEngine {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active) return null
         val route = parseRoute(cfg.routeJson) ?: return null
-        // The switches are part of the cache key: they change the samples (accuracy,
-        // altitude, bearing, satellites, dropout), so a run configured differently must
-        // not reuse the previous build.
-        val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp + "|" + cfg.realism
+        // The switches and the advertised accuracy are part of the cache key: they change
+        // the samples (accuracy, altitude, bearing, satellites, dropout), so a run
+        // configured differently must not reuse the previous build.
+        val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp + "|" +
+            cfg.realism + "|" + cfg.accuracyMeters
         if (key != cacheKey) {
-            build(route, key, cfg.speedMps, cfg.realism)
+            build(route, key, cfg.speedMps, cfg.realism, cfg.accuracyMeters)
         }
         val list = fixes
         if (list.isEmpty()) return null
@@ -64,14 +65,25 @@ object RouteEngine {
      */
     internal fun resampledRoute(): List<GeoPoint> = resampledPoints
 
-    private fun build(route: RoutePath, key: String, speedMps: Double, toggles: RealismToggles) {
+    private fun build(
+        route: RoutePath,
+        key: String,
+        speedMps: Double,
+        toggles: RealismToggles,
+        accuracyMeters: Float,
+    ) {
         try {
             val config = if (speedMps > 0.0) {
                 MotionConfig(baseSpeedMps = speedMps)
             } else {
                 MotionConfig.run()
             }
-            val sim = RouteSimulator(route, config, toggles = toggles)
+            val sim = RouteSimulator(
+                route,
+                config,
+                toggles = toggles,
+                steadyAccuracyMeters = accuracyMeters,
+            )
             fixes = sim.simulate(dtSec = 1.0)
             resampledPoints = try {
                 RouteResampler.resample(route.points, RESAMPLE_SPACING_METERS)

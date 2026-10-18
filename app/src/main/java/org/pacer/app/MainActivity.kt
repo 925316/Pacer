@@ -47,6 +47,9 @@ class MainActivity : Activity() {
 
     private lateinit var stepToggle: CheckBox
     private lateinit var bluetoothToggle: CheckBox
+    private lateinit var accuracyInput: EditText
+    private lateinit var altitudeInput: EditText
+    private lateinit var bearingInput: EditText
     private lateinit var bearingHoldToggle: CheckBox
     private lateinit var altitudeDriftToggle: CheckBox
     private lateinit var accuracyWarmupToggle: CheckBox
@@ -130,6 +133,12 @@ class MainActivity : Activity() {
 
         // --- simulation ------------------------------------------------------
         root.addView(section("Simulation"))
+        accuracyInput = numberField("Steady accuracy (m)", "5.0")
+        root.addView(accuracyInput)
+        altitudeInput = numberField("Start altitude (m)", "0.0")
+        root.addView(altitudeInput)
+        bearingInput = numberField("Straight-line bearing (deg, 0 = north)", "45.0")
+        root.addView(bearingInput)
         stepToggle = option(
             root,
             "Step and sensor simulation",
@@ -302,7 +311,9 @@ class MainActivity : Activity() {
             lat = lat,
             lon = lon,
             speed = speed,
-            bearing = 45f,
+            bearing = numberOr(bearingInput, 45f),
+            accuracy = numberOr(accuracyInput, 5f),
+            altitudeMeters = doubleOr(altitudeInput, 0.0),
             mockBluetooth = bluetoothToggle.isChecked,
             stepSimulation = stepToggle.isChecked,
             realism = realismToggles(),
@@ -319,6 +330,13 @@ class MainActivity : Activity() {
         signalDropout = signalDropoutToggle.isChecked,
     )
 
+    /** A numeric field's value, or [fallback] when it is empty or unreadable. */
+    private fun numberOr(field: EditText, fallback: Float): Float =
+        field.text.toString().toFloatOrNull() ?: fallback
+
+    private fun doubleOr(field: EditText, fallback: Double): Double =
+        field.text.toString().toDoubleOrNull() ?: fallback
+
     private fun startRoute() {
         val route = draft.toRoutePath()
         if (route == null) {
@@ -331,7 +349,9 @@ class MainActivity : Activity() {
             lat = first.lat,
             lon = first.lon,
             speed = speed,
-            bearing = 45f,
+            bearing = numberOr(bearingInput, 45f),
+            accuracy = numberOr(accuracyInput, 5f),
+            altitudeMeters = doubleOr(altitudeInput, 0.0),
             routeJson = draft.toJson(),
             mockBluetooth = bluetoothToggle.isChecked,
             stepSimulation = stepToggle.isChecked,

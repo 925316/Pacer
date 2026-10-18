@@ -46,14 +46,20 @@ object LocationInjector {
         // Keyed on the run AND the switches: flipping one of them has to take effect
         // immediately, and both engines carry state that must not survive into a run
         // configured differently.
-        val key = cfg.startTimestamp to cfg.realism
+        val key = Triple(cfg.startTimestamp, cfg.realism, cfg.accuracyMeters)
         noise?.let { if (it.key == key) return it }
         synchronized(this) {
             noise?.let { if (it.key == key) return it }
             val seed = EnvGeo.sessionSeed(cfg.startTimestamp)
             val fresh = RunNoise(
                 key = key,
-                realism = SignalRealism(toggles = cfg.realism, seed = seed),
+                realism = SignalRealism(
+                    toggles = cfg.realism,
+                    // The advertised accuracy is the app's, not an engine constant: it is
+                    // the number a location SDK is told, and the two must not differ.
+                    steadyAccuracyMeters = cfg.accuracyMeters,
+                    seed = seed,
+                ),
                 jitter = StationaryJitter(seed = seed xor 0x5DEECE66DL),
             )
             noise = fresh
@@ -169,7 +175,9 @@ object LocationInjector {
             lat = sample.point.lat
             lon = sample.point.lon
             accuracy = sample.accuracyMeters
-            altitude = sample.altitudeMeters
+            // The configured start altitude applies in route mode too: it is the ground
+            // the route is walked on, and the engine's drift is added to it.
+            altitude = cfg.altitudeMeters + sample.altitudeMeters
             bearing = sample.bearingDeg
             satellites = sample.satellites
             speed = sample.speedMps
