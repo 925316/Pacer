@@ -28,7 +28,8 @@ data class FixSample(
 class RouteSimulator(
     private val route: RoutePath,
     private val config: MotionConfig,
-    private val realism: SignalRealism = SignalRealism(),
+    private val toggles: RealismToggles = RealismToggles(),
+    private val realism: SignalRealism = SignalRealism(toggles = toggles),
 ) {
     fun simulate(dtSec: Double = 1.0, seed: Long = Random.nextLong()): List<FixSample> {
         val run = Humanizer.simulate(config, route.totalLengthMeters, dtSec, seed)
