@@ -76,8 +76,6 @@ object PacerConfigClient {
         pendingReady.clear()
     }
 
-    val isReady: Boolean get() = prefs != null
-
     /** What the UI needs to show the configuration that is actually stored. */
     data class Stored(
         val active: Boolean,

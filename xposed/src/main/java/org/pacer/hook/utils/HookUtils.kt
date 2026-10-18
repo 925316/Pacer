@@ -2,7 +2,6 @@ package org.pacer.hook.utils
 
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
-import java.lang.reflect.Constructor
 import java.lang.reflect.Executable
 import java.lang.reflect.Field
 import java.lang.reflect.Method
@@ -101,12 +100,6 @@ object HookUtils {
     fun getIntField(obj: Any, name: String): Int =
         field(obj.javaClass, name)?.getInt(obj) ?: 0
 
-    fun getBooleanField(obj: Any, name: String): Boolean =
-        field(obj.javaClass, name)?.getBoolean(obj) ?: false
-
-    fun getLongField(obj: Any, name: String): Long =
-        field(obj.javaClass, name)?.getLong(obj) ?: 0L
-
     /**
      * Sets a field and reports whether it existed and could be written. Code that
      * must fall back when a field is absent or final uses this rather than
@@ -120,8 +113,6 @@ object HookUtils {
         } catch (_: Throwable) {
             false
         }
-
-    fun hasField(obj: Any, name: String): Boolean = field(obj.javaClass, name) != null
 
     /**
      * Reads a primitive double field, reporting absence instead of pretending
@@ -256,20 +247,6 @@ object HookUtils {
             true
         } catch (_: Throwable) {
             false
-        }
-    }
-
-    inline fun hookAllConstructors(
-        clazz: Class<*>,
-        crossinline interceptor: (XposedInterface.Chain) -> Any?,
-    ) {
-        for (ctor: Constructor<*> in clazz.declaredConstructors) {
-            try {
-                module.hook(ctor).intercept(object : XposedInterface.Hooker {
-                    override fun intercept(chain: XposedInterface.Chain): Any? = interceptor(chain)
-                })
-            } catch (_: Throwable) {
-            }
         }
     }
 

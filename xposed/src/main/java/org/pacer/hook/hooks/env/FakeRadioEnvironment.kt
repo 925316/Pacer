@@ -96,12 +96,6 @@ object FakeRadioEnvironment {
         val rssi: Int,
     )
 
-    data class Environment(
-        val aps: List<WifiAp>,
-        val cells: List<Cell>,
-        val beacons: List<Beacon>,
-    )
-
     private data class Operator(val mcc: Int, val mnc: Int)
 
     private data class Region(
@@ -130,17 +124,6 @@ object FakeRadioEnvironment {
     )
 
     private val DEFAULT_OPERATORS = listOf(Operator(460, 0), Operator(460, 1), Operator(460, 11))
-
-    fun environment(
-        latitude: Double,
-        longitude: Double,
-        sessionSeed: Long,
-        nowMs: Long,
-    ): Environment = Environment(
-        aps = scanResults(latitude, longitude, sessionSeed, nowMs),
-        cells = cells(latitude, longitude, sessionSeed),
-        beacons = beacons(latitude, longitude, sessionSeed, nowMs),
-    )
 
     /** Visible access points, strongest first. */
     fun scanResults(
