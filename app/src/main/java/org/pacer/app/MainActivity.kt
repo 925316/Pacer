@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private lateinit var speedInput: EditText
 
     private lateinit var stepToggle: CheckBox
+    private lateinit var loopToggle: CheckBox
     private lateinit var bluetoothToggle: CheckBox
     private lateinit var accuracyInput: EditText
     private lateinit var altitudeInput: EditText
@@ -157,6 +158,14 @@ class MainActivity : Activity() {
                     "on the straight line; the reported speed follows it.",
             ),
         )
+        loopToggle = option(
+            root,
+            "Repeat the route (laps)",
+            "A route run starts over at the first waypoint instead of stopping at the end. " +
+                "Distance and steps keep growing across laps, and the whole track is humanized " +
+                "again each lap, so no two laps are identical.",
+            checked = false,
+        )
         stepToggle = option(
             root,
             "Step and sensor simulation",
@@ -260,6 +269,7 @@ class MainActivity : Activity() {
         stepToggle.isChecked = stored.stepSimulation
         bluetoothToggle.isChecked = stored.mockBluetooth
         planInput.setText(stored.plan)
+        loopToggle.isChecked = stored.loopRoute
         bearingHoldToggle.isChecked = stored.realism.bearingHold
         altitudeDriftToggle.isChecked = stored.realism.altitudeDrift
         accuracyWarmupToggle.isChecked = stored.realism.accuracyWarmup
@@ -452,6 +462,7 @@ class MainActivity : Activity() {
             altitudeMeters = doubleOr(altitudeInput, 0.0),
             routeJson = draft.toJson(),
             plan = plan,
+            loopRoute = loopToggle.isChecked,
             mockBluetooth = bluetoothToggle.isChecked,
             stepSimulation = stepToggle.isChecked,
             realism = realismToggles(),
@@ -615,14 +626,18 @@ class MainActivity : Activity() {
     }
 
     /**
-     * A switch that is added to [into] already checked, with a one-line explanation
-     * underneath. The explanation is part of the control on purpose: every one of these
-     * changes what the simulated track looks like, and none is obvious from its label.
+     * A switch that is added to [into], with a one-line explanation underneath. The
+     * explanation is part of the control on purpose: every one of these changes what the
+     * simulated track looks like, and none is obvious from its label.
+     *
+     * [checked] is the initial state; the realism switches default to on (a device whose
+     * track looks machine-made is the thing this project exists to avoid), while the
+     * ones that change what a run IS default to off.
      */
-    private fun option(into: LinearLayout, label: String, explanation: String): CheckBox {
+    private fun option(into: LinearLayout, label: String, explanation: String, checked: Boolean = true): CheckBox {
         val box = CheckBox(this).apply {
             text = label
-            isChecked = true
+            isChecked = checked
         }
         into.addView(box)
         into.addView(hint(explanation))

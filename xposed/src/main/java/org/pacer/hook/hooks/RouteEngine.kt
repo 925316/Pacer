@@ -21,25 +21,55 @@ object RouteEngine {
     @Volatile private var cacheKey: String? = null
     @Volatile private var fixes: List<FixSample> = emptyList()
 
+    /** One lap's length in seconds, fixed when a repeating run is first built. */
+    @Volatile private var lapSeconds: Double = 0.0
+
+    /** The run that [lapSeconds] belongs to, so a new run starts counting again. */
+    @Volatile private var lapRunStartedAt: Long = 0L
+
     /** Sample for the current elapsed time, or null when no route is configured. */
     fun sampleAt(nowMs: Long = System.currentTimeMillis()): FixSample? {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active) return null
         val route = parseRoute(cfg.routeJson) ?: return null
-        // The switches and the advertised accuracy are part of the cache key: they change
-        // the samples (accuracy, altitude, bearing, satellites, dropout), so a run
-        // configured differently must not reuse the previous build.
+        if (cfg.startTimestamp != lapRunStartedAt) {
+            lapRunStartedAt = cfg.startTimestamp
+            lapSeconds = 0.0
+        }
+        val elapsed = ((nowMs - cfg.startTimestamp).coerceAtLeast(0L)) / 1000.0
+        // A repeating run: which lap this moment is in, and how far into it. The lap length
+        // comes from the first build of the run and then stays fixed, because every lap is
+        // built with its own noise and would otherwise move its own ending.
+        val lap = if (cfg.loopRoute) {
+            MotionSamples.lapAt(elapsed, lapSeconds)
+        } else {
+            MotionSamples.lapAt(elapsed, 0.0)
+        }
+        // The switches, the advertised accuracy and the lap are part of the cache key: they
+        // change the samples (accuracy, altitude, bearing, satellites, dropout), so a run
+        // configured differently - or a later lap, which is humanized again - must not
+        // reuse the previous build. Two laps of one route repeat exactly otherwise, which
+        // is the easiest thing a detector could look for.
         val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp + "|" +
-            cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "")
+            cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "") + "|lap=" + lap.index
         if (key != cacheKey) {
             build(route, key, cfg.speedMps, cfg.realism, cfg.accuracyMeters, cfg.plan)
+            if (cfg.loopRoute && lapSeconds <= 0.0) {
+                lapSeconds = fixes.lastOrNull()?.tSec ?: 0.0
+            }
         }
         val list = fixes
         if (list.isEmpty()) return null
-        val elapsed = ((nowMs - cfg.startTimestamp).coerceAtLeast(0L)) / 1000.0
-        // Binary search, not a scan: the sensor callbacks ask this question tens of times
-        // a second and a run holds one sample per second for minutes.
-        return MotionSamples.at(list, elapsed)
+        // Binary search, not a scan: the sensor callbacks ask this question tens of times a
+        // second and a run holds one sample per second for minutes.
+        val base = MotionSamples.at(list, lap.offsetSec) ?: return null
+        return MotionSamples.afterLaps(
+            sample = base,
+            laps = lap.index,
+            lapMeters = list.last().distanceMeters,
+            lapSteps = list.last().cumulativeSteps,
+            tSec = elapsed,
+        )
     }
 
     private fun build(

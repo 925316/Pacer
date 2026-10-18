@@ -91,6 +91,8 @@ object PacerConfigClient {
         val realism: RealismToggles,
         /** The interval plan as the user typed it; empty means one steady speed. */
         val plan: String,
+        /** Whether a route run starts over when it reaches the end. */
+        val loopRoute: Boolean,
     )
 
     /** The stored configuration, or null while the channel is not ready or unused. */
@@ -118,6 +120,7 @@ object PacerConfigClient {
                 signalDropout = p.getBoolean("signal_dropout", true),
             ),
             plan = p.getString("plan", "") ?: "",
+            loopRoute = p.getBoolean("loop_route", false),
         )
     }
 
@@ -131,6 +134,7 @@ object PacerConfigClient {
         altitudeMeters: Double = 0.0,
         routeJson: String = "",
         plan: String = "",
+        loopRoute: Boolean = false,
         mockBluetooth: Boolean = true,
         stepSimulation: Boolean = true,
         realism: RealismToggles = RealismToggles(),
@@ -156,6 +160,7 @@ object PacerConfigClient {
             .putBoolean("satellite_jitter", realism.satelliteJitter)
             .putBoolean("signal_dropout", realism.signalDropout)
             .putString("plan", plan)
+            .putBoolean("loop_route", loopRoute)
             .putString("route_json", routeJson)
             .apply()
         Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")

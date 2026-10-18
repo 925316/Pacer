@@ -92,6 +92,7 @@ object ConfigSync {
         // every sample. An unreadable plan becomes "no plan" rather than a run with
         // invented intervals.
         PacerRuntimeConfig.plan = SpeedPlan.parse(prefs.getString("plan", "") ?: "")
+        PacerRuntimeConfig.loopRoute = prefs.getBoolean("loop_route", false)
     }
 
     private fun doubleOf(p: SharedPreferences, key: String, def: Double): Double =

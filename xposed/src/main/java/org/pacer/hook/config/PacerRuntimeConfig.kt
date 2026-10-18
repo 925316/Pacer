@@ -52,6 +52,13 @@ object PacerRuntimeConfig {
      */
     @Volatile var plan: SpeedPlan? = null
 
+    /**
+     * Whether a route run starts over when it reaches the end instead of stopping there.
+     * The position returns to the first waypoint while distance and steps keep growing;
+     * the arithmetic lives in MotionSamples.atLooped.
+     */
+    @Volatile var loopRoute: Boolean = false
+
     fun snapshot(): Snapshot = Snapshot(
         active = active,
         speedMps = speedMps,
@@ -66,6 +73,7 @@ object PacerRuntimeConfig {
         bearingDeg = bearingDeg,
         routeJson = routeJson,
         plan = plan,
+        loopRoute = loopRoute,
     )
 
     data class Snapshot(
@@ -82,5 +90,6 @@ object PacerRuntimeConfig {
         val bearingDeg: Float,
         val routeJson: String,
         val plan: SpeedPlan?,
+        val loopRoute: Boolean,
     )
 }
