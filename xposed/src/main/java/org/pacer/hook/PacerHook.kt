@@ -19,6 +19,7 @@ import org.pacer.hook.hooks.env.WifiSpoofHooker
 import org.pacer.hook.hooks.system.RawGnssSuppressionHooker
 import org.pacer.hook.hooks.system.SystemAppOpsHooker
 import org.pacer.hook.hooks.system.SystemBluetoothServiceHooker
+import org.pacer.hook.hooks.system.SystemConnectivityServiceHooker
 import org.pacer.hook.hooks.system.SystemLocationServiceHooker
 import org.pacer.hook.hooks.system.SystemSettingsProviderHooker
 import org.pacer.hook.hooks.system.SystemTelephonyRegistryHooker
@@ -168,6 +169,9 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("system-telephony-push") {
             SystemTelephonyRegistryHooker.install(classLoader)
+        }
+        HookUtils.runCatchingLogged("system-connectivity") {
+            SystemConnectivityServiceHooker.install(classLoader)
         }
         logInstallReport()
     }

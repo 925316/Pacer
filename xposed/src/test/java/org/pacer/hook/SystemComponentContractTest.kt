@@ -158,6 +158,41 @@ class SystemComponentContractTest {
         )
     }
 
+    @Test
+    fun everyComponentNamesTheLayerThatConsumesIt() {
+        // A component that resolves a class and has no consumer does nothing at all, and
+        // does it silently: the locator reports it, HookStatus prints it, and no
+        // behaviour changes anywhere. CONNECTIVITY_SERVICE sat in exactly that state -
+        // candidates including the Android 14 rename evidence, and no hooker reading it -
+        // while every test passed. Naming the consumer here means a component cannot be
+        // added without one.
+        val consumers = mapOf(
+            SystemComponent.LOCATION_MANAGER_SERVICE to "SystemLocationServiceHooker",
+            SystemComponent.LOCATION_PROVIDER_MANAGER to "SystemLocationServiceHooker",
+            SystemComponent.WIFI_SERVICE to "SystemWifiServiceHooker",
+            SystemComponent.WIFI_SCANNER_SERVICE to "SystemWifiServiceHooker",
+            SystemComponent.CONNECTIVITY_SERVICE to "SystemConnectivityServiceHooker",
+            SystemComponent.APPOPS_SERVICE to "SystemAppOpsHooker",
+            SystemComponent.SETTINGS_PROVIDER to "SystemSettingsProviderHooker",
+            SystemComponent.TELEPHONY_REGISTRY to "SystemTelephonyRegistryHooker",
+            SystemComponent.TELEPHONY_PHONE_MANAGER to "SystemTelephonyServiceHooker",
+            SystemComponent.BLUETOOTH_SCAN_SERVICE to "SystemBluetoothServiceHooker",
+        )
+
+        assertEquals(
+            "Every SystemComponent must be listed here with the layer that reads it. An " +
+                "unlisted component is a scaffold with no consumer: it resolves nothing " +
+                "and changes nothing, which no other test can see.",
+            SystemComponent.values().toSet(),
+            consumers.keys,
+        )
+        assertTrue(
+            "A consumer name must not be blank: the entry exists so that the component's " +
+                "purpose is written down.",
+            consumers.values.none { it.isBlank() },
+        )
+    }
+
     private fun isPlausibleClassName(name: String): Boolean {
         if (name.isEmpty() || !name.contains('.')) return false
         if (name.any { it.isWhitespace() }) return false

@@ -15,16 +15,24 @@ object ConnectivitySpoofHooker {
 
     private const val WIFI_INFO_CLASS = "android.net.wifi.WifiInfo"
 
+    /** NetworkCapabilities.TRANSPORT_WIFI. */
+    private const val TRANSPORT_WIFI = 1
+
     /** NetworkInfo.TYPE_WIFI. */
     private const val TYPE_WIFI = 1
 
     fun install(classLoader: ClassLoader) {
         val capabilities = HookUtils.findClassIfExists("android.net.NetworkCapabilities", classLoader) ?: return
 
-        // API 29+. Returns the RSSI for the active transport.
+        // API 29+. Returns the RSSI for the active transport - which is only a WiFi RSSI
+        // when the transport IS WiFi. Answering with the virtual access point's level for
+        // a cellular capability would report a signal that transport cannot have.
         HookUtils.hookAllMethods(capabilities, "getSignalStrength") { chain ->
             val ap = WifiSpoofHooker.connectedAp(PacerRuntimeConfig.snapshot())
-            if (ap != null) ap.level else chain.proceed(chain.args.toTypedArray())
+            if (ap == null || !isWifiTransport(chain.thisObject)) {
+                return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            }
+            ap.level
         }
 
         // API 31+. Hands back the transport specific info; for WiFi that is a
@@ -67,6 +75,20 @@ object ConnectivitySpoofHooker {
             val ap = WifiSpoofHooker.connectedAp(PacerRuntimeConfig.snapshot())
                 ?: return@hookAllMethods real
             EnvGeo.quoteSsid(ap.ssid)
+        }
+    }
+
+    /**
+     * Whether a NetworkCapabilities describes the WiFi transport. An unreadable answer
+     * means "not WiFi", which leaves the real value in place rather than answering with
+     * a WiFi strength for a transport that cannot have one.
+     */
+    private fun isWifiTransport(caps: Any?): Boolean {
+        if (caps == null) return false
+        return try {
+            HookUtils.callMethod(caps, "hasTransport", TRANSPORT_WIFI) as? Boolean == true
+        } catch (_: Throwable) {
+            false
         }
     }
 }
