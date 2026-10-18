@@ -72,11 +72,16 @@ class RouteSimulatorTest {
     @Test
     fun `speed is capped on the approach to a corner`() {
         val base = 3.0
-        val fixes = RouteSimulator(route = cornerRoute, config = MotionConfig(baseSpeedMps = base))
+        // Pauses are switched off for this test: a pause's own deceleration puts fast
+        // samples in the window for a reason that has nothing to do with the corner, and a
+        // runner stopping for a light does not also have to brake for the turn.
+        val config = MotionConfig(baseSpeedMps = base, pausesPerMinute = 0.0)
+        val fixes = RouteSimulator(route = cornerRoute, config = config)
             .simulate(dtSec = 1.0, seed = 6L)
         val cornerAt = cornerRoute.totalLengthMeters / 2
-        // Only the approach: past the corner the cap is off again.
-        val approach = fixes.filter { it.distanceMeters in (cornerAt - 20.0)..cornerAt }
+        // Strictly before the corner: at the corner itself the cap is already off again,
+        // because the point being looked at from there is past the turn.
+        val approach = fixes.filter { it.distanceMeters >= cornerAt - 20.0 && it.distanceMeters < cornerAt }
         assertTrue(approach.isNotEmpty())
         // The turn model's floor times the cruise noise stays well under the uncapped
         // speed, so a missing cap shows up here as a sample at full speed.
