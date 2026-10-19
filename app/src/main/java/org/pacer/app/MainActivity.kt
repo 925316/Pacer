@@ -668,19 +668,20 @@ class MainActivity : Activity() {
         const val RIDE_SPEED = 6.0
 
         /**
-         * A sample loop around Red Square, Moscow.
+         * A sample loop in Urumqi.
          *
-         * Deliberately the default the map also opens on: a sample somewhere the user is not,
-         * so it cannot be mistaken for their own position, and the same place so the two
-         * screens agree about where "the sample" is.
+         * Deliberately the default the map also opens on: a sample somewhere almost no user
+         * is, so it cannot be mistaken for their own position, and the same place so the two
+         * screens agree about where "the sample" is. Inside China because AMap and Baidu
+         * serve blank tiles outside it.
          */
         val SAMPLE_ROUTE: List<GeoPoint> = listOf(
-            GeoPoint(55.7539, 37.6208),
-            GeoPoint(55.7553, 37.6172),
-            GeoPoint(55.7568, 37.6161),
-            GeoPoint(55.7582, 37.6190),
-            GeoPoint(55.7565, 37.6223),
-            GeoPoint(55.7548, 37.6227),
+            GeoPoint(43.8240, 87.6140),
+            GeoPoint(43.8252, 87.6152),
+            GeoPoint(43.8264, 87.6166),
+            GeoPoint(43.8276, 87.6182),
+            GeoPoint(43.8268, 87.6198),
+            GeoPoint(43.8250, 87.6188),
         )
     }
 }

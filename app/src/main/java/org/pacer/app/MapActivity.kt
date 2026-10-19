@@ -588,7 +588,7 @@ class MapActivity : Activity() {
 
     private companion object {
         /** Where the map opens when the guard rails are needed; the store usually answers. */
-        val DEFAULT_CENTER = GeoPoint(55.7558, 37.6173)
+        val DEFAULT_CENTER = GeoPoint(43.8256, 87.6168)
         const val DEFAULT_ZOOM = 13
 
         /** How often the live marker is moved; the simulation advances in seconds. */

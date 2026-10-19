@@ -521,8 +521,14 @@ internal class TileMapView(
     private companion object {
         const val TILE_SIZE = TileGrid.TILE_SIZE
 
-        /** Moscow: the default view, deliberately nowhere near the user. */
-        val DEFAULT_CENTER = GeoPoint(55.7558, 37.6173)
+        /**
+         * Urumqi: the default view, deliberately nowhere near most users.
+         *
+         * Inside China on purpose. AMap and Baidu serve blank tiles outside it, so opening
+         * on a foreign city drew a screen of successful, empty tiles and looked like a
+         * broken map. The city itself still carries no relation to the user.
+         */
+        val DEFAULT_CENTER = GeoPoint(43.8256, 87.6168)
         const val DEFAULT_ZOOM = 13
 
         // 256x256 ARGB tiles are 256 KiB each, so this is a ~38 MiB ceiling: enough for a
