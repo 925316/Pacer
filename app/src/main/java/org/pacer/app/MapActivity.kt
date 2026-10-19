@@ -128,14 +128,10 @@ class MapActivity : Activity() {
         // is off-screen is a feature that does not exist.
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         bar.addView(button("Undo") {
-            if (draft.size > 0) draft.removeAt(draft.size - 1)
-            store.save(draft)
-            render()
+            editDraft { if (draft.size > 0) draft.removeAt(draft.size - 1) }
         })
         bar.addView(button("Clear") {
-            draft.clear()
-            store.save(draft)
-            render()
+            editDraft { draft.clear() }
         })
         bar.addView(button("Fit") { fitRoute() })
         bar.addView(button("Centre") { centreOnSubject() })
@@ -202,15 +198,10 @@ class MapActivity : Activity() {
         if (map != null) {
             map.onCreate(savedInstanceState)
             map.onTap = { point ->
-                draft.add(point)
-                store.save(draft)
-                render()
+                editDraft { draft.add(point) }
             }
             map.onWaypointDragEnd = { index, point ->
-                if (draft.replaceAt(index, point)) {
-                    store.save(draft)
-                    render()
-                }
+                editDraft { draft.replaceAt(index, point) }
             }
             map.onLongPress = { point ->
                 if (PacerConfigClient.canTeleport()) {
@@ -291,8 +282,33 @@ class MapActivity : Activity() {
         super.onDestroy()
     }
 
-    /** Redraws the route: the road path when there is one, plus the draggable handles. */
-    private fun render() {
+    /**
+     * Every edit to the draft goes through here.
+     *
+     * One place, because an edit has a consequence that is easy to forget at each call
+     * site: the stored road path was computed from the OLD waypoints, so saving the draft
+     * invalidates it. Doing the save and the redraw in the same step is also what keeps
+     * the other screen from reading a draft the map has not caught up with.
+     */
+    private fun editDraft(change: () -> Unit) {
+        // A drag that lands on the same coordinate, or an Undo on an empty draft, changes
+        // nothing - and saving then would drop a perfectly good road path for no reason.
+        val before = draft.toJson()
+        val hadRoad = store.roadPath(draft) != null
+        change()
+        if (draft.toJson() == before) return
+        store.save(draft)
+        render(afterEdit = hadRoad)
+    }
+
+    /**
+     * Redraws the route: the road path when there is one, plus the draggable handles.
+     *
+     * The road path can disappear between draws (any edit to the waypoints drops it), and a
+     * map that quietly switches back to straight lines is the kind of change a user does
+     * not notice until the track looks wrong. [afterEdit] therefore says so explicitly.
+     */
+    private fun render(afterEdit: Boolean = false) {
         // Decoded once per redraw: a road path is a thousand-point JSON array, and both
         // the info line and the map want the same answer.
         val road = store.roadPath(draft)
@@ -302,6 +318,10 @@ class MapActivity : Activity() {
         // and the map keeps what it is handed for its own hit-testing.
         routeMap?.showRoute(geometry, draft.points.toList())
         updateLivePosition()
+        if (afterEdit && road == null && draft.size >= 2) {
+            info.text = "The waypoints changed, so the road route no longer describes them. " +
+                "Press Follow roads to plan it again; until then the route is straight lines."
+        }
     }
 
     private fun startSimulation() {
@@ -490,9 +510,7 @@ class MapActivity : Activity() {
             info.text = "Search a place first."
             return
         }
-        draft.add(place.point)
-        store.save(draft)
-        render()
+        editDraft { draft.add(place.point) }
         info.text = String.format(
             Locale.US,
             "Added %s as waypoint %d.",
