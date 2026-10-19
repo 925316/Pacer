@@ -68,6 +68,10 @@ internal class TileMapView(
     /** Repaints when a tile arrives, coalesced onto the UI thread. */
     private val invalidatePending = AtomicBoolean(false)
 
+    /** A redraw after a failed fetch is already scheduled; one per window is enough. */
+    @Volatile
+    private var retryPosted = false
+
     private val tilePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 
     private val routePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -190,17 +194,26 @@ internal class TileMapView(
         val destination = Rect()
         for (row in 0 until rows) {
             for (col in 0 until cols) {
-                val x = firstX + col
-                val y = firstY + row
+                // The pixel plane and the service's tile index are not the same numbers:
+                // Baidu's index counts north while its pixel plane grows south, so the sign
+                // has to be undone. Asking the grid is the only way to be right for all
+                // three; taking firstX + col straight to the URL drew a whole screen of
+                // blank Baidu tiles with negative y.
+                val ref = source.grid.tile(
+                    PixelPoint(
+                        (firstX + col) * TILE_SIZE.toDouble(),
+                        (firstY + row) * TILE_SIZE.toDouble(),
+                    ),
+                )
                 val left = (originX + col * TILE_SIZE).roundToInt()
                 val top = (originY + row * TILE_SIZE).roundToInt()
                 destination.set(left, top, left + TILE_SIZE, top + TILE_SIZE)
-                val bitmap = tiles.bitmap(x, y, zoom, source.url)
+                val bitmap = tiles.bitmap(ref.x, ref.y, zoom, source.url)
                 if (bitmap != null) {
                     canvas.drawBitmap(bitmap, null, destination, tilePaint)
                 } else {
                     canvas.drawRect(destination, emptyPaint)
-                    tiles.request(x, y, zoom, source.url, ::onTileArrived)
+                    tiles.request(ref.x, ref.y, zoom, source.url, ::onTileArrived, ::onTileFailed)
                 }
             }
         }
@@ -213,6 +226,26 @@ internal class TileMapView(
                 invalidate()
             }
         }
+    }
+
+    /**
+     * A tile did not arrive.
+     *
+     * Nothing asks for it again until a draw runs, and a draw only runs when something
+     * moves. A network that was not ready on the first frame would therefore leave the map
+     * blank until the user touched it, so one redraw is scheduled per retry window;
+     * [TileCache] then spreads the new attempts out and stops asking for tiles that keep
+     * failing.
+     */
+    private fun onTileFailed() {
+        if (retryPosted) return
+        retryPosted = true
+        postDelayed(retryRedraw, TileCache.RETRY_AFTER_MS)
+    }
+
+    private val retryRedraw = Runnable {
+        retryPosted = false
+        invalidate()
     }
 
     private fun drawGeometry(canvas: Canvas) {
@@ -384,7 +417,13 @@ internal class TileMapView(
                         val target = (pinchStartZoom + steps)
                             .coerceIn(source.grid.minZoom, source.grid.maxZoom)
                         if (target != zoom) {
+                            // centerPixel is measured in the OLD zoom's pixels; carrying it
+                            // into the new level unscaled moves the view somewhere the user
+                            // never looked (usually open water). Convert the centre point
+                            // through geography instead.
+                            val anchor = source.grid.point(centerPixel, zoom)
                             zoom = target
+                            centerPixel = source.grid.pixel(anchor, target)
                             invalidate()
                         }
                     }
@@ -452,6 +491,10 @@ internal class TileMapView(
         // A long press that is still pending would fire against a view the page has thrown
         // away, for example when the basemap is switched under the finger.
         removeCallbacks(longPress)
+        removeCallbacks(retryRedraw)
+        // The page builds a new view per basemap switch; without this each switch leaves
+        // four idle fetch threads behind.
+        tiles.close()
         super.onDetachedFromWindow()
     }
 
@@ -482,7 +525,9 @@ internal class TileMapView(
         val DEFAULT_CENTER = GeoPoint(55.7558, 37.6173)
         const val DEFAULT_ZOOM = 13
 
-        const val MAX_CACHED_TILES = 400
+        // 256x256 ARGB tiles are 256 KiB each, so this is a ~38 MiB ceiling: enough for a
+        // screen and a little panning, small enough not to be the reason the app is killed.
+        const val MAX_CACHED_TILES = 150
         const val FIT_PADDING = 48
         const val TOUCH_SLOP = 12f
         const val LONG_PRESS_MS = 500L
@@ -547,7 +592,9 @@ private class TileCache(private val capacity: Int) {
         zoom: Int,
         url: (Int, Int, Int) -> String?,
         onLoaded: () -> Unit,
+        onFailed: () -> Unit,
     ) {
+        if (workers.isShutdown) return
         val key = url(x, y, zoom) ?: return
         val now = System.currentTimeMillis()
         synchronized(failedAt) {
@@ -572,17 +619,24 @@ private class TileCache(private val capacity: Int) {
                     // source does not serve, or a transient failure.
                     Log.d(TAG, "tile unavailable: $key")
                     synchronized(failedAt) { failedAt[key] = System.currentTimeMillis() }
+                    onFailed()
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "tile failed: $key", t)
                 synchronized(failedAt) { failedAt[key] = System.currentTimeMillis() }
+                onFailed()
             } finally {
                 synchronized(inFlight) { inFlight.remove(key) }
             }
         }
     }
 
-    private companion object {
+    /** Stops the workers; called when the view is thrown away, since nothing can use it then. */
+    fun close() {
+        workers.shutdownNow()
+    }
+
+    companion object {
         const val FETCH_THREADS = 4
         const val TAG = "Pacer"
 
