@@ -83,9 +83,11 @@ object PolylineCodec {
         // The format carries a signed 32-bit delta, so anything wider is not a delta:
         // accepting it would wrap the coordinate to a different place on the map.
         if (result > 0xFFFFFFFFL) return null
-        val narrow = result.toInt()
-        // Zig-zag: the low bit is the sign, the rest is the magnitude.
-        val value = if ((narrow and 1) != 0) (narrow shr 1).inv() else narrow shr 1
+        // Zig-zag on the UNSIGNED value: the low bit is the sign, the rest is the
+        // magnitude. Shifting the truncated Int instead would sign-extend the high bit and
+        // turn a wrapped, out-of-scale delta into a small, believable one.
+        val magnitude = (result ushr 1).toInt()
+        val value = if ((result and 1L) != 0L) magnitude.inv() else magnitude
         return Delta(value, index)
     }
 

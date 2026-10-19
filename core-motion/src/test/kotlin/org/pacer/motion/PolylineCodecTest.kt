@@ -62,4 +62,13 @@ class PolylineCodecTest {
     fun `an unprintable character is rejected rather than shifted`() {
         assertTrue(PolylineCodec.decode("_p~iF\u0001ps|U").isEmpty())
     }
+
+    @Test
+    fun `a top-of-range delta is not folded into a small one`() {
+        // The latitude delta here is the most negative value the format can carry
+        // (zig-zag word 0xFFFFFFFF), which puts the point off the globe. Truncating the
+        // word to an Int BEFORE un-zig-zagging sign-extends it, so the delta reads as 0:
+        // a point at the equator instead of a rejected route.
+        assertTrue(PolylineCodec.decode("~~~~~~BA").isEmpty())
+    }
 }
