@@ -13,9 +13,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- AMap's native library is distributed inside a plain jar (see app/build.gradle.kts),
+         so it reaches the APK as a packaged resource rather than through the jniLibs
+         pipeline. Extracting at install time is what the loader needs for a library it
+         did not index itself. -->
     <application
         android:label="Pacer"
+        android:extractNativeLibs="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- Empty when the build was made without a key, which is how the map screen knows
+             to fall back to osmdroid. The key is bound to this package name and to the
+             certificate that signed the APK, so it can never be committed. -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="${amapApiKey}" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

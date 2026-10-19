@@ -22,6 +22,9 @@ object CoordinateTransform {
     private const val A = 6378245.0 // CGCS2000 semi-major axis used by the spec
     private const val EE = 0.00669342162296594323 // first eccentricity squared
 
+    /** Rounds of correction used by [gcj02ToWgs84]; two are enough for sub-metre. */
+    private const val INVERSE_ITERATIONS = 3
+
     private fun outOfChina(lat: Double, lon: Double): Boolean =
         lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271
 
@@ -62,6 +65,25 @@ object CoordinateTransform {
         val z = sqrt(p.lon * p.lon + p.lat * p.lat) + 0.00002 * sin(p.lat * PI * 3000.0 / 180.0)
         val theta = kotlin.math.atan2(p.lat, p.lon) + 0.000003 * cos(p.lat * PI * 3000.0 / 180.0)
         return GeoPoint(z * sin(theta) + 0.006, z * cos(theta) + 0.0065)
+    }
+
+    /**
+     * GCJ02 -> WGS84, the inverse of [wgs84ToGcj02].
+     *
+     * The forward transform is a fixed formula rather than a reversible one, so the
+     * inverse is found by iteration: start from the biased point, measure where its
+     * GCJ02 image lands, and correct by the difference. Two rounds already agree to well
+     * under a metre, and the cost is nothing next to a map tap. Needed because a tap on a
+     * GCJ02 map hands back a GCJ02 coordinate, while a route is stored in WGS84.
+     */
+    fun gcj02ToWgs84(p: GeoPoint): GeoPoint {
+        if (outOfChina(p.lat, p.lon)) return p
+        var guess = p
+        repeat(INVERSE_ITERATIONS) {
+            val projected = wgs84ToGcj02(guess)
+            guess = GeoPoint(guess.lat + (p.lat - projected.lat), guess.lon + (p.lon - projected.lon))
+        }
+        return guess
     }
 
     /** WGS84 -> BD09 (convenience). */

@@ -30,6 +30,22 @@ class CoordinateTransformTest {
     }
 
     @Test
+    fun `gcj02 to wgs84 undoes the forward transform`() {
+        // This is what a tap on a GCJ02 map has to go through before the route can store
+        // it, so the two directions have to agree to well under a metre.
+        val wgs = GeoPoint(39.9042, 116.4074)
+        val back = CoordinateTransform.gcj02ToWgs84(CoordinateTransform.wgs84ToGcj02(wgs))
+        val error = GeoMath.haversine(wgs, back)
+        assertTrue("round-trip error=${error}m", error < 0.05)
+    }
+
+    @Test
+    fun `gcj02 to wgs84 leaves points outside china alone`() {
+        val ny = GeoPoint(40.7128, -74.0060)
+        assertEquals(ny, CoordinateTransform.gcj02ToWgs84(ny))
+    }
+
+    @Test
     fun `bd09 is farther from wgs84 than gcj02`() {
         val wgs = GeoPoint(39.9042, 116.4074)
         val gcj = CoordinateTransform.wgs84ToGcj02(wgs)
