@@ -53,9 +53,11 @@ class NmeaFormatterTest {
     }
 
     @Test
-    fun `time and date formatting match nmea shape`() {
+    fun `time and date formatting are UTC even on a local clock`() {
         val old = TimeZone.getDefault()
-        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+        // A zone far from UTC: formatting with the device default would shift both
+        // fields, and setting the default to UTC would hide that.
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"))
         try {
             val d = Date(0L)
             assertEquals("000000.000", NmeaFormatter.timeOf(d))

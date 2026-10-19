@@ -3,6 +3,7 @@ package org.pacer.motion
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * NMEA-0183 sentence construction (GGA / RMC) for the simulated fix stream.
@@ -61,6 +62,12 @@ object NmeaFormatter {
     fun latHemisphere(lat: Double) = if (lat >= 0) "N" else "S"
     fun lonHemisphere(lon: Double) = if (lon >= 0) "E" else "W"
 
-    fun timeOf(date: Date): String = SimpleDateFormat("HHmmss.SSS", Locale.US).format(date)
-    fun dateOf(date: Date): String = SimpleDateFormat("ddMMyy", Locale.US).format(date)
+    // NMEA-0183 times are UTC regardless of where the phone is.
+    fun timeOf(date: Date): String = nmeaFormat("HHmmss.SSS").format(date)
+    fun dateOf(date: Date): String = nmeaFormat("ddMMyy").format(date)
+
+    private fun nmeaFormat(pattern: String): SimpleDateFormat =
+        SimpleDateFormat(pattern, Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
 }
