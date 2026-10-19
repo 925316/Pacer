@@ -107,17 +107,18 @@ class TileGridTest {
         for (p in listOf(beijing, shanghai, guangzhou, moscow)) {
             for (z in listOf(10, 12, 15, 18)) {
                 val pixel = grid.pixel(p, z)
-                val back = grid.point(pixel, z)
                 val datum = CoordinateTransform.wgs84ToBd09(p)
+                val gcj = CoordinateTransform.wgs84ToGcj02(p)
                 val mc = grid.toMeters(datum.lat, datum.lon)
-                val recovered = grid.toDegrees(-pixel.y * scale(z), pixel.x * scale(z))
+                val u = scale(z)
+                val recovered = grid.toDegrees(pixel.x * u, -pixel.y * u)
+                val back = grid.point(pixel, z)
                 println(
-                    "baidu z=$z p=$p pixel=$pixel mc=$mc recovered=$recovered " +
-                        "datum=$datum datumBack=${CoordinateTransform.bd09ToWgs84(datum)} " +
+                    "baidu z=$z p=$p gcj=$gcj datum=$datum " +
+                        "mc=$mc pixel=$pixel recovered=$recovered " +
+                        "datumBack=${CoordinateTransform.bd09ToWgs84(datum)} " +
                         "back=$back offset=${GeoMath.haversine(p, back)}",
                 )
-                // Print the intermediate values so a future failure can be diagnosed from the
-                // CI log alone instead of by re-deriving the projection by hand.
                 assertTrue(
                     "z=$z p=$p back=$back offset=${GeoMath.haversine(p, back)}",
                     GeoMath.haversine(p, back) < 0.5,
