@@ -137,7 +137,7 @@ class MapActivity : Activity() {
         column.addView(viewRow)
 
         // The map gets the remaining height. It is the point of the page, and a map that
-        // shares space with a scrolling control list ends up too short to place a point on.
+        // shares its space with the controls ends up too short to place a point on.
         mapHolder = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -146,7 +146,9 @@ class MapActivity : Activity() {
                 1f,
             )
         }
-        column.addView(mapHolder)        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        column.addView(mapHolder)
+
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         controls.addView(button("Start") { startSimulation() })
         controls.addView(button("Stop") {
             PacerConfigClient.stop()
