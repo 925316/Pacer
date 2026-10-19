@@ -40,6 +40,15 @@ interface RouteMap {
     /** A waypoint dragged somewhere new: its index, and where it landed in WGS-84. */
     var onWaypointDragEnd: ((Int, GeoPoint) -> Unit)?
 
+    /**
+     * A tap on a waypoint, as its index.
+     *
+     * Separate from [onTap] because the two mean opposite things: a tap on empty map appends
+     * a waypoint, a tap on an existing one selects it. Conflating them is how a route ends
+     * up with a stray point next to the one the user meant to touch.
+     */
+    var onWaypointTap: ((Int) -> Unit)?
+
     /** A long press that was not on a waypoint. */
     var onLongPress: ((GeoPoint) -> Unit)?
 

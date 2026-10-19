@@ -33,6 +33,7 @@ internal class OsmRouteMap(context: Context) : RouteMap {
 
     override var onTap: ((GeoPoint) -> Unit)? = null
     override var onWaypointDragEnd: ((Int, GeoPoint) -> Unit)? = null
+    override var onWaypointTap: ((Int) -> Unit)? = null
     override var onLongPress: ((GeoPoint) -> Unit)? = null
 
     private var waypoints: List<GeoPoint> = emptyList()
@@ -83,6 +84,10 @@ internal class OsmRouteMap(context: Context) : RouteMap {
             marker.position = OsmGeoPoint(waypoint.lat, waypoint.lon)
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             marker.isDraggable = true
+            marker.setOnMarkerClickListener { _, _ ->
+                onWaypointTap?.invoke(index)
+                true
+            }
             marker.setOnMarkerDragListener(
                 object : Marker.OnMarkerDragListener {
                     override fun onMarkerDragStart(marker: Marker) = Unit

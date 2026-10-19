@@ -46,6 +46,7 @@ internal class AmapRouteMap(context: Context) : RouteMap {
 
     override var onTap: ((GeoPoint) -> Unit)? = null
     override var onWaypointDragEnd: ((Int, GeoPoint) -> Unit)? = null
+    override var onWaypointTap: ((Int) -> Unit)? = null
     override var onLongPress: ((GeoPoint) -> Unit)? = null
 
     private var waypoints: List<GeoPoint> = emptyList()
@@ -76,10 +77,13 @@ internal class AmapRouteMap(context: Context) : RouteMap {
             val tapped = toWgs84(latLng)
             if (!isOnWaypoint(tapped)) onLongPress?.invoke(tapped)
         }
-        // A tap on a waypoint belongs to that marker, and AMap's default answer is an info
-        // window with nothing in it. Consuming the tap says it was handled without drawing
-        // anything; the other backend opens the waypoint's own label there.
-        aMap.setOnMarkerClickListener { true }
+        // A tap on a waypoint selects it rather than opening a label: the page uses the
+        // selection for "remove this one", which is the only per-waypoint edit there is.
+        aMap.setOnMarkerClickListener { marker ->
+            val index = waypointMarkers.indexOfFirst { it === marker }
+            if (index >= 0) onWaypointTap?.invoke(index)
+            true
+        }
         aMap.setOnMarkerDragListener(
             object : AMap.OnMarkerDragListener {
                 override fun onMarkerDragStart(marker: Marker) = Unit

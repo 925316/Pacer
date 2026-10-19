@@ -69,6 +69,19 @@ class MapActivity : Activity() {
     private lateinit var profileField: EditText
     private lateinit var roadButton: Button
 
+    /** Enabled only while a waypoint is selected; see [onWaypointTap]. */
+    private lateinit var removeButton: Button
+
+    /**
+     * The waypoint last tapped on the map, or -1.
+     *
+     * Selection exists because the only per-waypoint edit a map can offer is "remove this
+     * one": everything else (which waypoint, in what order) already has a list on the other
+     * screen. Keeping it an index rather than a point means a drag cannot leave the
+     * selection pointing at coordinates that no longer exist.
+     */
+    private var selectedWaypoint = -1
+
     /** Set while a routing request is in flight. */
     private var routing = false
 
@@ -124,8 +137,9 @@ class MapActivity : Activity() {
         info = TextView(this).apply { textSize = 14f; setPadding(24, 24, 24, 8) }
         root.addView(info)
 
-        // Two rows: one screen width cannot hold four labelled buttons, and a button that
-        // is off-screen is a feature that does not exist.
+        // Two rows for the point edits and the view commands: four labelled buttons plus a
+        // remove is wider than a phone, and a button that is off-screen is a feature that
+        // does not exist.
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         bar.addView(button("Undo") {
             editDraft { if (draft.size > 0) draft.removeAt(draft.size - 1) }
@@ -133,9 +147,15 @@ class MapActivity : Activity() {
         bar.addView(button("Clear") {
             editDraft { draft.clear() }
         })
-        bar.addView(button("Fit") { fitRoute() })
-        bar.addView(button("Centre") { centreOnSubject() })
+        removeButton = button("Remove") { removeSelectedWaypoint() }
+        removeButton.isEnabled = false
+        bar.addView(removeButton)
         root.addView(bar)
+
+        val viewRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        viewRow.addView(button("Fit") { fitRoute() })
+        viewRow.addView(button("Centre") { centreOnSubject() })
+        root.addView(viewRow)
 
         // Following the roads is the difference between a route and a flight over
         // rooftops. The waypoints stay the thing the user edits; this replaces the line
@@ -203,6 +223,7 @@ class MapActivity : Activity() {
             map.onWaypointDragEnd = { index, point ->
                 editDraft { draft.replaceAt(index, point) }
             }
+            map.onWaypointTap = { index -> selectWaypoint(index) }
             map.onLongPress = { point ->
                 val stored = PacerConfigClient.stored()
                 when {
@@ -311,8 +332,47 @@ class MapActivity : Activity() {
         val hadRoad = store.roadPath(draft) != null
         change()
         if (draft.toJson() == before) return
+        // The points have changed, so an index read before the edit may now name a
+        // different point (or none): a selected point does not survive an edit it was not
+        // part of.
+        clearSelection()
         store.save(draft)
         render(afterEdit = hadRoad)
+    }
+
+    /**
+     * Selects or deselects a waypoint, as the first half of "remove this one".
+     *
+     * A second tap on the same point deselects, so the state can always be left without
+     * removing anything: a tap that removed the point outright would make a mis-tap cost
+     * the point, and clearing the whole route is the only undo there is.
+     */
+    private fun selectWaypoint(index: Int) {
+        if (index == selectedWaypoint) {
+            clearSelection()
+            render()
+            return
+        }
+        selectedWaypoint = index
+        removeButton.isEnabled = true
+        info.text = String.format(
+            Locale.US,
+            "Waypoint %d of %d selected. Remove deletes it; tap it again to deselect.",
+            index + 1,
+            draft.size,
+        )
+    }
+
+    private fun clearSelection() {
+        selectedWaypoint = -1
+        removeButton.isEnabled = false
+    }
+
+    private fun removeSelectedWaypoint() {
+        val index = selectedWaypoint
+        if (index < 0 || index >= draft.size) return
+        clearSelection()
+        editDraft { draft.removeAt(index) }
     }
 
     /**
