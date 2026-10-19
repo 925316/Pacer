@@ -204,11 +204,25 @@ class MapActivity : Activity() {
                 editDraft { draft.replaceAt(index, point) }
             }
             map.onLongPress = { point ->
-                if (PacerConfigClient.canTeleport()) {
-                    PacerConfigClient.teleport(point.lat, point.lon)
-                    info.text = String.format(Locale.US, "Simulation moved to %.5f, %.5f.", point.lat, point.lon)
-                } else {
-                    info.text = "Long press moves a running straight-line simulation here; none is running."
+                val stored = PacerConfigClient.stored()
+                when {
+                    stored != null && stored.active && stored.onRoute ->
+                        // A route derives its position from its geometry; moving the anchor
+                        // would change nothing at all, so this is not "unavailable", it is
+                        // "the wrong action for this run".
+                        info.text = "This run follows a route, so it cannot be moved with a long " +
+                            "press. Stop it and start a straight-line run, or edit its waypoints."
+                    PacerConfigClient.canTeleport() -> {
+                        PacerConfigClient.teleport(point.lat, point.lon)
+                        info.text = String.format(
+                            Locale.US,
+                            "Simulation moved to %.5f, %.5f.",
+                            point.lat,
+                            point.lon,
+                        )
+                    }
+                    else -> info.text =
+                        "Long press moves a running straight-line simulation here; none is running."
                 }
             }
             // A saved route is centred when it is drawn, at the end of onCreate: a fit
