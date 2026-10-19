@@ -51,7 +51,11 @@ object RouteEngine {
         // configured differently - or a later lap, which is humanized again - must not
         // reuse the previous build. Two laps of one route repeat exactly otherwise, which
         // is the easiest thing a detector could look for.
-        val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp + "|" +
+        //
+        // The route is named by its length and hash, not by its text: a road route is
+        // thousands of points, and this key is rebuilt on every sensor callback.
+        val key = cfg.routeJson.length.toString() + ":" + cfg.routeJson.hashCode() + "|" +
+            cfg.speedMps + "|" + cfg.startTimestamp + "|" +
             cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "") + "|lap=" + lap.index
         if (key != cacheKey) {
             // The seed is a function of (start timestamp, lap), not a fresh random value:
@@ -118,15 +122,27 @@ object RouteEngine {
         }
     }
 
+    /** The route JSON last parsed, and the result, so a hot path does not re-parse it. */
+    @Volatile private var parsedRouteJson: String? = null
+
+    @Volatile private var parsedRoute: RoutePath? = null
+
     /** Route JSON is the shared [RouteJson] wire format: [[lat,lon],...]. */
     fun parseRoute(json: String): RoutePath? {
         if (json.isBlank()) return null
-        return try {
+        // Identity first: the config holder keeps the same String instance until a new
+        // config arrives, so the common case costs a reference comparison. The equality
+        // fallback covers a fresh instance carrying the same text.
+        if (json === parsedRouteJson || json == parsedRouteJson) return parsedRoute
+        val parsed = try {
             val points = RouteJson.decode(json)
             if (points.size >= 2) RoutePath(points) else null
         } catch (t: Throwable) {
             PacerLog.w("route-parse", t)
             null
         }
+        parsedRouteJson = json
+        parsedRoute = parsed
+        return parsed
     }
 }
