@@ -146,6 +146,11 @@ class JoystickOverlayService : Service() {
                             knobY = 0f
                             invalidate()
                             PacerConfigClient.stop()
+                            // With the run gone there is nothing left to steer, and an
+                            // overlay that outlives it can only be removed by stopping
+                            // the whole app. The tap is the close control; deferred so
+                            // the view is not removed mid-gesture.
+                            post { stopSelf() }
                         }
                         true
                     }
