@@ -60,10 +60,18 @@ object CoordinateTransform {
         return GeoPoint(p.lat + dLat, p.lon + dLon)
     }
 
-    /** GCJ02 -> BD09 (Baidu extra rotation). */
+    /**
+     * GCJ02 -> BD09 (Baidu extra rotation).
+     *
+     * The rotation's angular perturbation is a function of the LONGITUDE, not the latitude:
+     * `cos(p.lon * ...)` here and `cos(x * ...)` in [bd09ToGcj02], where x is the shifted
+     * longitude. Using the latitude instead is a small difference in the perturbation and a
+     * 60-metre error in Beijing - far too small to notice on a map and far too large to
+     * accept in a track, which is why the round trip is pinned by a test with real numbers.
+     */
     fun gcj02ToBd09(p: GeoPoint): GeoPoint {
         val z = sqrt(p.lon * p.lon + p.lat * p.lat) + 0.00002 * sin(p.lat * PI * 3000.0 / 180.0)
-        val theta = kotlin.math.atan2(p.lat, p.lon) + 0.000003 * cos(p.lat * PI * 3000.0 / 180.0)
+        val theta = kotlin.math.atan2(p.lat, p.lon) + 0.000003 * cos(p.lon * PI * 3000.0 / 180.0)
         return GeoPoint(z * sin(theta) + 0.006, z * cos(theta) + 0.0065)
     }
 

@@ -56,6 +56,37 @@ class CoordinateTransformTest {
     }
 
     @Test
+    fun `bd09 for Beijing has the published value`() {
+        // A FIXED NUMBER, because every other test in this file only checks that the
+        // transform is nonzero, deterministic or self-inverse - and a transform can be all
+        // three and still wrong. This one was: the BD09 rotation perturbed the angle by
+        // cos(latitude) instead of cos(longitude), which shifted Beijing by 66 m. Nothing
+        // caught it until a tile grid was drawn from these coordinates and compared with a
+        // tile the map service actually served.
+        val wgs = GeoPoint(39.9042, 116.4074)
+        val bd = CoordinateTransform.wgs84ToBd09(wgs)
+        assertEquals(39.9118653, bd.lat, 1e-6)
+        assertEquals(116.4200463, bd.lon, 1e-6)
+    }
+
+    @Test
+    fun `bd09 to gcj02 inverts the forward rotation`() {
+        // The pair has to agree; the forward being right does not make the inverse right, and
+        // a tap on a Baidu map is an inverse.
+        for (wgs in listOf(
+            GeoPoint(39.9042, 116.4074),
+            GeoPoint(31.2304, 121.4737),
+            GeoPoint(23.1291, 113.2644),
+            GeoPoint(43.8256, 87.6168),
+        )) {
+            val bd = CoordinateTransform.wgs84ToBd09(wgs)
+            val back = CoordinateTransform.bd09ToWgs84(bd)
+            val error = GeoMath.haversine(wgs, back)
+            assertTrue("wgs=$wgs bd=$bd back=$back error=${error}m", error < 0.5)
+        }
+    }
+
+    @Test
     fun `gcj02 shift grows away from origin pattern stays stable across cities`() {
         val cities = listOf(
             GeoPoint(39.9042, 116.4074), // Beijing

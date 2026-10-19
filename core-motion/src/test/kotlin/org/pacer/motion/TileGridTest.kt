@@ -92,8 +92,11 @@ class TileGridTest {
 
     @Test
     fun `baidu puts its three cities on the tiles the service served`() {
+        // Checked by fetching these very tiles: each one came back as a real 256x256 PNG
+        // (a wrong index returns the 208-byte blank placeholder). Beijing is 791 because
+        // its MC x is 12 959 961 m, and 12959961 / 16384 = 791.01.
         val grid = Bd09Grid()
-        assertEquals(790, tileOf(grid, beijing).x)
+        assertEquals(791, tileOf(grid, beijing).x)
         assertEquals(294, tileOf(grid, beijing).y)
         assertEquals(825, tileOf(grid, shanghai).x)
         assertEquals(222, tileOf(grid, shanghai).y)
