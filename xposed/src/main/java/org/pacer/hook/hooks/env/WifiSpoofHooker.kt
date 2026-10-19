@@ -240,7 +240,10 @@ object WifiSpoofHooker {
         val stringGetters = mapOf<String, (FakeRadioEnvironment.WifiAp) -> String>(
             "getSSID" to { if (it.ssid.isEmpty()) UNKNOWN_SSID else EnvGeo.quoteSsid(it.ssid) },
             "getBSSID" to { it.bssid },
-            "getMacAddress" to { it.bssid },
+            // getMacAddress is the STATION address, not the access point's. Android
+            // has hidden it behind this exact placeholder since 6.0, so returning
+            // the BSSID here both lied about the field and disagreed with getBSSID().
+            "getMacAddress" to { EnvGeo.STATION_MAC },
         )
         for ((name, extractor) in stringGetters) {
             HookUtils.hookAllMethods(wifiInfo, name) { chain ->

@@ -62,7 +62,10 @@ object WifiFabricator {
     internal fun mutateWifiInfo(info: Any, ap: FakeRadioEnvironment.WifiAp, classLoader: ClassLoader) {
         HookUtils.setFieldQuietly(info, "mSSID", EnvGeo.quoteSsid(ap.ssid))
         HookUtils.setFieldQuietly(info, "mBSSID", ap.bssid)
-        HookUtils.setFieldQuietly(info, "mMacAddress", ap.bssid)
+        // mMacAddress is the station's own address, not the AP's. Setting it to the
+        // BSSID made getMacAddress() and getBSSID() agree on something they never
+        // agree on in the platform.
+        HookUtils.setFieldQuietly(info, "mMacAddress", EnvGeo.STATION_MAC)
         HookUtils.setFieldQuietly(info, "mRssi", ap.level)
         HookUtils.setFieldQuietly(info, "mFrequency", ap.frequency)
         HookUtils.setFieldQuietly(info, "mLinkSpeed", ap.linkSpeedMbps)

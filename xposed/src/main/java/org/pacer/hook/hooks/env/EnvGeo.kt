@@ -13,6 +13,14 @@ object EnvGeo {
     /** Mean meters per degree of latitude used by the local approximation. */
     const val METERS_PER_DEGREE_LAT = 111320.0
 
+    /**
+     * The station address Android reports when it withholds the real one.
+     *
+     * The platform has returned this constant to apps since Android 6, so it is both
+     * the honest value and the one that cannot be compared against the BSSID.
+     */
+    const val STATION_MAC = "02:00:00:00:00:00"
+
     /** Radius used by the equirectangular distance approximation. */
     private const val EARTH_RADIUS_METERS = 6371000.0
 
