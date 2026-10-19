@@ -318,7 +318,7 @@ class MapActivity : Activity() {
         // starting a route from this screen must not silently reset the signal-realism
         // switches or the interval plan the user chose on the other screen.
         val stored = PacerConfigClient.stored()
-        PacerConfigClient.start(
+        val started = PacerConfigClient.start(
             lat = route.points.first().lat,
             lon = route.points.first().lon,
             speed = speed,
@@ -332,6 +332,10 @@ class MapActivity : Activity() {
             stepSimulation = stored?.stepSimulation ?: true,
             realism = stored?.realism ?: RealismToggles(),
         )
+        if (!started) {
+            info.text = PacerConfigClient.NOT_READY_MESSAGE
+            return
+        }
         info.text = String.format(
             Locale.US,
             "Simulating %d points through %d waypoints at %.1f m/s%s.",

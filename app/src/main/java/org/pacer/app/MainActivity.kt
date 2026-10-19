@@ -407,7 +407,7 @@ class MainActivity : Activity() {
             output.text = "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
             return
         }
-        PacerConfigClient.start(
+        val started = PacerConfigClient.start(
             lat = lat,
             lon = lon,
             speed = speed,
@@ -419,6 +419,12 @@ class MainActivity : Activity() {
             stepSimulation = stepToggle.isChecked,
             realism = realismToggles(),
         )
+        // Nothing was stored when the channel is not bound, so claiming a run here would
+        // send the user looking for the wrong problem on the target side.
+        if (!started) {
+            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            return
+        }
         output.text = String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed) +
             planSummary(plan)
     }
@@ -480,7 +486,7 @@ class MainActivity : Activity() {
             output.text = "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
             return
         }
-        PacerConfigClient.start(
+        val started = PacerConfigClient.start(
             lat = first.lat,
             lon = first.lon,
             speed = speed,
@@ -494,6 +500,10 @@ class MainActivity : Activity() {
             stepSimulation = stepToggle.isChecked,
             realism = realismToggles(),
         )
+        if (!started) {
+            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            return
+        }
         output.text = String.format(
             Locale.US,
             "Route pushed: %d points, %.0f m, %.2f m/s. The engine humanizes speed along it.",

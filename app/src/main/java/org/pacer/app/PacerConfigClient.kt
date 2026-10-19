@@ -22,6 +22,21 @@ object PacerConfigClient {
     @Volatile private var service: XposedService? = null
     @Volatile private var prefs: SharedPreferences? = null
 
+    /**
+     * What a screen shows when [start] returned false.
+     *
+     * One string rather than one per screen: the same failure has the same cause, and two
+     * copies of the advice would eventually disagree about it.
+     *
+     * Deliberately NOT "the module is not installed": the channel binds asynchronously, so
+     * a press during the first moments of a cold start fails the same way a missing module
+     * does. The wording has to be true for both.
+     */
+    const val NOT_READY_MESSAGE =
+        "The simulation was not started: the module's config channel is not bound yet. " +
+            "Try again in a moment; if it keeps happening, check that Pacer is enabled and " +
+            "that this app (or the target app) is in its scope."
+
     private val pendingReady = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
 
     /** Guards against a second listener: the bind callback is process wide. */
@@ -129,7 +144,12 @@ object PacerConfigClient {
         )
     }
 
-    /** Start a simulation at [lat]/[lon] (WGS84) at [speed] m/s along [bearing]. */
+    /**
+     * Start a simulation at [lat]/[lon] (WGS84) at [speed] m/s along [bearing].
+     *
+     * @return false when the config channel is not bound, in which case NOTHING was
+     * stored. The caller must not report a run that the module will never see.
+     */
     fun start(
         lat: Double,
         lon: Double,
@@ -143,10 +163,10 @@ object PacerConfigClient {
         mockBluetooth: Boolean = true,
         stepSimulation: Boolean = true,
         realism: RealismToggles = RealismToggles(),
-    ) {
+    ): Boolean {
         val p = prefs ?: run {
             Log.w(TAG, "config channel not ready yet")
-            return
+            return false
         }
         p.edit()
             .putBoolean("active", true)
@@ -169,6 +189,7 @@ object PacerConfigClient {
             .putString("route_json", routeJson)
             .apply()
         Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")
+        return true
     }
 
     fun stop() {
