@@ -89,6 +89,25 @@ object CoordinateTransform {
     /** WGS84 -> BD09 (convenience). */
     fun wgs84ToBd09(p: GeoPoint): GeoPoint = gcj02ToBd09(wgs84ToGcj02(p))
 
+    /**
+     * BD09 -> GCJ02, the inverse of [gcj02ToBd09].
+     *
+     * Written out rather than iterated because this rotation IS invertible in closed form:
+     * it is a rotation plus a small radial and angular perturbation, and undoing it is the
+     * same formula with the signs flipped. BD09 exists only in China, so there is no
+     * outside-China branch to worry about.
+     */
+    fun bd09ToGcj02(p: GeoPoint): GeoPoint {
+        val x = p.lon - 0.0065
+        val y = p.lat - 0.006
+        val z = sqrt(x * x + y * y) - 0.00002 * sin(y * PI * 3000.0 / 180.0)
+        val theta = kotlin.math.atan2(y, x) - 0.000003 * cos(x * PI * 3000.0 / 180.0)
+        return GeoPoint(z * sin(theta), z * cos(theta))
+    }
+
+    /** BD09 -> WGS84. Baidu hands coordinates out in BD09, a route is stored in WGS84. */
+    fun bd09ToWgs84(p: GeoPoint): GeoPoint = gcj02ToWgs84(bd09ToGcj02(p))
+
     /** Round-trip helper used by tests to bound error. */
     fun offsetMeters(a: GeoPoint, b: GeoPoint): Double = GeoMath.haversine(a, b)
 

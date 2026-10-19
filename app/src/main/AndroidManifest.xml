@@ -13,21 +13,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- AMap's native library is distributed inside a plain jar (see app/build.gradle.kts),
-         so it reaches the APK as a packaged resource rather than through the jniLibs
-         pipeline. The loader needs permission to extract it, which is what the
-         jniLibs.useLegacyPackaging flag in build.gradle.kts sets on this attribute; writing
-         it here as well would be a second source of truth for one build flag. -->
+    <!-- No map SDK is linked any more: the basemap tiles are drawn by the app itself, so
+         there is no native library to extract and no vendor key to place here. -->
     <application
         android:label="Pacer"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
-        <!-- Empty when the build was made without a key, which is how the map screen knows
-             to fall back to osmdroid. The key is bound to this package name and to the
-             certificate that signed the APK, so it can never be committed. -->
-        <meta-data
-            android:name="com.amap.api.v2.apikey"
-            android:value="${amapApiKey}" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

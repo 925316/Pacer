@@ -15,7 +15,6 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
-import org.pacer.motion.CoordinateInput
 import org.pacer.motion.FixSample
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
@@ -32,13 +31,17 @@ import java.util.Locale
 import kotlin.concurrent.thread
 
 /**
- * Control surface. Plain framework views on purpose: the app module has no
- * Compose or map dependency yet, so everything here is a few standard widgets
- * driven by the pure-Kotlin engine. The waypoints being edited live in a
- * [RouteDraft], which is persisted between launches; what actually gets simulated
- * is [RouteStore.geometry] - the road path when the map planned one, the plain
- * polyline otherwise - and it is pushed to the hook in the shared RouteJson wire
- * format.
+ * Control surface for everything that is not the map: speed, the signal switches, and the
+ * two ways to start a run.
+ *
+ * THE ROUTE IS BUILT ON THE MAP, NOT HERE. There is no coordinate field, no paste parser and
+ * no place search: an API key, an account and a geocoding service are all things this app
+ * deliberately does not have, and typing a coordinate is not how a route is chosen anyway.
+ * The map page is where a route is drawn, by panning to a place and tapping it; this screen
+ * lists what was drawn so it can be reordered or removed, and starts the run.
+ *
+ * Plain framework views on purpose: the engine is pure Kotlin, and the only thing that needs
+ * a canvas is the map.
  */
 class MainActivity : Activity() {
 
@@ -66,16 +69,8 @@ class MainActivity : Activity() {
     private lateinit var satelliteJitterToggle: CheckBox
     private lateinit var signalDropoutToggle: CheckBox
 
-    private lateinit var latInput: EditText
-    private lateinit var lonInput: EditText
-    private lateinit var pasteInput: EditText
-
     private lateinit var routeSummary: TextView
     private lateinit var waypointBox: LinearLayout
-
-    private lateinit var searchInput: EditText
-    private lateinit var searchResultLabel: TextView
-    private var searchedPlace: Place? = null
 
     private lateinit var previewBtn: Button
     private lateinit var auditBtn: Button
@@ -109,26 +104,17 @@ class MainActivity : Activity() {
         speedInput = numberField("Custom speed m/s", "3.0")
         root.addView(speedInput)
 
-        // --- point / waypoint input -----------------------------------------
+        // --- route ----------------------------------------------------------
+        // The route is drawn on the map; this screen only shows what was drawn. There is
+        // deliberately no coordinate field and no search box: neither needs a key, but both
+        // are a way of choosing a place other than by looking at it.
         root.addView(section("Route"))
-        latInput = numberField("Latitude (WGS84)", "39.9042")
-        lonInput = numberField("Longitude (WGS84)", "116.4074")
-        root.addView(latInput)
-        root.addView(lonInput)
-        pasteInput = EditText(this).apply { hint = "Paste a Google Maps link or \"lat,lon\"" }
-        root.addView(pasteInput)
-        root.addView(action("Use pasted link / coordinates") { usePasted() })
-        root.addView(action("Add waypoint at these coordinates") { addWaypointFromInputs() })
-
-        searchInput = EditText(this).apply { hint = "Search a place (OSM Nominatim)" }
-        root.addView(searchInput)
-        root.addView(action("Search") { doSearch() })
-        searchResultLabel = TextView(this).apply {
-            text = "No search result yet."
-            textSize = 13f
-        }
-        root.addView(searchResultLabel)
-        root.addView(action("Add searched place as waypoint") { addSearchedPlace() })
+        root.addView(
+            hint(
+                "Waypoints are placed on the map: pan to a place, tap to append one, drag a " +
+                    "handle to move it. This list is what the map has drawn.",
+            ),
+        )
         root.addView(action("Open the map and controls") {
             startActivity(Intent(this, MapActivity::class.java))
         })
@@ -139,7 +125,7 @@ class MainActivity : Activity() {
         waypointBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(waypointBox)
 
-        root.addView(action("Load sample campus route") { loadSampleRoute() })
+        root.addView(action("Load sample route (Red Square)") { loadSampleRoute() })
         root.addView(action("Clear route") { draft.clear(); persistAndRender() })
 
         // --- simulation ------------------------------------------------------
@@ -252,10 +238,6 @@ class MainActivity : Activity() {
     /** Shows what is actually configured. See the call site for why this exists. */
     private fun restoreFromStore() {
         val stored = PacerConfigClient.stored() ?: return
-        if (stored.lat != 0.0 || stored.lon != 0.0) {
-            latInput.setText(String.format(Locale.US, "%.5f", stored.lat))
-            lonInput.setText(String.format(Locale.US, "%.5f", stored.lon))
-        }
         accuracyInput.setText(String.format(Locale.US, "%.1f", stored.accuracy))
         altitudeInput.setText(String.format(Locale.US, "%.1f", stored.altitude))
         bearingInput.setText(String.format(Locale.US, "%.0f", stored.bearing))
@@ -297,40 +279,12 @@ class MainActivity : Activity() {
     // Route editing
     // ---------------------------------------------------------------------
 
-    private fun usePasted() {
-        val point = CoordinateInput.parse(pasteInput.text.toString())
-        if (point == null) {
-            output.text = "Could not read a coordinate from that text."
-            return
-        }
-        latInput.setText(point.lat.toString())
-        lonInput.setText(point.lon.toString())
-        draft.add(point)
-        persistAndRender()
-        output.text = String.format(Locale.US, "Added waypoint %.5f, %.5f from pasted text.", point.lat, point.lon)
-    }
-
-    private fun addWaypointFromInputs() {
-        val lat = latInput.text.toString().toDoubleOrNull()
-        val lon = lonInput.text.toString().toDoubleOrNull()
-        if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
-            output.text = "Enter a valid latitude (-90..90) and longitude (-180..180)."
-            return
-        }
-        draft.add(GeoPoint(lat, lon))
-        persistAndRender()
-    }
-
-    private fun addSearchedPlace() {
-        val place = searchedPlace
-        if (place == null) {
-            output.text = "Search a place first."
-            return
-        }
-        draft.add(place.point)
-        persistAndRender()
-    }
-
+    /**
+     * Replaces the route with a fixed one, for trying the engine without drawing anything.
+     *
+     * Kept because the map is the only other way in, and a route that depends on a tile
+     * service being reachable is not a good first experience of the engine.
+     */
     private fun loadSampleRoute() {
         draft.clear()
         SAMPLE_ROUTE.forEach { draft.add(it) }
@@ -343,27 +297,13 @@ class MainActivity : Activity() {
     }
 
     private fun renderRoute() {
-        val lengthMeters = draft.totalLengthMeters()
-        val road = store.roadPath(draft)
-        // The road path is longer than the straight line through the same waypoints, and
-        // which one a run will use is not something the user should have to guess.
-        routeSummary.text = if (road == null) {
-            String.format(
-                Locale.US,
-                "Waypoints: %d   Length: %.0f m (straight between waypoints)%s",
-                draft.size,
-                lengthMeters,
-                if (draft.isValid) "" else "   (need two distinct points to run a route)",
-            )
-        } else {
-            String.format(
-                Locale.US,
-                "Waypoints: %d   Road length: %.0f m   (straight line: %.0f m)",
-                draft.size,
-                lengthOf(road),
-                lengthMeters,
-            )
-        }
+        routeSummary.text = String.format(
+            Locale.US,
+            "Waypoints: %d   Length: %.0f m%s",
+            draft.size,
+            draft.totalLengthMeters(),
+            if (draft.isValid) "" else "   (need two distinct points to run a route)",
+        )
 
         waypointBox.removeAllViews()
         draft.points.forEachIndexed { index, point ->
@@ -381,13 +321,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Total length of an arbitrary polyline, for the road-path comparison. */
-    private fun lengthOf(points: List<GeoPoint>): Double {
-        var total = 0.0
-        for (i in 1 until points.size) total += GeoMath.haversine(points[i - 1], points[i])
-        return total
-    }
-
     // ---------------------------------------------------------------------
     // Simulation
     // ---------------------------------------------------------------------
@@ -399,9 +332,21 @@ class MainActivity : Activity() {
         else -> RUN_SPEED
     }
 
+    /**
+     * A straight-line run from the first waypoint on the map.
+     *
+     * There is no coordinate field any more, so the start point has to come from the route:
+     * the first waypoint is the one the user placed first, and a run that ignored it would
+     * be a run from nowhere in particular.
+     */
     private fun startStraight() {
-        val lat = latInput.text.toString().toDoubleOrNull() ?: 39.9042
-        val lon = lonInput.text.toString().toDoubleOrNull() ?: 116.4074
+        val start = draft.points.firstOrNull()
+        if (start == null) {
+            output.text = "Place a waypoint on the map first; a straight line needs a start."
+            return
+        }
+        val lat = start.lat
+        val lon = start.lon
         val speed = speedMps()
         val plan = planTextOrNull() ?: run {
             output.text = "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
@@ -648,23 +593,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun doSearch() {
-        val query = searchInput.text.toString()
-        if (query.isBlank()) return
-        searchResultLabel.text = "Searching..."
-        thread {
-            val results = PlaceSearch.search(query)
-            runOnUiThread {
-                val top = results.firstOrNull()
-                searchedPlace = top
-                searchResultLabel.text = when {
-                    top == null -> "No result (offline, or nothing matched)."
-                    else -> "${top.displayName}\n${top.point.lat}, ${top.point.lon}"
-                }
-            }
-        }
-    }
-
     // ---------------------------------------------------------------------
     // Small view builders
     // ---------------------------------------------------------------------
@@ -739,14 +667,20 @@ class MainActivity : Activity() {
         const val RUN_SPEED = 3.0
         const val RIDE_SPEED = 6.0
 
-        /** Sample campus polygon; [lat,lon] pairs. */
+        /**
+         * A sample loop around Red Square, Moscow.
+         *
+         * Deliberately the default the map also opens on: a sample somewhere the user is not,
+         * so it cannot be mistaken for their own position, and the same place so the two
+         * screens agree about where "the sample" is.
+         */
         val SAMPLE_ROUTE: List<GeoPoint> = listOf(
-            GeoPoint(39.9042, 116.4074),
-            GeoPoint(39.9052, 116.4090),
-            GeoPoint(39.9081, 116.4104),
-            GeoPoint(39.9095, 116.4071),
-            GeoPoint(39.9080, 116.4040),
-            GeoPoint(39.9050, 116.4035),
+            GeoPoint(55.7539, 37.6208),
+            GeoPoint(55.7553, 37.6172),
+            GeoPoint(55.7568, 37.6161),
+            GeoPoint(55.7582, 37.6190),
+            GeoPoint(55.7565, 37.6223),
+            GeoPoint(55.7548, 37.6227),
         )
     }
 }

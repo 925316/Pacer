@@ -13,10 +13,6 @@ android {
         targetSdk = 36
         versionCode = providers.gradleProperty("APP_VERSION_CODE").get().toInt()
         versionName = providers.gradleProperty("APP_VERSION_NAME").get()
-        // AMap's key is bound to the package name AND the signing certificate, so it cannot
-        // live in the repository. Put `amapApiKey=<key>` in ~/.gradle/gradle.properties;
-        // without it the placeholder is empty and the map screen falls back to osmdroid.
-        manifestPlaceholders["amapApiKey"] = (project.findProperty("amapApiKey") as? String) ?: ""
     }
 
     buildTypes {
@@ -34,30 +30,18 @@ android {
     buildFeatures {
         buildConfig = true
     }
-    packaging {
-        jniLibs {
-            // Pairs with extractNativeLibs in the manifest: AMap's native library arrives
-            // as a jar resource, and the loader needs permission to extract it.
-            useLegacyPackaging = true
-        }
-    }
 }
 
 dependencies {
     implementation(project(":core-motion"))
     // The hook code lives in the :xposed library; without this the app APK
     // would ship no hooks at all. libxposed discovers the module from the
-    // META-INF/xposed files that come along with this dependency, so the CI
-    // guard below asserts they really end up inside the APK.
+    // META-INF/xposed files that come along with this dependency, so CI
+    // asserts they really end up inside the APK.
     implementation(project(":xposed"))
     implementation(libs.libxposed.service)
-    // Map tiles for the route picker. osmdroid renders OpenStreetMap tiles with
-    // no API key and, per its published POM, no transitive dependencies.
-    implementation(libs.osmdroid)
-    val amapKey = project.findProperty("amapApiKey") as? String ?: ""
-    if (amapKey.isNotBlank()) {
-        implementation("com.amap.api:3dmap:10.0.600")
-    } else {
-        compileOnly("com.amap.api:3dmap:10.0.600")
-    }
+    // NO MAP SDK AND NO TILE LIBRARY. The map is drawn by app/.../TileMapView.kt over the
+    // grids in core-motion, because the three basemaps do not agree on what a tile index
+    // means and Baidu's is not a Web Mercator grid at all. That removes osmdroid, and with
+    // it the only third-party map dependency this module had.
 }
