@@ -7,6 +7,8 @@ import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.CoordinateTransform
 import org.pacer.motion.GeoPoint
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -14,7 +16,59 @@ object MapSdkHooker {
 
     private val hookedCallbackClasses = ConcurrentHashMap<Class<*>, Boolean>()
 
+    /**
+     * Address-like getters. While a simulation is active they answer with an empty
+     * string: the real SDK object's address describes the device's actual position,
+     * which would contradict the injected coordinates more loudly than no address.
+     */
+    private val amapTextGetters = listOf(
+        "getAddress", "getCountry", "getProvince", "getCity", "getDistrict",
+        "getStreet", "getStreetNum", "getPoiName", "getAoiName", "getBuildingId",
+        "getFloor", "getDescription",
+    )
+
+    private val baiduTextGetters = listOf(
+        "getAddrStr", "getProvince", "getCity", "getDistrict", "getStreet",
+        "getStreetNumber", "getLocationDescribe",
+    )
+
+    private const val BAIDU_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
+
     private class Coords(val lat: Double, val lon: Double)
+
+    /**
+     * The non-coordinate fields a location object carries.
+     *
+     * Read from the same sources the android.location injection uses: the route
+     * sample when a route is running, otherwise the configured speed/plan. An SDK
+     * object that says "you are here" while still carrying the real device's speed,
+     * altitude and address is the same disagreement in a different place.
+     */
+    private class Fields(
+        val speedMps: Double,
+        val accuracyMeters: Float,
+        val altitudeMeters: Double,
+        val bearingDeg: Float,
+        val timeMs: Long,
+    )
+
+    private fun currentFields(): Fields? {
+        val cfg = PacerRuntimeConfig.snapshot()
+        if (!cfg.active) return null
+        val now = System.currentTimeMillis()
+        val sample = RouteEngine.sampleAt(now)
+        return if (sample != null) {
+            Fields(sample.speedMps, sample.accuracyMeters, sample.altitudeMeters, sample.bearingDeg, now)
+        } else {
+            Fields(
+                speedMps = CurrentFix.linearSpeedAt(cfg, now),
+                accuracyMeters = cfg.accuracyMeters,
+                altitudeMeters = cfg.altitudeMeters,
+                bearingDeg = cfg.bearingDeg,
+                timeMs = now,
+            )
+        }
+    }
 
     /** Active target coords in WGS84, or null when idle. */
     private fun activeWgs84(): GeoPoint? {
@@ -65,6 +119,8 @@ object MapSdkHooker {
             }
         }
 
+        hookAmapFields(locClass)
+
         // Listener callbacks: patch the AMapLocation argument in place. Its
         // setLatitude/setLongitude are public, so the object the app holds is
         // corrected too.
@@ -88,8 +144,17 @@ object MapSdkHooker {
         hookQualityReport(classLoader)
     }
 
-    private fun hookQualityReport(classLoader: ClassLoader) {
-        val reportClass =
+    /** AMap's non-coordinate fields; its getTime is milliseconds. */
+    private fun hookAmapFields(locClass: Class<*>) {
+        hookNumeric(locClass, "getSpeed") { it.speedMps }
+        hookNumeric(locClass, "getAccuracy") { it.accuracyMeters.toDouble() }
+        hookNumeric(locClass, "getAltitude") { it.altitudeMeters }
+        hookNumeric(locClass, "getBearing") { it.bearingDeg.toDouble() }
+        hookNumeric(locClass, "getTime") { it.timeMs.toDouble() }
+        blankStrings(locClass, amapTextGetters)
+    }
+
+    private fun hookQualityReport(classLoader: ClassLoader) {        val reportClass =
             HookUtils.findClassIfExists("com.amap.api.location.AMapLocationQualityReport", classLoader) ?: return
         HookUtils.hookAllMethods(reportClass, "isInstalledHighDangerMockApp") { chain ->
             if (PacerRuntimeConfig.snapshot().active) false
@@ -138,6 +203,8 @@ object MapSdkHooker {
             if (c != null) c.lon else chain.proceed(chain.args.toTypedArray())
         }
 
+        hookBaiduFields(locClass)
+
         // Anti-cheat entries present in current releases. getMockGpsProbability
         // and getMockGpsStrategy are ints, getDisToRealLocation is a double, so
         // adapt to the real return type instead of assuming.
@@ -175,6 +242,22 @@ object MapSdkHooker {
         }
     }
 
+    /** Baidu's non-coordinate fields; its getTime is a formatted local string. */
+    private fun hookBaiduFields(locClass: Class<*>) {
+        hookNumeric(locClass, "getSpeed") { it.speedMps }
+        hookNumeric(locClass, "getRadius") { it.accuracyMeters.toDouble() }
+        hookNumeric(locClass, "getAltitude") { it.altitudeMeters }
+        hookNumeric(locClass, "getDirection") { it.bearingDeg.toDouble() }
+        HookUtils.hookAllMethods(locClass, "getTime") { chain ->
+            val fields = currentFields()
+            if (fields == null) {
+                return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            }
+            SimpleDateFormat(BAIDU_TIME_PATTERN, Locale.US).format(Date(fields.timeMs))
+        }
+        blankStrings(locClass, baiduTextGetters)
+    }
+
     // ---- helpers ----
 
     /** Hook a concrete listener class's callback method once. */
@@ -193,6 +276,30 @@ object MapSdkHooker {
         val index = out.indexOfFirst { it is Boolean }
         if (index >= 0) out[index] = false
         return out
+    }
+
+    /** Hooks a numeric getter and answers with the simulated field while a run is active. */
+    private fun hookNumeric(clazz: Class<*>, name: String, value: (Fields) -> Double) {
+        HookUtils.hookAllMethods(clazz, name) { chain ->
+            val fields = currentFields()
+            if (fields == null) {
+                return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+            }
+            typedNumber(chain, value(fields)) ?: chain.proceed(chain.args.toTypedArray())
+        }
+    }
+
+    /** Hooks string getters and withholds them while a run is active. */
+    private fun blankStrings(clazz: Class<*>, names: List<String>) {
+        for (name in names) {
+            HookUtils.hookAllMethods(clazz, name) { chain ->
+                if (PacerRuntimeConfig.snapshot().active) {
+                    ""
+                } else {
+                    chain.proceed(chain.args.toTypedArray())
+                }
+            }
+        }
     }
 
     /** Boxes [value] into the hooked method's real numeric return type. */
