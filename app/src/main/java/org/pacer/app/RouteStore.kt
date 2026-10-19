@@ -31,6 +31,16 @@ class RouteStore(context: Context) {
         prefs.edit().putString(KEY_MAP, style.name).apply()
     }
 
+    /** The layer last chosen, or null when the user has never chosen one. */
+    fun mapLayer(): MapLayer? =
+        prefs.getString(KEY_LAYER, "")?.let { name ->
+            MapLayer.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        }
+
+    fun saveMapLayer(layer: MapLayer) {
+        prefs.edit().putString(KEY_LAYER, layer.name).apply()
+    }
+
     /**
      * The geometry a run follows: the draft's own points.
      *
@@ -43,5 +53,6 @@ class RouteStore(context: Context) {
     private companion object {
         const val KEY_DRAFT = "draft"
         const val KEY_MAP = "map_style"
+        const val KEY_LAYER = "map_layer"
     }
 }

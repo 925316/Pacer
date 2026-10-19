@@ -55,6 +55,8 @@ internal class TileMapView(
         val grid: TileGrid,
         /** The URL of one tile; null means this source cannot serve that tile. */
         val url: (x: Int, y: Int, zoom: Int) -> String?,
+        /** Drawn over [url] when the source keeps its labels in a separate transparent tile. */
+        val overlay: ((x: Int, y: Int, zoom: Int) -> String?)? = null,
     )
 
     /** Where the view is looking: the grid pixel at the CENTRE of the view. */
@@ -214,6 +216,18 @@ internal class TileMapView(
                 } else {
                     canvas.drawRect(destination, emptyPaint)
                     tiles.request(ref.x, ref.y, zoom, source.url, ::onTileArrived, ::onTileFailed)
+                }
+                // A hybrid source (AMap) keeps its labels in a second, transparent tile. It
+                // is fetched independently: waiting for it before showing the imagery would
+                // make the map arrive a whole request later for no reason.
+                val overlay = source.overlay
+                if (overlay != null) {
+                    val labels = tiles.bitmap(ref.x, ref.y, zoom, overlay)
+                    if (labels != null) {
+                        canvas.drawBitmap(labels, null, destination, tilePaint)
+                    } else {
+                        tiles.request(ref.x, ref.y, zoom, overlay, ::onTileArrived, ::onTileFailed)
+                    }
                 }
             }
         }

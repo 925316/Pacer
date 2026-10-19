@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -53,8 +54,10 @@ class MapActivity : Activity() {
     private lateinit var loopCheck: CheckBox
     private lateinit var mapHolder: LinearLayout
     private lateinit var styleRow: LinearLayout
+    private lateinit var layerRow: LinearLayout
 
     private var style: MapStyle = MapStyle.DEFAULT
+    private var layer: MapLayer = MapLayer.ROAD
     private var map: TileMapView? = null
 
     /** Enabled only while a waypoint is selected. */
@@ -106,6 +109,9 @@ class MapActivity : Activity() {
         store = RouteStore(this)
         draft = store.load()
         style = store.mapStyle() ?: MapStyle.DEFAULT
+        // A stored layer that the stored source cannot draw (satellite on Baidu) falls back
+        // to roads rather than putting the page on a layer it will never show.
+        layer = store.mapLayer()?.takeIf { style.supports(it) } ?: MapLayer.ROAD
         PacerConfigClient.init()
 
         val column = LinearLayout(this).apply {
@@ -120,6 +126,11 @@ class MapActivity : Activity() {
         // faster than opening a list to pick one of three.
         styleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         column.addView(styleRow)
+
+        // Road / satellite / hybrid, for the sources that have them. On its own row because
+        // three basemaps and three layers would not fit one line on a phone.
+        layerRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        column.addView(layerRow)
 
         val editRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         editRow.addView(button("Undo") {
@@ -171,6 +182,7 @@ class MapActivity : Activity() {
         setContentView(column)
 
         buildStyleRow()
+        buildLayerRow()
         installMap()
 
         render()
@@ -208,7 +220,12 @@ class MapActivity : Activity() {
         }
         val created = TileMapView(
             this,
-            TileMapView.TileSource(style.label, style.grid) { x, y, z -> style.url(x, y, z) },
+            TileMapView.TileSource(
+                label = "${style.label} ${layer.label}",
+                grid = style.grid,
+                url = { x, y, z -> style.url(x, y, z, layer) },
+                overlay = { x, y, z -> style.overlay(x, y, z, layer) },
+            ),
             initialCenter = center ?: draft.points.lastOrNull() ?: DEFAULT_CENTER,
             initialZoom = previous?.zoom ?: DEFAULT_ZOOM,
         )
@@ -239,6 +256,7 @@ class MapActivity : Activity() {
         )
         map = created
         updateStyleButtons()
+        updateLayerButtons()
     }
 
     private fun buildStyleRow() {
@@ -247,8 +265,20 @@ class MapActivity : Activity() {
                 if (candidate == style) return@button
                 style = candidate
                 store.saveMapStyle(candidate)
+                // The new source may not draw the layer that was on screen. Saying so beats
+                // leaving a Satellite button lit over a road map.
+                val dropped = layer.takeIf { !style.supports(it) }
+                if (dropped != null) {
+                    layer = MapLayer.ROAD
+                    store.saveMapLayer(layer)
+                }
+                buildLayerRow()
                 installMap()
                 render()
+                if (dropped != null) {
+                    info.text = "${style.label} has no ${dropped.label.lowercase()} tiles on " +
+                        "this build; showing ${layer.label.lowercase()}."
+                }
             })
         }
     }
@@ -261,6 +291,45 @@ class MapActivity : Activity() {
             // like it does nothing.
             b.isEnabled = candidate != style
             b.alpha = if (candidate == style) 0.5f else 1f
+        }
+    }
+
+    /**
+     * Rebuilds the layer buttons for the current source.
+     *
+     * Rebuilt rather than disabled in place because the set differs by source: Baidu has
+     * roads only, so a dead Satellite button would promise a layer no tap can reach.
+     */
+    private fun buildLayerRow() {
+        layerRow.removeAllViews()
+        // A row with one dead button says less than no row at all; the message shown when a
+        // source without imagery is selected explains the absence.
+        layerRow.visibility = if (style.layers.size > 1) View.VISIBLE else View.GONE
+        for (candidate in style.layers) {
+            val b = button(candidate.label) {
+                if (candidate == layer) return@button
+                layer = candidate
+                store.saveMapLayer(candidate)
+                installMap()
+                render()
+            }
+            // Equal shares: "Satellite" and "Hybrid" are long enough to push a third button
+            // off a narrow screen at their natural width.
+            b.textSize = 12f
+            layerRow.addView(
+                b,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            )
+        }
+        updateLayerButtons()
+    }
+
+    private fun updateLayerButtons() {
+        for (i in 0 until layerRow.childCount) {
+            val b = layerRow.getChildAt(i) as? Button ?: continue
+            val candidate = style.layers.getOrNull(i) ?: continue
+            b.isEnabled = candidate != layer
+            b.alpha = if (candidate == layer) 0.5f else 1f
         }
     }
 
@@ -569,7 +638,7 @@ class MapActivity : Activity() {
                 "Waypoints: %d   Length: %s   Map: %s",
             draft.size,
             if (draft.size < 2) "-" else String.format(Locale.US, "%.0f m", lengthOf(draft.points)),
-            style.label,
+            style.label + " " + layer.label.lowercase(),
         )
     }
 
