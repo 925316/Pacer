@@ -97,6 +97,15 @@ object SystemBluetoothServiceHooker {
     @Volatile private var cache: PayloadCache? = null
 
     /**
+     * Whether the last heartbeat could actually build a beacon set.
+     *
+     * Suppression follows this, not just the simulation flag: dropping real results
+     * while the fabricator cannot serve is the one failure this layer promises to
+     * avoid. Until the first successful dispatch the real results pass through.
+     */
+    @Volatile private var serving = false
+
+    /**
      * Delivery gets its own thread: calling the app's callback is a blocking binder
      * transaction, and the Bluetooth process's main thread has work to do.
      */
@@ -235,7 +244,14 @@ object SystemBluetoothServiceHooker {
      */
     private fun swallow(chain: XposedInterface.Chain): Any? {
         if (CallScope.active() || !suppressing()) return chain.proceed(chain.args.toTypedArray())
-        chain.thisObject?.let { adopt(it) }
+        val target = chain.thisObject
+        if (target != null && !serving) {
+            // Adopt the callback so the heartbeat can start serving it, but let this
+            // real result through until a beacon set has been built at least once.
+            adopt(target)
+            return chain.proceed(chain.args.toTypedArray())
+        }
+        target?.let { adopt(it) }
         return null
     }
 
@@ -243,8 +259,16 @@ object SystemBluetoothServiceHooker {
 
     private fun dispatch() {
         val cfg = PacerRuntimeConfig.snapshot()
-        if (!cfg.active || !cfg.mockBluetooth || !EnvGeo.hasFix(cfg.latitude, cfg.longitude)) return
-        val results = payload(cfg) ?: return
+        if (!cfg.active || !cfg.mockBluetooth || !EnvGeo.hasFix(cfg.latitude, cfg.longitude)) {
+            serving = false
+            return
+        }
+        val results = payload(cfg)
+        if (results == null) {
+            serving = false
+            return
+        }
+        serving = true
         for ((key, ref) in scanners) {
             if (key is IBinder && !key.isBinderAlive) {
                 forget(key)
@@ -334,7 +358,7 @@ object SystemBluetoothServiceHooker {
 
     private fun suppressing(): Boolean {
         val cfg = PacerRuntimeConfig.snapshot()
-        return cfg.active && cfg.mockBluetooth
+        return cfg.active && cfg.mockBluetooth && EnvGeo.hasFix(cfg.latitude, cfg.longitude)
     }
 
     /**

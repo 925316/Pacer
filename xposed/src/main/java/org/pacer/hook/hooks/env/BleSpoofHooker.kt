@@ -140,16 +140,15 @@ object BleSpoofHooker {
 
     private fun startModernDelivery(callback: Any, callbackType: Int): Boolean {
         val typed = callback as? ScanCallback ?: return false
-        startDelivery(callback) {
+        return startDelivery(callback) { results ->
             CallScope.enter {
-                for (result in payload().orEmpty()) {
+                for (result in results) {
                     if (result is ScanResult) {
                         typed.onScanResult(callbackType, result)
                     }
                 }
             }
         }
-        return true
     }
 
     // --- deprecated LE scans -------------------------------------------------
@@ -175,16 +174,15 @@ object BleSpoofHooker {
 
     private fun startLegacyDelivery(callback: Any): Boolean {
         val typed = callback as? BluetoothAdapter.LeScanCallback ?: return false
-        startDelivery(callback) {
+        return startDelivery(callback) { results ->
             CallScope.enter {
-                for (result in payload().orEmpty()) {
+                for (result in results) {
                     if (result is ScanResult) {
                         typed.onLeScan(result.device, result.rssi, result.scanRecord?.bytes ?: ByteArray(0))
                     }
                 }
             }
         }
-        return true
     }
 
     // --- delivery plumbing ---------------------------------------------------
@@ -206,7 +204,11 @@ object BleSpoofHooker {
         return null
     }
 
-    private fun startDelivery(key: Any, deliver: () -> Unit) {
+    private fun startDelivery(key: Any, deliver: (List<Any>) -> Unit): Boolean {
+        // If this layer cannot build a beacon set for the current fix, it must not
+        // register a suppression target: silencing real results and delivering
+        // nothing is the one outcome the layer promises never to produce.
+        if (payload() == null) return false
         stopDelivery(key)
         val runnable = object : Runnable {
             override fun run() {
@@ -216,8 +218,15 @@ object BleSpoofHooker {
                     deliveries.remove(key)
                     return
                 }
+                val results = payload()
+                if (results == null) {
+                    // The fabricator stopped serving mid-run. Stop suppressing as
+                    // well, or the app would see neither the real beacons nor ours.
+                    deliveries.remove(key)
+                    return
+                }
                 try {
-                    deliver()
+                    deliver(results)
                 } catch (_: Throwable) {
                     // A delivery failure must not kill the heartbeat silently
                     // forever, so the next tick is still scheduled below.
@@ -227,6 +236,7 @@ object BleSpoofHooker {
         }
         deliveries[key] = runnable
         handler.postDelayed(runnable, DELIVER_INTERVAL_MS)
+        return true
     }
 
     private fun stopDelivery(key: Any) {
@@ -276,6 +286,10 @@ object BleSpoofHooker {
 
     private fun suppressing(): Boolean {
         val cfg = PacerRuntimeConfig.snapshot()
-        return cfg.active && cfg.mockBluetooth
+        // A fix is part of the condition, not just the flag: with no position there
+        // is no beacon set to serve, and suppressing real results then would leave
+        // the app with an empty scan list.
+        return cfg.active && cfg.mockBluetooth &&
+            EnvGeo.hasFix(cfg.latitude, cfg.longitude)
     }
 }
