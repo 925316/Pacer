@@ -400,7 +400,7 @@ class MapActivity : Activity() {
 
     private fun startSimulation() {
         if (!draft.isValid) {
-            info.text = "Add at least two waypoints before starting."
+            info.text = "Add at least two waypoints that are not the same place before starting."
             return
         }
         // The road path when one was planned, the plain polyline otherwise: the same

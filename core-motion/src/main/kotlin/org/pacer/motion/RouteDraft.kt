@@ -23,8 +23,18 @@ class RouteDraft(points: List<GeoPoint> = emptyList()) {
 
     val size: Int get() = items.size
 
-    /** A route needs two distinct-ish points to have any geometry. */
-    val isValid: Boolean get() = items.size >= 2
+    /**
+     * A route needs two points that are not the same place.
+     *
+     * The distinctness is not pedantry: two identical waypoints make a zero-length route,
+     * and the speed curve REQUIRES a positive distance, so a run started from that state
+     * throws on every rebuild. Tapping the same spot twice is one careless tap, and it must
+     * read as "not a route yet" rather than as a crash.
+     *
+     * Strictly greater than zero, not a tolerance: any real separation has geometry, and a
+     * threshold would silently refuse a route the user can see drawn.
+     */
+    val isValid: Boolean get() = items.size >= 2 && totalLengthMeters() > 0.0
 
     fun add(point: GeoPoint) {
         items.add(point)

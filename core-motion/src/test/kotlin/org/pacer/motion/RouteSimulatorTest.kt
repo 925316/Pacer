@@ -128,4 +128,28 @@ class RouteSimulatorTest {
         val total = cornerRoute.totalLengthMeters
         assertEquals(total, fixes.last().distanceMeters, total * 0.02)
     }
+
+    @Test
+    fun `a route of one repeated point produces a standing run`() {
+        // The editor can produce this with two taps on the same spot. The speed curve is
+        // defined on a positive distance and would throw, so the simulator has to answer
+        // with a subject that is standing still instead of an exception on every callback.
+        val nowhere = RoutePath(listOf(GeoPoint(1.0, 2.0), GeoPoint(1.0, 2.0)))
+        val fixes = RouteSimulator(nowhere, MotionConfig.run()).simulate(dtSec = 1.0, seed = 3L)
+        assertTrue(fixes.isNotEmpty())
+        assertTrue(fixes.all { it.point == GeoPoint(1.0, 2.0) })
+        assertTrue(fixes.all { it.speedMps == 0.0 })
+        assertTrue(fixes.all { it.phase == MotionPhase.IDLE })
+        assertTrue(fixes.all { it.cumulativeSteps == 0L })
+        // The signal side still varies with the clock: a standing subject reports a real
+        // fix, and accuracy warming up is what a receiver does.
+        assertTrue(fixes.last().accuracyMeters <= fixes.first().accuracyMeters)
+    }
+
+    @Test
+    fun `a standing run is still a pure function of its seed`() {
+        val nowhere = RoutePath(listOf(GeoPoint(1.0, 2.0), GeoPoint(1.0, 2.0)))
+        fun run(seed: Long) = RouteSimulator(nowhere, MotionConfig.run()).simulate(dtSec = 1.0, seed = seed)
+        assertEquals(run(9L), run(9L))
+    }
 }

@@ -42,6 +42,10 @@ class RouteSimulator(
      * than only for its position.
      */
     fun simulate(dtSec: Double = 1.0, seed: Long = Random.nextLong()): List<FixSample> {
+        // A route whose points all coincide has no distance to cover, and the speed curve
+        // refuses to generate one. That state is reachable - two taps on the same spot - and
+        // it must produce a standing subject, not an exception on every sensor callback.
+        if (route.totalLengthMeters <= 0.0) return stationary(dtSec, seed)
         val run = Humanizer.simulate(
             config,
             route.totalLengthMeters,
@@ -83,6 +87,47 @@ class RouteSimulator(
     }
 
     /**
+     * A run that stays at the route's only point.
+     *
+     * Built directly rather than through the speed curve because that curve is defined on a
+     * positive distance. The signal model still runs on the clock, so accuracy converges and
+     * the satellite count still varies: a subject standing still is reporting a real fix,
+     * not a broken one, and only its position is trivial.
+     *
+     * The list covers the warmup window and then ends; [MotionSamples.at] answers every
+     * later moment with the last sample, which is exactly right for a stationary run.
+     */
+    private fun stationary(dtSec: Double, seed: Long): List<FixSample> {
+        val point = route.pointAt(0.0).first
+        val realism = SignalRealism(
+            toggles = toggles,
+            steadyAccuracyMeters = steadyAccuracyMeters,
+            seed = seed xor SKY_SEED_SALT,
+        )
+        val out = ArrayList<FixSample>(STATIONARY_SAMPLES)
+        var t = 0.0
+        while (t <= STATIONARY_SECONDS) {
+            val fx = realism.next(t, 0.0, dtSec, 0f)
+            out += FixSample(
+                tSec = t,
+                point = point,
+                speedMps = 0.0,
+                bearingDeg = fx.bearingDeg,
+                distanceMeters = 0.0,
+                phase = MotionPhase.IDLE,
+                accuracyMeters = fx.accuracyMeters,
+                altitudeMeters = fx.altitudeMeters,
+                satellites = fx.satellites,
+                signalDropout = fx.dropout,
+                cumulativeSteps = 0L,
+                cadenceSpm = 0.0,
+            )
+            t += dtSec
+        }
+        return out
+    }
+
+    /**
      * Braking into the next turn: the heading change between the point here and the point
      * a short distance ahead gives the factor the speed curve is scaled by.
      *
@@ -116,5 +161,10 @@ class RouteSimulator(
          * the app's marker could not describe the fix the module was sending.
          */
         const val STRIDE_SEED_SALT = 0x5354524944455F4AL
+
+        /** How long a stationary run's sample list covers; later moments reuse its last. */
+        const val STATIONARY_SECONDS = 60.0
+
+        const val STATIONARY_SAMPLES = 64
     }
 }

@@ -353,7 +353,7 @@ class MainActivity : Activity() {
                 "Waypoints: %d   Length: %.0f m (straight between waypoints)%s",
                 draft.size,
                 lengthMeters,
-                if (draft.isValid) "" else "   (need at least 2 to run a route)",
+                if (draft.isValid) "" else "   (need two distinct points to run a route)",
             )
         } else {
             String.format(
@@ -473,7 +473,7 @@ class MainActivity : Activity() {
 
     private fun startRoute() {
         if (!draft.isValid) {
-            output.text = "Add at least two waypoints before starting a route."
+            output.text = "Add at least two waypoints that are not the same place before starting a route."
             return
         }
         // The road path when one was planned on the map screen, the plain polyline

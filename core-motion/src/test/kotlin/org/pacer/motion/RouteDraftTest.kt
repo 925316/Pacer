@@ -36,6 +36,22 @@ class RouteDraftTest {
     }
 
     @Test
+    fun `two identical points are not a route`() {
+        // Tapping the same spot twice is one careless tap. A zero-length route makes the
+        // speed curve throw on every rebuild, so it must not count as a route at all.
+        val d = RouteDraft(listOf(a, a))
+        assertFalse(d.isValid)
+        assertNull(d.toRoutePath())
+    }
+
+    @Test
+    fun `a duplicate in the middle still leaves a route if it has length`() {
+        val d = RouteDraft(listOf(a, a, b))
+        assertTrue(d.isValid)
+        assertEquals(GeoMath.haversine(a, b), d.totalLengthMeters(), 1e-6)
+    }
+
+    @Test
     fun `add grows the draft`() {
         val d = RouteDraft()
         d.add(a)
