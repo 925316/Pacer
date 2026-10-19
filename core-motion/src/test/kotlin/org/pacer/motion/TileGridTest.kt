@@ -3,6 +3,7 @@ package org.pacer.motion
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 /**
  * The tile vectors here are not invented: they are the tiles the three services actually
