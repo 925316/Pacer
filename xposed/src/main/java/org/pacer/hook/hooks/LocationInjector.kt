@@ -4,6 +4,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import org.pacer.hook.config.PacerRuntimeConfig
@@ -14,6 +15,8 @@ import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.SatelliteStatus
 import org.pacer.motion.SignalRealism
 import org.pacer.motion.StationaryJitter
+import java.util.concurrent.Executor
+import java.util.function.Consumer
 
 object LocationInjector {
 
@@ -150,8 +153,21 @@ object LocationInjector {
             }
             if (Build.VERSION.SDK_INT >= 30) {
                 HookUtils.hookAllMethods(lmClass, "getCurrentLocation") { chain ->
-                    fakeIfActive(chain.args.firstOrNull() as? String)
-                        ?: chain.proceed(chain.args.toTypedArray())
+                    if (isCancelled(chain)) return@hookAllMethods null
+                    val fake = fakeIfActive(chain.args.firstOrNull() as? String)
+                    // The public overloads are void and deliver through a Consumer.
+                    // Returning the Location from here skipped the real implementation
+                    // and never called that Consumer, so a caller waiting for its one
+                    // fix waited forever.
+                    val consumer = chain.args
+                        .firstOrNull { it is Consumer<*> } as? Consumer<*>
+                    if (fake == null || consumer == null) {
+                        return@hookAllMethods chain.proceed(chain.args.toTypedArray())
+                    }
+                    val deliver = Runnable { deliverFake(consumer, fake) }
+                    val executor = chain.args.firstOrNull { it is Executor } as? Executor
+                    if (executor != null) executor.execute(deliver) else deliver.run()
+                    null
                 }
             }
         }
@@ -195,6 +211,23 @@ object LocationInjector {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active || cfg.latitude == 0.0 || cfg.longitude == 0.0) return null
         return buildLocation(provider ?: LocationManager.GPS_PROVIDER, cfg, nowNanos = SystemClock.elapsedRealtimeNanos())
+    }
+
+    /** True when the caller has already abandoned a one-shot location request. */
+    private fun isCancelled(chain: XposedInterface.Chain): Boolean =
+        chain.args.any { it is CancellationSignal && it.isCanceled }
+
+    /**
+     * Hands a fabricated fix to a one-shot consumer.
+     *
+     * The platform declares `Consumer<Location>` and Java generics are invariant, so the
+     * cast cannot be checked; the hook only reaches this path when the argument really is
+     * a Consumer, and a Consumer that cannot accept a Location is not one the framework
+     * could have built.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun deliverFake(consumer: Consumer<*>, location: Location) {
+        (consumer as Consumer<Any?>).accept(location)
     }
 
     /** Build a Location object and force every mock flag to false. */
