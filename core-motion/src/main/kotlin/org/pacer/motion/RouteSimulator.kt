@@ -29,12 +29,18 @@ class RouteSimulator(
     private val route: RoutePath,
     private val config: MotionConfig,
     private val toggles: RealismToggles = RealismToggles(),
-    steadyAccuracyMeters: Float = 5f,
-    private val realism: SignalRealism = SignalRealism(
-        toggles = toggles,
-        steadyAccuracyMeters = steadyAccuracyMeters,
-    ),
+    private val steadyAccuracyMeters: Float = 5f,
 ) {
+    /**
+     * One run of the route, built entirely from [seed].
+     *
+     * The signal model is created here rather than injected so that it is seeded from the
+     * same value as the speed curve. A random seed of its own would make two builds from
+     * the same inputs differ in the reported accuracy, altitude, satellite count and
+     * bearing - values the app's live marker and the module both derive. Passing the run's
+     * seed through is what makes "same run, same samples" true for the whole fix rather
+     * than only for its position.
+     */
     fun simulate(dtSec: Double = 1.0, seed: Long = Random.nextLong()): List<FixSample> {
         val run = Humanizer.simulate(
             config,
@@ -42,6 +48,11 @@ class RouteSimulator(
             dtSec,
             seed,
             speedCapAtDistance = ::turnBraking,
+        )
+        val realism = SignalRealism(
+            toggles = toggles,
+            steadyAccuracyMeters = steadyAccuracyMeters,
+            seed = seed xor SKY_SEED_SALT,
         )
         val out = ArrayList<FixSample>(run.samples.size)
         for (i in run.samples.indices) {
@@ -88,5 +99,11 @@ class RouteSimulator(
     private companion object {
         /** How far ahead a corner starts slowing the subject down. */
         const val TURN_LOOKAHEAD_METERS = 20.0
+
+        /**
+         * Keeps the sky model's random stream from being the speed model's. A salt rather
+         * than a second seed because both must stay a pure function of the run.
+         */
+        const val SKY_SEED_SALT = 0x534B595F53454544L
     }
 }

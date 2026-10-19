@@ -58,6 +58,25 @@ class RouteSimulatorTest {
     }
 
     @Test
+    fun `the same seed rebuilds the same run`() {
+        // This is the property the app's live marker relies on: it rebuilds the run from
+        // the same seed as the module instead of reading the module's state. The whole
+        // sample has to match, not only the position, or the two screens would describe
+        // different fixes for the same second.
+        assertEquals(sim(1234L), sim(1234L))
+    }
+
+    @Test
+    fun `the sky belongs to the run rather than to the process`() {
+        val a = sim(1L)
+        val b = sim(2L)
+        val differs = a.zip(b).any { (x, y) ->
+            x.satellites != y.satellites || x.accuracyMeters != y.accuracyMeters
+        }
+        assertTrue("signal traits were seeded independently of the run", differs)
+    }
+
+    @Test
     fun `cadence is zero when paused`() {
         val out = sim()
         val paused = out.filter { it.phase == MotionPhase.PAUSE }

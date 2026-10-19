@@ -7,14 +7,15 @@ package org.pacer.hook.hooks
 
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.utils.PacerLog
+import org.pacer.motion.FixSample
 import org.pacer.motion.MotionConfig
 import org.pacer.motion.MotionSamples
+import org.pacer.motion.MotionSeed
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
 import org.pacer.motion.SpeedPlan
-import org.pacer.motion.FixSample
 
 object RouteEngine {
 
@@ -53,7 +54,19 @@ object RouteEngine {
         val key = cfg.routeJson + "|" + cfg.speedMps + "|" + cfg.startTimestamp + "|" +
             cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "") + "|lap=" + lap.index
         if (key != cacheKey) {
-            build(route, key, cfg.speedMps, cfg.realism, cfg.accuracyMeters, cfg.plan)
+            // The seed is a function of (start timestamp, lap), not a fresh random value:
+            // the app draws its live marker from this same run, and it can only agree if
+            // both sides build the same track. It also means a rebuild caused by a config
+            // change reproduces the track instead of teleporting the subject.
+            build(
+                route = route,
+                key = key,
+                speedMps = cfg.speedMps,
+                toggles = cfg.realism,
+                accuracyMeters = cfg.accuracyMeters,
+                plan = cfg.plan,
+                seed = MotionSeed.forRun(cfg.startTimestamp, lap.index),
+            )
             if (cfg.loopRoute && lapSeconds <= 0.0) {
                 lapSeconds = fixes.lastOrNull()?.tSec ?: 0.0
             }
@@ -79,6 +92,7 @@ object RouteEngine {
         toggles: RealismToggles,
         accuracyMeters: Float,
         plan: SpeedPlan?,
+        seed: Long,
     ) {
         try {
             val config = if (speedMps > 0.0) {
@@ -92,9 +106,12 @@ object RouteEngine {
                 toggles = toggles,
                 steadyAccuracyMeters = accuracyMeters,
             )
-            fixes = sim.simulate(dtSec = 1.0)
+            fixes = sim.simulate(dtSec = 1.0, seed = seed)
             cacheKey = key
-            PacerLog.i("route engine built: ${fixes.size} samples, ${route.totalLengthMeters.toInt()} m")
+            PacerLog.i(
+                "route engine built: ${fixes.size} samples, ${route.totalLengthMeters.toInt()} m, " +
+                    "seed=${java.lang.Long.toHexString(seed)}",
+            )
         } catch (t: Throwable) {
             fixes = emptyList()
             cacheKey = null
