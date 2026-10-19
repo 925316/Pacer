@@ -34,6 +34,13 @@ object LocationInjector {
     private const val IN_VIEW_MARGIN = 6
 
     /**
+     * Altitude reported when a fix would otherwise carry altitude, bearing and
+     * speed all at exactly zero. See [buildLocation] for why that triple must
+     * never leave this module.
+     */
+    private const val ALTITUDE_FLOOR_METERS = 1.0
+
+    /**
      * The noise engines, one set per run.
      *
      * The seed is derived from the run's start timestamp, so consecutive runs produce
@@ -241,6 +248,16 @@ object LocationInjector {
             lat += off.northMeters / 111320.0
             lon += off.eastMeters / (111320.0 * kotlin.math.cos(Math.toRadians(lat)))
         }
+
+        // A third mock rule, in the SDK that reads this fix: altitude, bearing and
+        // speed all exactly zero at once reads as a spoofed report - "nothing moved
+        // and nothing is known". Each value is legitimate on its own (standing still
+        // is speed 0, no course is bearing 0, ground level is altitude 0), so the
+        // module must simply never publish the three together. A stationary run with
+        // the altitude drift switched off does exactly that on every fix.
+        // The floor is one metre: that is within the altitude noise a consumer GPS
+        // receiver reports anyway, so it is a smaller lie than the triple zero.
+        if (speed == 0.0 && bearing == 0f && altitude == 0.0) altitude = ALTITUDE_FLOOR_METERS
 
         val location = Location(provider)
         targetLat = lat

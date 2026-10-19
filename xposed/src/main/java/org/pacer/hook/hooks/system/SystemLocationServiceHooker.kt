@@ -8,6 +8,7 @@ package org.pacer.hook.hooks.system
 
 import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.LocationInjector
@@ -205,6 +206,37 @@ object SystemLocationServiceHooker {
         try {
             HookUtils.callMethod(location, "setIsFromMockProvider", false)
         } catch (_: Throwable) {
+        }
+        copyExtras(location, fake)
+    }
+
+    /**
+     * Copies the satellite counts onto the rewritten fix.
+     *
+     * The coordinates alone are not enough for the SDK that reads these fixes:
+     * its own mock check treats a MISSING or non-positive extras["satellites"]
+     * as a spoofed location and throws the whole report away (error 15, then
+     * every value zeroed), so a framework fix that carries no such key - a
+     * network or fused fix usually does not - would be discarded however
+     * correct its coordinates are. The app-side injector publishes those keys
+     * for the fixes it builds; the system-side rewrite builds through the same
+     * injector, so it must hand them on too.
+     *
+     * Merged, not replaced: the real fix may carry keys this module knows
+     * nothing about, and discarding them is its own kind of lie.
+     */
+    private fun copyExtras(location: Any, fake: android.location.Location) {
+        try {
+            val source = fake.extras ?: return
+            val merged = try {
+                HookUtils.callMethod(location, "getExtras") as? Bundle
+            } catch (_: Throwable) {
+                null
+            } ?: Bundle()
+            merged.putAll(source)
+            HookUtils.callMethod(location, "setExtras", merged)
+        } catch (t: Throwable) {
+            PacerLog.w("system-location", t)
         }
     }
 
