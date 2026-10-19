@@ -52,11 +52,24 @@ object HookStatus {
     fun countHooked(): Int = totalHooked.get()
 
     /**
+     * Counts a hook the moment it attaches.
+     *
+     * The helpers call this on every successful attach; [recordOk] then derives
+     * an installer's delta from [countHooked]. Counting only in [recordOk] was a
+     * bug: the delta was computed from a total nothing ever incremented, so
+     * every installer reported `added=0` and the summary always said `total=0`.
+     */
+    fun recordHooked(count: Int = 1) {
+        if (count > 0) totalHooked.addAndGet(count)
+    }
+
+    /**
      * Records an installer that ran to completion, together with how many
      * hooks it added (the delta in [countHooked] across the call).
      */
     fun recordOk(tag: String, added: Int) {
-        if (added > 0) totalHooked.addAndGet(added)
+        // The total has already been advanced by recordHooked; adding `added`
+        // here as well would count every hook twice.
         hookedPerTag.merge(tag, added, Int::plus)
     }
 

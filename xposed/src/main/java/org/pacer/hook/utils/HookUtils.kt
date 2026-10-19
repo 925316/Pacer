@@ -224,6 +224,7 @@ object HookUtils {
                             return interceptor(chain)
                         }
                     })
+                    HookStatus.recordHooked()
                     hooked++
                 } catch (_: Throwable) {
                     // Hook failure on one overload does not abort the rest.
@@ -244,6 +245,7 @@ object HookUtils {
             module.hook(method).intercept(object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? = interceptor(chain)
             })
+            HookStatus.recordHooked()
             true
         } catch (_: Throwable) {
             false

@@ -48,6 +48,7 @@ import org.pacer.hook.hooks.env.CellPayload
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.system.vendor.SystemClassLocator
 import org.pacer.hook.hooks.system.vendor.SystemComponent
+import org.pacer.hook.utils.HookStatus
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import java.lang.reflect.Method
@@ -110,6 +111,7 @@ object SystemTelephonyRegistryHooker {
                 HookUtils.module.hook(method).intercept(object : XposedInterface.Hooker {
                     override fun intercept(chain: XposedInterface.Chain): Any? = register(chain)
                 })
+                HookStatus.recordHooked()
                 hooked++
             } catch (t: Throwable) {
                 // One overload failing must not cost the others: the releases
