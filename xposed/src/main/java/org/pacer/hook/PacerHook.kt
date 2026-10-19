@@ -95,6 +95,12 @@ class PacerHook : XposedModule() {
                     SystemBluetoothServiceHooker.install(classLoader)
                 }
 
+            SystemProcess.SETTINGS ->
+                // The provider that answers Settings.Secure reads for every other app.
+                HookUtils.runCatchingLogged("settings-provider") {
+                    SystemSettingsProviderHooker.install(classLoader)
+                }
+
             SystemProcess.SYSTEM_SERVER ->
                 PacerLog.i("system server layer comes from onSystemServerStarting")
 
@@ -157,9 +163,6 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("system-appops") {
             SystemAppOpsHooker.install(classLoader)
-        }
-        HookUtils.runCatchingLogged("system-settings") {
-            SystemSettingsProviderHooker.install(classLoader)
         }
         HookUtils.runCatchingLogged("system-rawgnss") {
             RawGnssSuppressionHooker.install(classLoader)

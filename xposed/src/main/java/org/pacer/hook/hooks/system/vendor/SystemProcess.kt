@@ -6,6 +6,8 @@ enum class SystemProcess {
     SYSTEM_SERVER,
     PHONE,
     BLUETOOTH,
+    /** The SettingsProvider process: com.android.providers.settings. */
+    SETTINGS,
     UNKNOWN,
 }
 
@@ -34,6 +36,10 @@ object ProcessIdentity {
             name == "system_server" || name == "system" -> SystemProcess.SYSTEM_SERVER
             name.startsWith("com.android.phone") -> SystemProcess.PHONE
             name.startsWith("com.android.bluetooth") -> SystemProcess.BLUETOOTH
+            // SettingsProvider serves Settings.Secure over the provider protocol and
+            // lives here, not in system_server. Installing its hook in system_server
+            // silently resolved nothing, which is why the scope entry did nothing.
+            name.startsWith("com.android.providers.settings") -> SystemProcess.SETTINGS
             else -> SystemProcess.UNKNOWN
         }
     }

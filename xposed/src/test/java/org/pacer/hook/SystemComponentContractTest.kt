@@ -115,6 +115,13 @@ class SystemComponentContractTest {
             SystemProcess.PHONE,
             SystemComponent.TELEPHONY_PHONE_MANAGER.process,
         )
+        assertEquals(
+            "SettingsProvider serves Settings.Secure from its own process, not from " +
+                "system_server. Declaring it on system_server installed the hook where " +
+                "its class could never be resolved, so the scope entry did nothing.",
+            SystemProcess.SETTINGS,
+            SystemComponent.SETTINGS_PROVIDER.process,
+        )
 
         val unknown = SystemComponent.values()
             .filter { it.process == SystemProcess.UNKNOWN }

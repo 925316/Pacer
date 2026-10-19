@@ -15,7 +15,7 @@ enum class SystemComponent(val process: SystemProcess) {
     WIFI_SCANNER_SERVICE(SystemProcess.SYSTEM_SERVER),
     CONNECTIVITY_SERVICE(SystemProcess.SYSTEM_SERVER),
     APPOPS_SERVICE(SystemProcess.SYSTEM_SERVER),
-    SETTINGS_PROVIDER(SystemProcess.SYSTEM_SERVER),
+    SETTINGS_PROVIDER(SystemProcess.SETTINGS),
     TELEPHONY_REGISTRY(SystemProcess.SYSTEM_SERVER),
     TELEPHONY_PHONE_MANAGER(SystemProcess.PHONE),
     BLUETOOTH_SCAN_SERVICE(SystemProcess.BLUETOOTH),
