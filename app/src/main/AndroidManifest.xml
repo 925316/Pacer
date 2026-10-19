@@ -15,11 +15,11 @@
 
     <!-- AMap's native library is distributed inside a plain jar (see app/build.gradle.kts),
          so it reaches the APK as a packaged resource rather than through the jniLibs
-         pipeline. Extracting at install time is what the loader needs for a library it
-         did not index itself. -->
+         pipeline. The loader needs permission to extract it, which is what the
+         jniLibs.useLegacyPackaging flag in build.gradle.kts sets on this attribute; writing
+         it here as well would be a second source of truth for one build flag. -->
     <application
         android:label="Pacer"
-        android:extractNativeLibs="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <!-- Empty when the build was made without a key, which is how the map screen knows
