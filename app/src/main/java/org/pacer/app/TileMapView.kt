@@ -10,6 +10,7 @@ import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.Rect
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import org.pacer.motion.GeoPoint
@@ -134,6 +135,9 @@ internal class TileMapView(
 
     /** A waypoint drag finished; this is the point that must be persisted. */
     var onWaypointDropped: ((Int, GeoPoint) -> Unit)? = null
+
+    /** A finger held still on the map, away from every waypoint. */
+    var onLongPress: ((GeoPoint) -> Unit)? = null
 
     /** Which source this is, for the page to say out loud. */
     val label: String get() = source.label
@@ -325,8 +329,22 @@ internal class TileMapView(
     private var downY = 0f
     private var draggedWaypoint = -1
     private var movedFar = false
+    private var longPressFired = false
     private var pinchStartSpan = 0f
     private var pinchStartZoom = 0
+
+    /**
+     * Fires while the finger is still down, so the map must remember that it already acted:
+     * otherwise the lift that follows would be read as a tap and append a waypoint at the
+     * same place the simulation was just moved to.
+     */
+    private val longPress = Runnable {
+        if (mode == Mode.PAN && !movedFar) {
+            longPressFired = true
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            onLongPress?.invoke(screenToGeo(downX, downY))
+        }
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
@@ -339,12 +357,15 @@ internal class TileMapView(
                 lastX = event.x
                 lastY = event.y
                 movedFar = false
+                longPressFired = false
                 draggedWaypoint = waypointNear(event.x, event.y)
                 mode = if (draggedWaypoint >= 0) Mode.WAYPOINT else Mode.PAN
+                if (mode == Mode.PAN) postDelayed(longPress, LONG_PRESS_MS)
                 return true
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
+                removeCallbacks(longPress)
                 if (event.pointerCount >= 2) {
                     pinchStartSpan = span(event)
                     pinchStartZoom = zoom
@@ -384,7 +405,10 @@ internal class TileMapView(
                 val dy = event.y - lastY
                 lastX = event.x
                 lastY = event.y
-                if (hypot(event.x - downX, event.y - downY) > TOUCH_SLOP) movedFar = true
+                if (hypot(event.x - downX, event.y - downY) > TOUCH_SLOP) {
+                    movedFar = true
+                    removeCallbacks(longPress)
+                }
                 centerPixel = PixelPoint(centerPixel.x - dx, centerPixel.y - dy)
                 invalidate()
                 return true
@@ -397,6 +421,7 @@ internal class TileMapView(
             }
 
             MotionEvent.ACTION_UP -> {
+                removeCallbacks(longPress)
                 val wasWaypoint = mode == Mode.WAYPOINT
                 val index = draggedWaypoint
                 mode = Mode.IDLE
@@ -407,19 +432,27 @@ internal class TileMapView(
                     onWaypointDropped?.invoke(index, screenToGeo(event.x, event.y))
                     return true
                 }
-                if (movedFar) return true
+                if (movedFar || longPressFired) return true
                 val hit = waypointNear(event.x, event.y)
                 if (hit >= 0) onWaypointTap?.invoke(hit) else onTap?.invoke(screenToGeo(event.x, event.y))
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(longPress)
                 mode = Mode.IDLE
                 draggedWaypoint = -1
                 return true
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    override fun onDetachedFromWindow() {
+        // A long press that is still pending would fire against a view the page has thrown
+        // away, for example when the basemap is switched under the finger.
+        removeCallbacks(longPress)
+        super.onDetachedFromWindow()
     }
 
     /** The index of a waypoint under the finger, or -1. */
@@ -452,6 +485,7 @@ internal class TileMapView(
         const val MAX_CACHED_TILES = 400
         const val FIT_PADDING = 48
         const val TOUCH_SLOP = 12f
+        const val LONG_PRESS_MS = 500L
         const val WAYPOINT_RADIUS = 9f
         const val SELECTED_RADIUS = 13f
         const val LIVE_RADIUS = 8f

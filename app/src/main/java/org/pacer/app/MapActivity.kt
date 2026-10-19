@@ -227,6 +227,7 @@ class MapActivity : Activity() {
         created.onWaypointDropped = { index, point ->
             editDraft { if (index < draft.size) draft.replaceAt(index, point) }
         }
+        created.onLongPress = { point -> relocate(point) }
         created.setRoute(draft.points.toList(), draft.points.toList())
         mapHolder.removeAllViews()
         mapHolder.addView(
@@ -385,6 +386,34 @@ class MapActivity : Activity() {
             String.format(Locale.US, "Centred on the subject at %.5f, %.5f.", target.lat, target.lon)
         } else {
             "Centred on the last waypoint."
+        }
+    }
+
+    /**
+     * Moves a running straight-line simulation to the point under a long press.
+     *
+     * A route run is refused rather than moved: its position comes from its geometry, so
+     * moving the anchor would change nothing, and a press that quietly does nothing is
+     * worse than one that says why.
+     */
+    private fun relocate(point: GeoPoint) {
+        val stored = PacerConfigClient.stored()
+        when {
+            stored != null && stored.active && stored.onRoute ->
+                info.text = "This run follows a route, so it cannot be moved with a long press. " +
+                    "Edit its waypoints instead, or stop it and start a straight-line run."
+            PacerConfigClient.canTeleport() -> {
+                PacerConfigClient.teleport(point.lat, point.lon)
+                info.text = String.format(
+                    Locale.US,
+                    "Simulation moved to %.5f, %.5f.",
+                    point.lat,
+                    point.lon,
+                )
+                updateLivePosition()
+            }
+            else -> info.text =
+                "Long press moves a running straight-line simulation here; none is running."
         }
     }
 
