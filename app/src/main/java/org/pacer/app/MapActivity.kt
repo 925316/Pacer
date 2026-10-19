@@ -60,6 +60,9 @@ class MapActivity : Activity() {
     private var layer: MapLayer = MapLayer.ROAD
     private var map: TileMapView? = null
 
+    /** startedAtMs of the run whose speed/loop fields this page last adopted. */
+    private var lastSyncedStartedAt = Long.MIN_VALUE
+
     /** Enabled only while a waypoint is selected. */
     private lateinit var removeButton: Button
 
@@ -195,14 +198,18 @@ class MapActivity : Activity() {
         // screen that opens on its own defaults silently rewrites the user's settings the
         // next time it starts something.
         PacerConfigClient.onReady {
-            runOnUiThread {
-                val stored = PacerConfigClient.stored() ?: return@runOnUiThread
-                if (stored.speed > 0.0) {
-                    speedField.setText(String.format(Locale.US, "%.1f", stored.speed))
-                }
-                loopCheck.isChecked = stored.loopRoute
-            }
+            runOnUiThread { syncRunFields() }
         }
+    }
+
+    /** The run settings this page shares with the main screen. */
+    private fun syncRunFields() {
+        val stored = PacerConfigClient.stored() ?: return
+        lastSyncedStartedAt = stored.startedAtMs
+        if (stored.speed > 0.0) {
+            speedField.setText(String.format(Locale.US, "%.1f", stored.speed))
+        }
+        loopCheck.isChecked = stored.loopRoute
     }
 
     /**
@@ -337,6 +344,15 @@ class MapActivity : Activity() {
         super.onResume()
         // Reload in case another screen changed the draft while we were away.
         draft = store.load()
+        // A waypoint index from before the reload no longer names the same point when the
+        // other screen removed or reordered one; a stale Remove button would delete the
+        // wrong waypoint.
+        clearSelection()
+        // Another screen may have started a run with different speed/loop settings. Only a
+        // NEW run is adopted, so a value being typed here is not wiped by a permission
+        // dialog pausing and resuming the page.
+        val stored = PacerConfigClient.stored()
+        if (stored != null && stored.startedAtMs != lastSyncedStartedAt) syncRunFields()
         render()
         // The marker is only worth computing while this page is in front of the user; a
         // tick left running behind another screen burns a full run's rebuild for nothing.

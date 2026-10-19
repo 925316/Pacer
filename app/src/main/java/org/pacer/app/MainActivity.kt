@@ -48,6 +48,9 @@ class MainActivity : Activity() {
     private lateinit var store: RouteStore
     private lateinit var draft: RouteDraft
 
+    /** startedAtMs of the run whose settings this page last adopted. */
+    private var lastRestoreStartedAt = Long.MIN_VALUE
+
     private lateinit var output: TextView
 
     private lateinit var walkBtn: RadioButton
@@ -238,6 +241,7 @@ class MainActivity : Activity() {
     /** Shows what is actually configured. See the call site for why this exists. */
     private fun restoreFromStore() {
         val stored = PacerConfigClient.stored() ?: return
+        lastRestoreStartedAt = stored.startedAtMs
         accuracyInput.setText(String.format(Locale.US, "%.1f", stored.accuracy))
         altitudeInput.setText(String.format(Locale.US, "%.1f", stored.altitude))
         bearingInput.setText(String.format(Locale.US, "%.0f", stored.bearing))
@@ -273,6 +277,11 @@ class MainActivity : Activity() {
         // The map screen edits the same persisted draft, so re-read it here.
         draft = store.load()
         renderRoute()
+        // A run started from the other screen carries settings this page shows; adopt them
+        // only when the stored run actually changed, so a half-typed value survives a
+        // permission dialog.
+        val stored = PacerConfigClient.stored()
+        if (stored != null && stored.startedAtMs != lastRestoreStartedAt) restoreFromStore()
     }
 
     // ---------------------------------------------------------------------
