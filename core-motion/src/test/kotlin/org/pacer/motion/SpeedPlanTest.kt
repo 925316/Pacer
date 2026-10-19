@@ -1,7 +1,9 @@
 package org.pacer.motion
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,6 +67,19 @@ class SpeedPlanTest {
         assertNull(SpeedPlan.parse("3.0@0"))
         assertNull(SpeedPlan.parse("-1@60"))
         assertNull(SpeedPlan.parse("3.0@60#-2"))
+    }
+
+    @Test
+    fun `a plan that never moves is rejected instead of hanging the run`() {
+        // SpeedProfile integrates distance; a zero-speed plan would never reach the
+        // end of the route. Both forms are rejected, and a stop inside a moving plan
+        // is still legal.
+        assertNull(SpeedPlan.parse("0@60#0"))
+        assertNull(SpeedPlan.parse("0@10;0@10#2"))
+        assertNotNull(SpeedPlan.parse("0@10;3@60#1"))
+        assertThrows(IllegalArgumentException::class.java) {
+            SpeedPlan(listOf(SpeedPlan.Step(0.0, 60.0)), repeats = 0)
+        }
     }
 
     @Test

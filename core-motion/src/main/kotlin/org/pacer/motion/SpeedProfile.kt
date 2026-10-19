@@ -65,6 +65,13 @@ class SpeedProfile(
         var decelFrom = 0.0
         var cruiseBase = config.baseSpeedMps
         var prevSpeed = 0.0
+        // Defence in depth for the integration loop: SpeedPlan now rejects a plan
+        // whose pass covers no ground, but a cap callback that holds the subject at
+        // 0 m/s would still never advance. Give up after longer than the longest
+        // legitimate stop rather than hang a target process.
+        val stallLimitSec = config.maxPauseSec + config.acquireDurationSec +
+            config.decelDurationSec + 30.0
+        var stalledSec = 0.0
         var nextPauseAt = drawNextPauseAt()
 
         out += SpeedSample(0.0, 0.0, MotionPhase.ACQUIRE, 0.0)
@@ -122,10 +129,13 @@ class SpeedProfile(
                 MotionPhase.IDLE -> 0.0
             }
 
-            dist += (prevSpeed + speed) * 0.5 * dtSec
+            val moved = (prevSpeed + speed) * 0.5 * dtSec
+            dist += moved
             if (dist > distanceMeters) dist = distanceMeters
+            if (moved > 1e-9) stalledSec = 0.0 else stalledSec += dtSec
             prevSpeed = speed
             out += SpeedSample(t, speed, phase, dist)
+            if (stalledSec > stallLimitSec) break
         }
         return out
     }

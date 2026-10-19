@@ -40,6 +40,14 @@ data class SpeedPlan(
     /** Metres of one pass through [steps]. */
     val passMeters: Double = steps.sumOf { it.speedMps * it.durationSec }
 
+    init {
+        // SpeedProfile integrates distance and loops until it reaches the route
+        // end; a plan whose one pass covers no ground (all speeds zero) would
+        // never advance and would hang the process. Reject it where the parser
+        // and every programmatic caller meet.
+        require(passMeters > 0.0) { "a plan must cover a positive distance" }
+    }
+
     /** Planned seconds, or null when the plan repeats indefinitely. */
     val totalSeconds: Double? = if (repeats > 0) passSeconds * repeats else null
 
@@ -115,6 +123,9 @@ data class SpeedPlan(
                 steps.add(Step(speed, duration))
             }
             if (steps.isEmpty()) return null
+            // The constructor rejects this too, but a text field must report it as
+            // "no plan" instead of throwing out of the UI.
+            if (steps.sumOf { it.speedMps * it.durationSec } <= 0.0) return null
             return SpeedPlan(steps, repeats)
         }
     }

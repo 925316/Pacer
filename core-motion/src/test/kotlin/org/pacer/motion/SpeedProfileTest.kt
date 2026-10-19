@@ -16,6 +16,21 @@ class SpeedProfileTest {
     }
 
     @Test
+    fun `a cap that never lets the subject move terminates instead of spinning`() {
+        val config = MotionConfig(
+            baseSpeedMps = 3.0,
+            acquireDurationSec = 2.0,
+            pausesPerMinute = 0.0,
+        )
+        val samples = SpeedProfile(config, seed = 5L)
+            .generate(distanceMeters = 100.0, dtSec = 1.0) { 0.0 }
+        // The guard runs longer than the longest legitimate pause, then gives up with
+        // a partial run: an early end is recoverable, a hung target process is not.
+        assertTrue("too many samples: ${samples.size}", samples.size < 200)
+        assertTrue(samples.last().distanceMeters < 100.0)
+    }
+
+    @Test
     fun `speeds are never negative`() {
         val run = Humanizer.simulate(MotionConfig.walk(), distanceMeters = 400.0, seed = 2L)
         assertTrue(run.samples.all { it.speedMps >= 0 })
