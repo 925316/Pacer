@@ -110,18 +110,7 @@ class TileGridTest {
         for (p in listOf(beijing, shanghai, guangzhou, moscow)) {
             for (z in listOf(10, 12, 15, 18)) {
                 val pixel = grid.pixel(p, z)
-                val datum = CoordinateTransform.wgs84ToBd09(p)
-                val gcj = CoordinateTransform.wgs84ToGcj02(p)
-                val mc = grid.toMeters(datum.lat, datum.lon)
-                val u = scale(z)
-                val recovered = grid.toDegrees(pixel.x * u, -pixel.y * u)
                 val back = grid.point(pixel, z)
-                println(
-                    "baidu z=$z p=$p gcj=$gcj datum=$datum " +
-                        "mc=$mc pixel=$pixel recovered=$recovered " +
-                        "datumBack=${CoordinateTransform.bd09ToWgs84(datum)} " +
-                        "back=$back offset=${GeoMath.haversine(p, back)}",
-                )
                 assertTrue(
                     "z=$z p=$p back=$back offset=${GeoMath.haversine(p, back)}",
                     GeoMath.haversine(p, back) < 0.5,
@@ -129,8 +118,6 @@ class TileGridTest {
             }
         }
     }
-
-    private fun scale(zoom: Int): Double = Math.pow(2.0, 18.0 - zoom)
 
     @Test
     fun `baidu grows y toward the north, so its tile index is negated`() {
