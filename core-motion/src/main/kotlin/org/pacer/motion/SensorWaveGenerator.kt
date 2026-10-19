@@ -94,7 +94,10 @@ class SensorWaveGenerator(
 
         while (t <= endT) {
             val speed = speedAt(samples, t)
-            val cadence = StrideLinker.cadenceForSpeed(speed)
+            // The generator's own stream, so the same seed produces the same samples:
+            // cadence jitter drawn from the process-wide Random made this function
+            // non-reproducible despite taking a seed.
+            val cadence = StrideLinker.cadenceForSpeed(speed, rng = rng)
             // Phase accumulates so cadence changes do not jump the waveform.
             val (ax, ay, az) = axes(phase, rng, zAmplitude, yAmplitude, jitter)
             val tNanos = baseTimeNanos + (t * 1e9).toLong()

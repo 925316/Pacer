@@ -47,6 +47,18 @@ class SensorWaveGeneratorTest {
     }
 
     @Test
+    fun `the same seed generates the same waveform`() {
+        // The class takes a seed, so a rebuild from it must be reproducible. The step
+        // schedule is where that can leak: cadence jitter taken from the process-wide
+        // Random makes two generators with one seed produce different step times.
+        val c = curve()
+        val (accA, eventsA) = SensorWaveGenerator(seed = 7L).generate(c)
+        val (accB, eventsB) = SensorWaveGenerator(seed = 7L).generate(c)
+        assertEquals(eventsA, eventsB)
+        assertEquals(accA, accB)
+    }
+
+    @Test
     fun `empty curve yields empty outputs`() {
         val (acc, events) = SensorWaveGenerator(seed = 1L).generate(emptyList())
         assertTrue(acc.isEmpty() && events.isEmpty())

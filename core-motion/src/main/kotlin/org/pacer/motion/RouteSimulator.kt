@@ -54,12 +54,16 @@ class RouteSimulator(
             steadyAccuracyMeters = steadyAccuracyMeters,
             seed = seed xor SKY_SEED_SALT,
         )
+        // Cadence needs its own stream for the same reason the sky does: a jitter drawn
+        // from the process-wide Random made two builds of one run differ in a field this
+        // sample carries, so "the same run" was not the same fix.
+        val cadenceRng = Random(seed xor STRIDE_SEED_SALT)
         val out = ArrayList<FixSample>(run.samples.size)
         for (i in run.samples.indices) {
             val s = run.samples[i]
             val (p, brg) = route.pointAt(s.distanceMeters)
             val fx = realism.next(s.tSec, s.speedMps, dtSec, brg)
-            val cadence = StrideLinker.cadenceForSpeed(s.speedMps)
+            val cadence = StrideLinker.cadenceForSpeed(s.speedMps, rng = cadenceRng)
             out += FixSample(
                 tSec = s.tSec,
                 point = p,
@@ -105,5 +109,12 @@ class RouteSimulator(
          * than a second seed because both must stay a pure function of the run.
          */
         const val SKY_SEED_SALT = 0x534B595F53454544L
+
+        /**
+         * Same idea for the cadence jitter: drawing it from the process-wide Random would
+         * make two builds of one run report a different cadence for the same second, and
+         * the app's marker could not describe the fix the module was sending.
+         */
+        const val STRIDE_SEED_SALT = 0x5354524944455F4AL
     }
 }

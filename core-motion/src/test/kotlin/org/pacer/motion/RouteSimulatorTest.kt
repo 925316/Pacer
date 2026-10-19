@@ -77,6 +77,16 @@ class RouteSimulatorTest {
     }
 
     @Test
+    fun `cadence jitter still varies between runs`() {
+        // Pinning the jitter to the run's seed must not turn it off: two runs have to
+        // report different cadences for the same speed, or the step stream becomes as
+        // machine-made as the fixed seed was.
+        val a = sim(3L).map { it.cadenceSpm }
+        val b = sim(4L).map { it.cadenceSpm }
+        assertTrue("cadence was identical across two runs", a.zip(b).any { (x, y) -> x != y })
+    }
+
+    @Test
     fun `cadence is zero when paused`() {
         val out = sim()
         val paused = out.filter { it.phase == MotionPhase.PAUSE }
