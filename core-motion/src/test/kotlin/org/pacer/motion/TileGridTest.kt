@@ -3,7 +3,6 @@ package org.pacer.motion
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
 
 /**
  * The tile vectors here are not invented: they are the tiles the three services actually
@@ -106,12 +105,27 @@ class TileGridTest {
         val grid = Bd09Grid()
         for (p in listOf(beijing, shanghai, guangzhou, moscow)) {
             for (z in listOf(10, 12, 15, 18)) {
-                val back = grid.point(grid.pixel(p, z), z)
-                val offset = GeoMath.haversine(p, back)
-                assertTrue("z=$z p=$p back=$back offset=$offset", offset < 0.5)
+                val pixel = grid.pixel(p, z)
+                val back = grid.point(pixel, z)
+                val datum = CoordinateTransform.wgs84ToBd09(p)
+                val mc = grid.toMeters(datum.lat, datum.lon)
+                val recovered = grid.toDegrees(-pixel.y * scale(z), pixel.x * scale(z))
+                println(
+                    "baidu z=$z p=$p pixel=$pixel mc=$mc recovered=$recovered " +
+                        "datum=$datum datumBack=${CoordinateTransform.bd09ToWgs84(datum)} " +
+                        "back=$back offset=${GeoMath.haversine(p, back)}",
+                )
+                // Print the intermediate values so a future failure can be diagnosed from the
+                // CI log alone instead of by re-deriving the projection by hand.
+                assertTrue(
+                    "z=$z p=$p back=$back offset=${GeoMath.haversine(p, back)}",
+                    GeoMath.haversine(p, back) < 0.5,
+                )
             }
         }
     }
+
+    private fun scale(zoom: Int): Double = Math.pow(2.0, 18.0 - zoom)
 
     @Test
     fun `baidu grows y toward the north, so its tile index is negated`() {
@@ -119,9 +133,10 @@ class TileGridTest {
         val south = grid.pixel(GeoPoint(20.0, 110.0), 12)
         val north = grid.pixel(GeoPoint(45.0, 110.0), 12)
         // A point further north has a SMALLER pixel y (screen order), which is the whole
-        // reason the Baidu tile index is -floor(mcY / tile).
+        // reason the Baidu tile index is -floor(mcY / tile). In TILE space the north point
+        // therefore gets the larger index, because tile y counts the other way.
         assertTrue("south=$south north=$north", north.y < south.y)
-        assertTrue(tileOf(grid, GeoPoint(45.0, 110.0)).y < tileOf(grid, GeoPoint(20.0, 110.0)).y)
+        assertTrue(tileOf(grid, GeoPoint(45.0, 110.0)).y > tileOf(grid, GeoPoint(20.0, 110.0)).y)
     }
 
     @Test
@@ -154,8 +169,6 @@ class TileGridTest {
         assertEquals(255.0, ref.insideX, 1e-9)
         assertEquals(255.0, ref.insideY, 1e-9)
     }
-
-
 
     private fun tileOf(grid: TileGrid, point: GeoPoint): TileRef =
         grid.tile(grid.pixel(point, 12))

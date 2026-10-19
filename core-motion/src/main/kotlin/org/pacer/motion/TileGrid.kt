@@ -111,7 +111,7 @@ open class WebMercatorGrid(
 
     override fun pixel(point: GeoPoint, zoom: Int): PixelPoint {
         val world = worldSize(zoom)
-        val lat = point.lat.coerceIn(MAX_MERCATOR_LAT, -MAX_MERCATOR_LAT)
+        val lat = point.lat.coerceIn(-MAX_MERCATOR_LAT, MAX_MERCATOR_LAT)
         val x = (point.lon + 180.0) / 360.0 * world
         val s = sin(Math.toRadians(lat))
         val y = (0.5 - ln((1 + s) / (1 - s)) / (4 * PI)) * world
@@ -123,13 +123,13 @@ open class WebMercatorGrid(
         val lon = pixel.x / world * 360.0 - 180.0
         val n = PI - 2.0 * PI * pixel.y / world
         val lat = Math.toDegrees(atan2(0.5 * (kotlin.math.exp(n) - kotlin.math.exp(-n)), 1.0))
-        return GeoPoint(lat.coerceIn(MAX_MERCATOR_LAT, -MAX_MERCATOR_LAT), lon)
+        return GeoPoint(lat.coerceIn(-MAX_MERCATOR_LAT, MAX_MERCATOR_LAT), lon)
     }
 
     override fun metersToPixels(meters: Double, point: GeoPoint, zoom: Int): Double {
         // Ground resolution at this latitude, from the Mercator scale factor.
         val perPixel = EQUATOR_METERS_PER_PIXEL_AT_Z0 / 2.0.pow(zoom) *
-            cos(Math.toRadians(point.lat.coerceIn(MAX_MERCATOR_LAT, -MAX_MERCATOR_LAT)))
+            cos(Math.toRadians(point.lat.coerceIn(-MAX_MERCATOR_LAT, MAX_MERCATOR_LAT)))
         return if (perPixel <= 0.0) 0.0 else meters / perPixel
     }
 
