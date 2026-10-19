@@ -125,7 +125,7 @@ class MainActivity : Activity() {
         waypointBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(waypointBox)
 
-        root.addView(action("Load sample route (Red Square)") { loadSampleRoute() })
+        root.addView(action("Load sample route (Urumqi)") { loadSampleRoute() })
         root.addView(action("Clear route") { draft.clear(); persistAndRender() })
 
         // --- simulation ------------------------------------------------------
@@ -203,7 +203,7 @@ class MainActivity : Activity() {
             "A few seconds of dropout now and then, which is the one a strict receiver may reject.",
         )
 
-        root.addView(action("Start straight line from coordinates") { startStraight() })
+        root.addView(action("Start straight line from the first waypoint") { startStraight() })
         root.addView(action("Start humanized route simulation") { startRoute() })
         root.addView(action("Stop simulation") {
             PacerConfigClient.stop()
@@ -511,7 +511,13 @@ class MainActivity : Activity() {
 
             val first = runOnce(MotionSeed.forRun(seedBase))
             val second = runOnce(MotionSeed.forRun(seedBase + 1))
-            val report = TrackAudit.audit(second)
+            // The screen can only supply the duplicate check: it has the previous run
+            // of this route. Zone and checkpoint rules need a server's geometry, so
+            // they stay available to callers instead of running on invented defaults.
+            val report = TrackAudit.audit(
+                second,
+                TrackAudit.AuditOptions(priorTracks = listOf(first.map { it.point })),
+            )
             val divergence = meanDisplacementMeters(first, second)
             val text = buildString {
                 appendLine(String.format(Locale.US, "Track audit: %s (risk %.2f)", report.verdict, report.risk))
