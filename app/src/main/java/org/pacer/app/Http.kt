@@ -39,6 +39,9 @@ object Http {
             conn.setRequestProperty("User-Agent", USER_AGENT)
             if (referer != null) conn.setRequestProperty("Referer", referer)
             if (conn.responseCode !in 200..299) {
+                // Silence here hid the difference between "this provider refuses us" and
+                // "this tile does not exist"; both looked like an empty map.
+                Log.d(TAG, "GET ${conn.responseCode}: $url")
                 null
             } else {
                 conn.inputStream.use { it.readBytes() }
