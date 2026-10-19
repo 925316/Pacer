@@ -6,6 +6,7 @@ import android.view.View
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint as OsmGeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
@@ -34,7 +35,10 @@ internal class OsmRouteMap(context: Context) : RouteMap {
     override var onWaypointDragEnd: ((Int, GeoPoint) -> Unit)? = null
     override var onLongPress: ((GeoPoint) -> Unit)? = null
 
-    private var points: List<GeoPoint> = emptyList()
+    private var waypoints: List<GeoPoint> = emptyList()
+
+    /** The drawn path; the waypoint handles sit on a subset of it. */
+    private var geometry: List<GeoPoint> = emptyList()
 
     /** Created on demand: clearing the overlays throws it away with them. */
     private var liveMarker: Marker? = null
@@ -57,13 +61,14 @@ internal class OsmRouteMap(context: Context) : RouteMap {
         }
     }
 
-    override fun showRoute(points: List<GeoPoint>) {
-        this.points = points
+    override fun showRoute(geometry: List<GeoPoint>, waypoints: List<GeoPoint>) {
+        this.geometry = geometry
+        this.waypoints = waypoints
         mapView.overlays.clear()
         // It goes with the overlays; the page asks for it again on the next poll.
         liveMarker = null
 
-        val positions = points.map { OsmGeoPoint(it.lat, it.lon) }
+        val positions = geometry.map { OsmGeoPoint(it.lat, it.lon) }
         if (positions.size >= 2) {
             mapView.overlays.add(
                 Polyline().apply {
@@ -73,9 +78,9 @@ internal class OsmRouteMap(context: Context) : RouteMap {
                 },
             )
         }
-        for ((index, position) in positions.withIndex()) {
+        for ((index, waypoint) in waypoints.withIndex()) {
             val marker = Marker(mapView)
-            marker.position = position
+            marker.position = OsmGeoPoint(waypoint.lat, waypoint.lon)
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             marker.isDraggable = true
             marker.setOnMarkerDragListener(
@@ -148,6 +153,21 @@ internal class OsmRouteMap(context: Context) : RouteMap {
         mapView.controller.setCenter(OsmGeoPoint(point.lat, point.lon))
     }
 
+    override fun fitRoute() {
+        val positions = geometry.map { OsmGeoPoint(it.lat, it.lon) }.ifEmpty {
+            waypoints.map { OsmGeoPoint(it.lat, it.lon) }
+        }
+        if (positions.size < 2) return
+        val box = BoundingBox.fromGeoPoints(positions)
+        // A degenerate box (two points on top of each other) has no size to fit, and
+        // zoomToBoundingBox answers that by jumping to the maximum zoom.
+        if (box.latNorth - box.latSouth < MIN_FIT_SPAN_DEG && box.lonEast - box.lonWest < MIN_FIT_SPAN_DEG) {
+            centerOn(GeoPoint(box.latNorth, box.lonEast))
+            return
+        }
+        mapView.zoomToBoundingBox(box, true, FIT_PADDING_PIXELS)
+    }
+
     /** osmdroid needs nothing here: it has no native resources to restore. */
     override fun onCreate(savedInstanceState: Bundle?) = Unit
 
@@ -157,6 +177,10 @@ internal class OsmRouteMap(context: Context) : RouteMap {
 
     override fun onPause() {
         mapView.onPause()
+    }
+
+    override fun onDestroy() {
+        mapView.onDetach()
     }
 
     /**
@@ -172,7 +196,7 @@ internal class OsmRouteMap(context: Context) : RouteMap {
         if (pxPerMeter <= 0.0) return false
         val grabMeters = WAYPOINT_GRAB_PIXELS / pxPerMeter
         val here = GeoPoint(p.latitude, p.longitude)
-        return points.any { GeoMath.haversine(here, it) <= grabMeters }
+        return waypoints.any { GeoMath.haversine(here, it) <= grabMeters }
     }
 
     private companion object {
@@ -182,6 +206,12 @@ internal class OsmRouteMap(context: Context) : RouteMap {
 
         /** Finger radius, in screen pixels, that counts as touching a waypoint. */
         const val WAYPOINT_GRAB_PIXELS = 28.0
+
+        /** Breathing room around a fitted route, in pixels. */
+        const val FIT_PADDING_PIXELS = 64
+
+        /** Below this span (about a metre) a route box has nothing to zoom to. */
+        const val MIN_FIT_SPAN_DEG = 1e-5
 
         val ROUTE_COLOR = 0xFF1E88E5.toInt()
         val LIVE_COLOR = 0xFFE53935.toInt()

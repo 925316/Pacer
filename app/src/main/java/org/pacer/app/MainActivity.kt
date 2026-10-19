@@ -20,8 +20,10 @@ import org.pacer.motion.FixSample
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
+import org.pacer.motion.MotionSeed
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
+import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
 import org.pacer.motion.SpeedPlan
@@ -32,9 +34,11 @@ import kotlin.concurrent.thread
 /**
  * Control surface. Plain framework views on purpose: the app module has no
  * Compose or map dependency yet, so everything here is a few standard widgets
- * driven by the pure-Kotlin engine. The route being built lives in a
- * [RouteDraft], which is persisted between launches and pushed to the hook in
- * the shared RouteJson wire format.
+ * driven by the pure-Kotlin engine. The waypoints being edited live in a
+ * [RouteDraft], which is persisted between launches; what actually gets simulated
+ * is [RouteStore.geometry] - the road path when the map planned one, the plain
+ * polyline otherwise - and it is pushed to the hook in the shared RouteJson wire
+ * format.
  */
 class MainActivity : Activity() {
 
@@ -340,13 +344,26 @@ class MainActivity : Activity() {
 
     private fun renderRoute() {
         val lengthMeters = draft.totalLengthMeters()
-        routeSummary.text = String.format(
-            Locale.US,
-            "Waypoints: %d   Length: %.0f m%s",
-            draft.size,
-            lengthMeters,
-            if (draft.isValid) "" else "   (need at least 2 to run a route)",
-        )
+        val road = store.roadPath(draft)
+        // The road path is longer than the straight line through the same waypoints, and
+        // which one a run will use is not something the user should have to guess.
+        routeSummary.text = if (road == null) {
+            String.format(
+                Locale.US,
+                "Waypoints: %d   Length: %.0f m (straight between waypoints)%s",
+                draft.size,
+                lengthMeters,
+                if (draft.isValid) "" else "   (need at least 2 to run a route)",
+            )
+        } else {
+            String.format(
+                Locale.US,
+                "Waypoints: %d   Road length: %.0f m   (straight line: %.0f m)",
+                draft.size,
+                lengthOf(road),
+                lengthMeters,
+            )
+        }
 
         waypointBox.removeAllViews()
         draft.points.forEachIndexed { index, point ->
@@ -362,6 +379,13 @@ class MainActivity : Activity() {
             row.addView(smallAction("x") { draft.removeAt(index); persistAndRender() })
             waypointBox.addView(row)
         }
+    }
+
+    /** Total length of an arbitrary polyline, for the road-path comparison. */
+    private fun lengthOf(points: List<GeoPoint>): Double {
+        var total = 0.0
+        for (i in 1 until points.size) total += GeoMath.haversine(points[i - 1], points[i])
+        return total
     }
 
     // ---------------------------------------------------------------------
@@ -442,11 +466,14 @@ class MainActivity : Activity() {
         field.text.toString().toDoubleOrNull() ?: fallback
 
     private fun startRoute() {
-        val route = draft.toRoutePath()
-        if (route == null) {
+        if (!draft.isValid) {
             output.text = "Add at least two waypoints before starting a route."
             return
         }
+        // The road path when one was planned on the map screen, the plain polyline
+        // otherwise: both screens push the geometry that the map is drawing.
+        val geometry = store.geometry(draft)
+        val route = RoutePath(geometry)
         val first = route.points.first()
         val speed = speedMps()
         val plan = planTextOrNull() ?: run {
@@ -460,7 +487,7 @@ class MainActivity : Activity() {
             bearing = numberOr(bearingInput, 45f),
             accuracy = numberOr(accuracyInput, 5f),
             altitudeMeters = doubleOr(altitudeInput, 0.0),
-            routeJson = draft.toJson(),
+            routeJson = RouteJson.encode(geometry),
             plan = plan,
             loopRoute = loopToggle.isChecked,
             mockBluetooth = bluetoothToggle.isChecked,
@@ -469,9 +496,9 @@ class MainActivity : Activity() {
         )
         output.text = String.format(
             Locale.US,
-            "Route pushed: %d waypoints, %.0f m, %.2f m/s. The engine humanizes speed along it.",
-            draft.size,
-            draft.totalLengthMeters(),
+            "Route pushed: %d points, %.0f m, %.2f m/s. The engine humanizes speed along it.",
+            geometry.size,
+            route.totalLengthMeters,
             speed,
         ) + planSummary(plan)
     }
@@ -503,7 +530,8 @@ class MainActivity : Activity() {
      * at the same sample index - a machine repeating itself would report zero.
      */
     private fun auditRoute() {
-        val route = draft.toRoutePath() ?: RoutePath(SAMPLE_ROUTE)
+        // The geometry that would actually be simulated, road path included.
+        val route = routeForPreview() ?: RoutePath(SAMPLE_ROUTE)
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
@@ -511,18 +539,23 @@ class MainActivity : Activity() {
         // steady-speed track for a session that will not be one.
         val plan = SpeedPlan.parse(planInput.text.toString())
         val speed = speedMps()
+        // Two DIFFERENT runs of the same route: the comparison below is only meaningful
+        // if the second run is a second run, so its seed advances by one. The shared
+        // derivation is used rather than Random.nextLong() so a report can be reproduced
+        // from the two numbers it names.
+        val seedBase = System.currentTimeMillis()
         auditBtn.isEnabled = false
         output.text = "Auditing the track..."
         thread {
-            fun runOnce() = RouteSimulator(
+            fun runOnce(seed: Long) = RouteSimulator(
                 route,
                 MotionConfig(baseSpeedMps = speed).copy(plan = plan),
                 toggles = toggles,
                 steadyAccuracyMeters = accuracy,
-            ).simulate(dtSec = 1.0)
+            ).simulate(dtSec = 1.0, seed = seed)
 
-            val first = runOnce()
-            val second = runOnce()
+            val first = runOnce(MotionSeed.forRun(seedBase))
+            val second = runOnce(MotionSeed.forRun(seedBase + 1))
             val report = TrackAudit.audit(second)
             val divergence = meanDisplacementMeters(first, second)
             val text = buildString {
@@ -555,6 +588,19 @@ class MainActivity : Activity() {
         return total / n
     }
 
+    /**
+     * The route the previews and the audit work on: the stored road path when the map
+     * planned one, the draft's own polyline otherwise.
+     *
+     * This screen edits the same draft as the map, so it has to show what would actually
+     * be simulated there rather than a different line through the same waypoints.
+     */
+    private fun routeForPreview(): RoutePath? {
+        if (!draft.isValid) return null
+        val geometry = store.geometry(draft)
+        return if (geometry.size >= 2) RoutePath(geometry) else null
+    }
+
     private fun previewLocally() {
         previewBtn.isEnabled = false
         output.text = "Simulating..."
@@ -564,7 +610,7 @@ class MainActivity : Activity() {
         val plan = SpeedPlan.parse(planInput.text.toString())
         val speed = speedMps()
         thread {
-            val route = draft.toRoutePath() ?: RoutePath(SAMPLE_ROUTE)
+            val route = routeForPreview() ?: RoutePath(SAMPLE_ROUTE)
             val fixes = RouteSimulator(
                 route,
                 MotionConfig(baseSpeedMps = speed).copy(plan = plan),

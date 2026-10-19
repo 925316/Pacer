@@ -10,6 +10,7 @@ import com.amap.api.maps.MapView
 import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.model.BitmapDescriptorFactory
 import com.amap.api.maps.model.LatLng
+import com.amap.api.maps.model.LatLngBounds
 import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.PolylineOptions
@@ -47,12 +48,18 @@ internal class AmapRouteMap(context: Context) : RouteMap {
     override var onWaypointDragEnd: ((Int, GeoPoint) -> Unit)? = null
     override var onLongPress: ((GeoPoint) -> Unit)? = null
 
-    private var points: List<GeoPoint> = emptyList()
+    private var waypoints: List<GeoPoint> = emptyList()
 
-    /** Parallel to [points], so a dragged marker can be told which waypoint it is. */
+    /** The drawn path; the waypoint handles sit on a subset of it. */
+    private var geometry: List<GeoPoint> = emptyList()
+
+    /** Parallel to [waypoints], so a dragged marker can be told which waypoint it is. */
     private var waypointMarkers: MutableList<Marker> = ArrayList()
 
     private var liveMarker: Marker? = null
+
+    /** Whether the map has had its initial camera; see [centerOn]. */
+    private var cameraSet = false
 
     init {
         MapsInitializer.updatePrivacyShow(context, true, true)
@@ -89,13 +96,14 @@ internal class AmapRouteMap(context: Context) : RouteMap {
         )
     }
 
-    override fun showRoute(points: List<GeoPoint>) {
-        this.points = points
+    override fun showRoute(geometry: List<GeoPoint>, waypoints: List<GeoPoint>) {
+        this.geometry = geometry
+        this.waypoints = waypoints
         aMap.clear()
         waypointMarkers = ArrayList()
         liveMarker = null
 
-        val positions = points.map { toGcj02(it) }
+        val positions = geometry.map { toGcj02(it) }
         if (positions.size >= 2) {
             aMap.addPolyline(
                 PolylineOptions()
@@ -104,10 +112,10 @@ internal class AmapRouteMap(context: Context) : RouteMap {
                     .color(ROUTE_COLOR),
             )
         }
-        for (position in positions) {
+        for (waypoint in waypoints) {
             val marker = aMap.addMarker(
                 MarkerOptions()
-                    .position(position)
+                    .position(toGcj02(waypoint))
                     .draggable(true)
                     .icon(BitmapDescriptorFactory.defaultMarker()),
             )
@@ -137,7 +145,39 @@ internal class AmapRouteMap(context: Context) : RouteMap {
     }
 
     override fun centerOn(point: GeoPoint) {
-        aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(toGcj02(point), DEFAULT_ZOOM))
+        // newLatLng, not newLatLngZoom: once the map has a camera, centring must not fight
+        // the zoom the user chose. The FIRST centre is the initial camera, though, and
+        // AMap's default is a country-wide view - so that one carries a street zoom.
+        val update = if (cameraSet) {
+            CameraUpdateFactory.newLatLng(toGcj02(point))
+        } else {
+            cameraSet = true
+            CameraUpdateFactory.newLatLngZoom(toGcj02(point), DEFAULT_ZOOM)
+        }
+        aMap.moveCamera(update)
+    }
+
+    override fun fitRoute() {
+        val positions = (if (geometry.size >= 2) geometry else waypoints).map { toGcj02(it) }
+        if (positions.size < 2) return
+        val minLat = positions.minOf { it.latitude }
+        val maxLat = positions.maxOf { it.latitude }
+        val minLon = positions.minOf { it.longitude }
+        val maxLon = positions.maxOf { it.longitude }
+        // A zero-area box is rejected by the fit update, and a route of two identical
+        // points is a state the editor can produce.
+        if (maxLat - minLat < MIN_FIT_SPAN_DEG && maxLon - minLon < MIN_FIT_SPAN_DEG) {
+            centerOn(GeoPoint(maxLat, maxLon))
+            return
+        }
+        val bounds = LatLngBounds.Builder().apply {
+            for (position in positions) include(position)
+        }.build()
+        try {
+            aMap.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, FIT_PADDING_PIXELS))
+            cameraSet = true
+        } catch (_: Throwable) {
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -152,6 +192,10 @@ internal class AmapRouteMap(context: Context) : RouteMap {
         mapView.onPause()
     }
 
+    override fun onDestroy() {
+        mapView.onDestroy()
+    }
+
     /**
      * Close enough to a waypoint to mean "drag that one", measured on screen: how close a
      * finger has to be depends on the zoom, so the projection decides, not a metre radius.
@@ -162,7 +206,7 @@ internal class AmapRouteMap(context: Context) : RouteMap {
         if (mapView.width == 0 || mapView.height == 0) return false
         val projection = aMap.projection ?: return false
         val tap: Point = projection.toScreenLocation(toGcj02(point)) ?: return false
-        return points.any { waypoint ->
+        return waypoints.any { waypoint ->
             val screen: Point = projection.toScreenLocation(toGcj02(waypoint)) ?: return@any false
             hypot((screen.x - tap.x).toDouble(), (screen.y - tap.y).toDouble()) <= WAYPOINT_GRAB_PIXELS
         }
@@ -178,6 +222,12 @@ internal class AmapRouteMap(context: Context) : RouteMap {
 
     private companion object {
         const val DEFAULT_ZOOM = 15f
+
+        /** Breathing room around a fitted route, in pixels. */
+        const val FIT_PADDING_PIXELS = 64
+
+        /** Below this span (about a metre) a route box has nothing to zoom to. */
+        const val MIN_FIT_SPAN_DEG = 1e-5
 
         /** Red, in AMap's hue convention for the default pin. */
         const val LIVE_HUE = 0f

@@ -28,8 +28,8 @@ interface RouteMap {
     /** The view to add to the layout. */
     val view: View
 
-    /** Draws [points] as the route, replacing whatever was drawn before. */
-    fun showRoute(points: List<GeoPoint>)
+    /** Draws [geometry] as the route, and a draggable handle at each of [waypoints]. */
+    fun showRoute(geometry: List<GeoPoint>, waypoints: List<GeoPoint>)
 
     /** Moves the marker for the simulated subject, or removes it when [point] is null. */
     fun showLive(point: GeoPoint?)
@@ -46,12 +46,18 @@ interface RouteMap {
     /** Centres the map on [point] without changing the zoom. */
     fun centerOn(point: GeoPoint)
 
+    /** Zooms the map so the route last handed to [showRoute] is fully visible. */
+    fun fitRoute()
+
     /** Activity lifecycle: backends that own native views need it, the others ignore it. */
     fun onCreate(savedInstanceState: Bundle?)
 
     fun onResume()
 
     fun onPause()
+
+    /** Releases the backend's native resources; the page is going away. */
+    fun onDestroy()
 }
 
 /**
