@@ -7,10 +7,10 @@ import java.net.URL
 /**
  * The one place this app makes an HTTP GET.
  *
- * It exists so that the tile fetcher has no retry policy of its own to get wrong: a tile
- * that fails is simply not drawn, and the next time it is on screen it is asked for again.
- * No retries, no backoff, no queue - a map being panned asks for a tile once and moves on,
- * and a retry loop behind a pan gesture is how a client gets itself rate-limited.
+ * It exists so that the tile fetcher has one place that owns a socket: one attempt per call,
+ * nothing else. A tile that fails is simply not drawn, and the caller decides when asking
+ * again is worth it - a retry loop inside the transfer is how a client gets itself
+ * rate-limited while the user is panning.
  *
  * One shared client means one place to say what this app identifies itself as, which is a
  * courtesy to the tile services that run on donated capacity.
