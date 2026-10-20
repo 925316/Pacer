@@ -56,13 +56,11 @@ object SystemLocationServiceHooker {
     // --- registration and one-shot APIs --------------------------------------
 
     /**
-     * The names a registration or one-shot call uses to hand over its callback.
+     * The delivery method on the caller's own callback object.
      *
-     * Guessing the framework's INTERNAL transport classes is fragile: they are renamed
-     * between releases and differ on OEM ROMs, and a wrong guess hooks nothing while
-     * still counting as "installed". The callback object, by contrast, is supplied by the
-     * caller and is the same object for the whole registration, so hooking its delivery
-     * method works whatever the framework does in between.
+     * Framework-internal transport classes are renamed between releases and differ on OEM
+     * ROMs; the callback object is supplied by the caller and is stable for the whole
+     * registration.
      */
     private val callbackMethods = arrayOf(
         "onLocation",
@@ -84,13 +82,7 @@ object SystemLocationServiceHooker {
     private val hookedCallbackClasses: MutableSet<Class<*>> =
         java.util.Collections.newSetFromMap(java.util.WeakHashMap<Class<*>, Boolean>())
 
-    /**
-     * Hooks the delivery method of the caller's own callback object.
-     *
-     * Returns the number of methods intercepted, so the install report can distinguish
-     * "this framework shape has no such callback" from "the callback arrived and was
-     * rewritten".
-     */
+    /** Intercepts the caller's own callback, once per class. */
     private fun hookCallbackSink(callback: Any?): Int {
         if (callback == null) return 0
         val clazz = callback.javaClass
@@ -109,12 +101,10 @@ object SystemLocationServiceHooker {
         return n
     }
 
-    /** The argument that looks like a per-request callback, or null. */
+    /** The argument that carries the per-request callback, or null. */
     private fun callbackArg(args: List<Any?>): Any? = args.firstOrNull { arg ->
         if (arg == null) return@firstOrNull false
         val name = arg.javaClass.name
-        // A binder stub for the client is the usual shape; a plain listener or consumer
-        // object is the other. Both are "the thing the answer is delivered to".
         name.contains("ILocationCallback") ||
             name.contains("ILocationListener") ||
             name.contains("LocationResult") ||
@@ -123,21 +113,17 @@ object SystemLocationServiceHooker {
     }
 
     /**
-     * Covers the one-shot APIs, which answer through a callback rather than a return
-     * value.
+     * Covers the one-shot APIs.
      *
-     * `getCurrentLocation` is what a modern map app uses for its first fix, and it was
-     * the largest uncovered path in this layer: the provider funnel below never sees it,
-     * because a one-shot result is not a provider report.
+     * A provider report never reaches the funnel for these: `getCurrentLocation` is how a
+     * modern map app asks for its first fix.
      */
     private fun hookOneShot(clazz: Class<*>): Int {
         var n = 0
         for (method in arrayOf("getCurrentLocation", "getLastLocation", "getLastLocationUnsafe")) {
             n += HookUtils.hookAllMethods(clazz, method) { chain ->
-                // A synchronous overload returns the fix; rewrite that value. An
-                // asynchronous one returns null and answers through a callback, so the
-                // callback is intercepted as well. Both are handled here because the same
-                // method name exists in both shapes across releases.
+                // Synchronous overloads return the fix; asynchronous ones answer through
+                // the callback hooked below.
                 var result: Any? = null
                 try {
                     result = chain.proceed(chain.args.toTypedArray())
@@ -162,7 +148,7 @@ object SystemLocationServiceHooker {
 
     /**
      * Covers the registration APIs: the caller's listener is captured and its delivery
-     * method intercepted, so the fix is corrected at hand-off.
+     * method intercepted.
      */
     private fun hookRegistrations(clazz: Class<*>): Int {
         var n = 0
@@ -191,9 +177,8 @@ object SystemLocationServiceHooker {
     /**
      * Reports every provider as enabled while a simulation runs.
      *
-     * An app that checks `isProviderEnabled("gps")` before registering and finds it false
-     * never registers at all, so nothing downstream can help it. Reporting true is the
-     * honest answer here: the simulation does provide fixes on those providers.
+     * An app that checks `isProviderEnabled("gps")` first and sees false never registers,
+     * so no downstream hook can reach it.
      */
     private fun hookProviderEnabled(clazz: Class<*>): Int {
         var n = 0
