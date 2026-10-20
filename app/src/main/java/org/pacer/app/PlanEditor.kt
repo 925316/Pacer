@@ -237,19 +237,14 @@ class PlanEditor(
         }
     }
 
-    private fun totalsText(): String {
-        val seconds = draft.totalSeconds
-        val meters = draft.totalMeters
-        if (seconds == null || meters == null) {
-            return String.format(
-                Locale.US,
-                strings.planTotalsForever,
-                draft.passSeconds,
-                draft.passMeters,
-            )
-        }
-        return String.format(Locale.US, strings.planTotals, seconds, meters)
-    }
+    private fun totalsText(): String = formatPlanTotals(
+        passSeconds = draft.passSeconds,
+        passMeters = draft.passMeters,
+        totalSeconds = draft.totalSeconds,
+        totalMeters = draft.totalMeters,
+        totals = strings.planTotals,
+        totalsForever = strings.planTotalsForever,
+    )
 
     private companion object {
         /** One pace level at walking speed. */
@@ -258,4 +253,33 @@ class PlanEditor(
         /** The smallest interval worth prescribing. */
         const val DURATION_STEP = 30.0
     }
+}
+
+/**
+ * The two totals lines, separated from the view so they can be tested.
+ *
+ * The crash this replaces: `planTotals` advertises four numbers and the call supplied two,
+ * so `renderFooter` threw on the first draw and took the activity with it. Formatting is
+ * the whole job here, so it takes exactly the values the templates ask for - a mismatch is
+ * a compile error, not a runtime abort.
+ */
+internal fun formatPlanTotals(
+    passSeconds: Double,
+    passMeters: Double,
+    totalSeconds: Double?,
+    totalMeters: Double?,
+    totals: String,
+    totalsForever: String,
+): String {
+    if (totalSeconds == null || totalMeters == null) {
+        return String.format(Locale.US, totalsForever, passSeconds, passMeters)
+    }
+    return String.format(
+        Locale.US,
+        totals,
+        passSeconds,
+        passMeters,
+        totalSeconds / 60.0,
+        totalMeters / 1000.0,
+    )
 }
