@@ -73,6 +73,9 @@ class PlanEditor(
 
     private fun rebuild() {
         rows.removeAllViews()
+        // Presets first: once a plan has three steps the list pushes them off the screen,
+        // and they are the way in for anyone who has not built one yet.
+        rows.addView(presetRow())
         if (draft.steps.isEmpty()) {
             rows.addView(
                 TextView(activity).apply {
@@ -94,7 +97,6 @@ class PlanEditor(
                 }
             },
         )
-        rows.addView(presetRow())
     }
 
     /** One step: − value + for speed and for duration, plus reorder and remove. */

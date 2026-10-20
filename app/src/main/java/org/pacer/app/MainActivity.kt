@@ -204,6 +204,10 @@ class MainActivity : Activity() {
                 // The window is edge to edge on API 35, so without this the status bar sits
                 // on top of the status line and the gesture bar on top of the tab strip.
                 fitsSystemWindows = true
+                // A second, fixed allowance because fitsSystemWindows only reports a
+                // navigation bar when the device draws one as a window; a gesture pill is
+                // drawn by the system and still overlaps this row.
+                setPadding(0, 0, 0, dp(NAV_BAR_ALLOWANCE_DP))
                 addView(header)
                 addView(
                     FrameLayout(this@MainActivity).apply {
@@ -1443,6 +1447,9 @@ class MainActivity : Activity() {
         val TAB_ACTIVE = 0xFF1A73E8.toInt()
         val TAB_INACTIVE = 0xFF5F6368.toInt()
         val TAB_DIVIDER = 0x14000000
+
+        /** Room kept clear under the tab strip for a gesture bar. */
+        const val NAV_BAR_ALLOWANCE_DP = 24
 
         /** Speed presets, also used to recognise the stored value when the screen opens. */
         const val WALK_SPEED = 1.4

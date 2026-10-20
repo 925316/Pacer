@@ -94,7 +94,9 @@ fun Activity.option(
 /** A vertical, padded page body inside a scroll view. */
 fun Activity.pageBody(): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
-    setPadding(40, 32, 40, 48)
+    // The bottom padding is generous because the last line of a page sits against the
+    // start of the pinned control bar; without it the final row reads as cut off.
+    setPadding(40, 32, 40, 96)
 }
 
 /** Distinguishes "not started" from "inside a run" without a second state field. */
