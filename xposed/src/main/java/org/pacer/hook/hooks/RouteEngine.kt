@@ -56,7 +56,8 @@ object RouteEngine {
         // thousands of points, and this key is rebuilt on every sensor callback.
         val key = cfg.routeJson.length.toString() + ":" + cfg.routeJson.hashCode() + "|" +
             cfg.speedMps + "|" + cfg.startTimestamp + "|" +
-            cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "") + "|lap=" + lap.index
+            cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "") +
+            "|loop=" + cfg.loopRoute + "|lap=" + lap.index
         if (key != cacheKey) {
             // The seed is a function of (start timestamp, lap), not a fresh random value:
             // the app draws its live marker from this same run, and it can only agree if
