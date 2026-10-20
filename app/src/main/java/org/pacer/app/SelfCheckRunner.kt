@@ -48,7 +48,7 @@ import org.pacer.motion.SelfCheckReport
  *   the same run the hooks are reading rather than from a second copy of the settings.
  */
 class SelfCheckRunner(
-    private val context: Context,
+    private val context: android.app.Activity,
     private val cfg: PacerConfigClient.Stored?,
 ) {
 
@@ -410,7 +410,7 @@ class SelfCheckRunner(
         }
         // Bonded devices are emptied while the environment is simulated. This is the one
         // BLE probe that needs no scan, so it is the one that always runs.
-        return try {
+        val bondedResult = try {
             val bonded = adapter.bondedDevices
             if (bonded.isNullOrEmpty()) {
                 SelfCheck.pass("bluetooth bonded devices", "hidden (empty set while simulating)")
@@ -426,6 +426,7 @@ class SelfCheckRunner(
             // platform checked the permission before the hook could return.
             CheckItem("bluetooth bonded devices", CheckItem.Verdict.FAIL, t.javaClass.simpleName)
         }
+        return listOf(bondedResult)
     }
 
     // ----------------------------------------------------------------- sensors
