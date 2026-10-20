@@ -31,6 +31,9 @@ enum class Language(val tag: String, val label: String) {
  */
 interface Strings {
     val appTagline: String
+    val tabRun: String
+    val tabRoute: String
+    val tabSettings: String
     val speed: String
     val walk: String
     val run: String
@@ -166,6 +169,9 @@ interface Strings {
 /** The English strings; also the fallback for a language that has not been written yet. */
 object EnglishStrings : Strings {
     override val appTagline = "Simulate movement for testing."
+    override val tabRun = "Run"
+    override val tabRoute = "Route"
+    override val tabSettings = "Settings"
     override val speed = "Speed"
     override val walk = "Walk 1.4"
     override val run = "Run 3.0"
@@ -334,6 +340,9 @@ object EnglishStrings : Strings {
 /** The Chinese strings. */
 object ChineseStrings : Strings {
     override val appTagline = "用于测试的运动模拟。"
+    override val tabRun = "运行"
+    override val tabRoute = "路线"
+    override val tabSettings = "设置"
     override val speed = "速度"
     override val walk = "步行 1.4"
     override val run = "跑步 3.0"

@@ -6,9 +6,11 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -34,16 +36,14 @@ import java.util.Locale
 import kotlin.concurrent.thread
 
 /**
- * Control surface for everything that is not the map: speed, the signal switches, and the
- * two ways to start a run.
+ * The three pages: what a run is, what it runs along, and how it is reported.
  *
- * The route is drawn on the map, not here: there is no coordinate field and no place search,
- * both of which would need a key or an account.
- *
- * Plain framework views on purpose: the engine is pure Kotlin, and only the map needs a
- * canvas.
+ * Split because the alternative was one column of fourteen sections where reaching Start
+ * meant scrolling past the map button and the coordinate table.
  */
 class MainActivity : Activity() {
+
+    private enum class Page { RUN, ROUTE, SETTINGS }
 
     private lateinit var store: RouteStore
     private lateinit var draft: RouteDraft
@@ -58,6 +58,19 @@ class MainActivity : Activity() {
 
     /** The run's state, at the top of the page; see the call site. */
     private lateinit var statusView: TextView
+
+    private lateinit var runPageRoot: LinearLayout
+    private lateinit var routePageRoot: LinearLayout
+    private lateinit var settingsPageRoot: LinearLayout
+    private lateinit var runScroll: ScrollView
+    private lateinit var routeScroll: ScrollView
+    private lateinit var settingsScroll: ScrollView
+    private lateinit var tabRow: LinearLayout
+
+    private var page: Page = Page.RUN
+
+    /** Guards the speed field's own writes from being read back as typing. */
+    private var writingSpeed = false
 
     /**
      * The last failure or consequence, above the status line.
@@ -160,21 +173,72 @@ class MainActivity : Activity() {
         settings = AppSettings(this)
         strings = stringsFor(settings.language)
 
-        val root = pageBody()
+        runPageRoot = buildRunPage()
+        routePageRoot = buildRoutePage()
+        settingsPageRoot = buildSettingsPage()
 
-        root.addView(titleView("Pacer"))
-        root.addView(hint(strings.appTagline))
-
-        // The run's state, at the top rather than at the bottom of a long column: a Start
-        // that changes nothing visible reads as a button that did nothing. Refreshed on a
-        // timer, so it also reports a run stopped from the map page.
-        statusView = TextView(this).apply {
-            textSize = 15f
-            setPadding(0, 8, 0, 16)
+        // Status and messages sit above the pages, not inside one of them: a route saved on
+        // the Route page has to stay readable after switching to Run.
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 24, 40, 0)
         }
-        root.addView(statusView)
+        statusView = TextView(this).apply { textSize = 15f }
+        header.addView(statusView)
+        output = MessageView(this).apply {
+            textSize = 13f
+            setPadding(0, 6, 0, 0)
+        }
+        header.addView(output)
 
-        // --- speed preset ----------------------------------------------------
+        runScroll = scrollPage(runPageRoot)
+        routeScroll = scrollPage(routePageRoot)
+        settingsScroll = scrollPage(settingsPageRoot)
+
+        setContentView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(header)
+                addView(
+                    FrameLayout(this@MainActivity).apply {
+                        addView(runScroll)
+                        addView(routeScroll)
+                        addView(settingsScroll)
+                    },
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
+                )
+                addView(runBar())
+                addView(tabBar())
+            },
+        )
+
+        PacerConfigClient.init()
+        selectPage(Page.entries.getOrElse(savedInstanceState?.getInt(KEY_PAGE) ?: 0) { Page.RUN })
+        renderRoute()
+        renderSavedRoutes()
+        updatePauseButton()
+        // Opens on the stored configuration, not on this screen's defaults: every start
+        // writes all of these keys, so touching one switch on defaults would silently
+        // restore the others.
+        PacerConfigClient.onReady { runOnUiThread { restoreFromStore() } }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(KEY_PAGE, page.ordinal)
+    }
+
+    /**
+     * The page the user actually reaches for.
+     *
+     * Speed, the interval plan and the switches that change what a run looks like. Kept
+     * separate from the route so that starting a run does not mean scrolling past the map
+     * button, and separate from the settings so a knob that is set once is not in the way.
+     */
+    private fun buildRunPage(): LinearLayout {
+        val root = pageBody()
+        root.addView(titleView(strings.tabRun))
+
         root.addView(section(strings.speed))
         val speedGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         walkBtn = radio(strings.walk)
@@ -190,7 +254,6 @@ class MainActivity : Activity() {
         speedInput = numberField(strings.customSpeed, "3.0")
         // Typing a speed is choosing Custom. The guard stops the radio listener's own
         // write from being read back as typing.
-        var writingSpeed = false
         speedInput.addTextChangedListener(
             object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -216,65 +279,6 @@ class MainActivity : Activity() {
         }
         root.addView(speedInput)
 
-        // --- route ----------------------------------------------------------
-        // The route is drawn on the map; this screen only shows what was drawn. There is
-        // deliberately no coordinate field and no search box: neither needs a key, but both
-        // are a way of choosing a place other than by looking at it.
-        root.addView(section(strings.route))
-        root.addView(hint(strings.routeHint))
-        root.addView(action(strings.openMap) {
-            startActivity(Intent(this, MapActivity::class.java))
-        })
-
-        routeSummary = TextView(this).apply {
-            textSize = 15f
-            setPadding(0, 16, 0, 8)
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, MapActivity::class.java))
-            }
-        }
-        root.addView(routeSummary)
-
-        root.addView(action(strings.loadSample) { loadSampleRoute() })
-        root.addView(action(strings.clearRoute) {
-            if (draft.size < 2) {
-                draft.clear()
-                persistAndRender()
-                renderSavedRoutes()
-            } else {
-                android.app.AlertDialog.Builder(this)
-                    .setTitle(strings.clearRouteTitle)
-                    .setMessage(String.format(Locale.US, strings.clearRouteMessage, draft.size))
-                    .setPositiveButton(strings.clear) { _, _ ->
-                        draft.clear()
-                        persistAndRender()
-                        renderSavedRoutes()
-                    }
-                    .setNegativeButton(strings.cancel, null)
-                    .show()
-            }
-        })
-        recordBtn = action(strings.startRecording) { toggleRecording() }
-        root.addView(recordBtn)
-
-        // --- named routes -----------------------------------------------------
-        // Plain buttons and plain rows. The list is the only structure a saved route
-        // needs; anything more would be decoration.
-        root.addView(section(strings.savedRoutes))
-        root.addView(action(strings.saveRoute) { saveCurrentRoute() })
-        savedRouteBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(savedRouteBox)
-
-        // --- simulation ------------------------------------------------------
-        root.addView(section(strings.simulation))
-        accuracyInput = numberField(strings.accuracy, "5.0")
-        root.addView(accuracyInput)
-        altitudeInput = numberField(strings.altitude, "0.0")
-        root.addView(altitudeInput)
-        bearingInput = numberField(strings.bearing, "45.0")
-        root.addView(bearingInput)
-        // The interval plan as steps with steppers and presets. The stored value is still
-        // the `3.0@180;1.4@60#5` string; only the input form changed.
         root.addView(section(strings.intervalPlanSection))
         planEditor = PlanEditor(this, strings) { wire -> planWire = wire }
         root.addView(planEditor.view)
@@ -294,6 +298,57 @@ class MainActivity : Activity() {
             strings.bluetooth,
             strings.bluetoothHint,
         )
+        return root
+    }
+
+    /**
+     * Everything about the line being run: drawing it, keeping it, replaying it later.
+     *
+     * The points themselves are placed on the map. This page is the list of what exists and
+     * the actions on it, so there is no second editor for the same geometry.
+     */
+    private fun buildRoutePage(): LinearLayout {
+        val root = pageBody()
+        root.addView(titleView(strings.tabRoute))
+
+        root.addView(hint(strings.routeHint))
+        root.addView(action(strings.openMap) { openMap() })
+        routeSummary = TextView(this).apply {
+            textSize = 15f
+            setPadding(0, 16, 0, 8)
+            setOnClickListener { openMap() }
+        }
+        root.addView(routeSummary)
+
+        root.addView(action(strings.loadSample) { loadSampleRoute() })
+        root.addView(action(strings.clearRoute) { clearDraftRoute() })
+        recordBtn = action(strings.startRecording) { toggleRecording() }
+        root.addView(recordBtn)
+
+        root.addView(section(strings.savedRoutes))
+        root.addView(action(strings.saveRoute) { saveCurrentRoute() })
+        savedRouteBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(savedRouteBox)
+        return root
+    }
+
+    /**
+     * What is configured once and then left alone.
+     *
+     * Numbers the run reports, the realism switches, coordinate overrides, and the
+     * diagnostics. Nothing here changes the route or the speed from one minute to the next.
+     */
+    private fun buildSettingsPage(): LinearLayout {
+        val root = pageBody()
+        root.addView(titleView(strings.tabSettings))
+
+        root.addView(section(strings.simulation))
+        accuracyInput = numberField(strings.accuracy, "5.0")
+        root.addView(accuracyInput)
+        altitudeInput = numberField(strings.altitude, "0.0")
+        root.addView(altitudeInput)
+        bearingInput = numberField(strings.bearing, "45.0")
+        root.addView(bearingInput)
 
         // --- per-app coordinate systems --------------------------------------
         // One plain text field. The table is a preference that applies to whatever
@@ -379,44 +434,76 @@ class MainActivity : Activity() {
             recreate()
         }
         root.addView(languageGroup)
+        return root
+    }
 
-        output = TextView(this).apply {
-            text = strings.statusIdle
-            textSize = 14f
-            setPadding(0, 32, 0, 0)
+    private fun scrollPage(content: LinearLayout): ScrollView =
+        ScrollView(this).apply { addView(content) }
+
+    /**
+     * The three pages, as one row.
+     *
+     * Everything is built up front and swapped, so a page keeps its state and switching
+     * costs a visibility change rather than a rebuild.
+     */
+    private fun tabBar(): LinearLayout {
+        tabRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (candidate in Page.entries) {
+            tabRow.addView(
+                Button(this).apply {
+                    text = when (candidate) {
+                        Page.RUN -> strings.tabRun
+                        Page.ROUTE -> strings.tabRoute
+                        Page.SETTINGS -> strings.tabSettings
+                    }
+                    textSize = 13f
+                    minWidth = 0
+                    minimumWidth = 0
+                    setPadding(8, 8, 8, 8)
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    )
+                    setOnClickListener { selectPage(candidate) }
+                },
+            )
         }
-        root.addView(output)
+        return tabRow
+    }
 
-        // The controls that start and stop a run, pinned below the scroll area.
-        //
-        // They used to sit in the middle of the column: pressing Start left the screen
-        // looking exactly the same, and reaching them at all meant scrolling past twenty
-        // controls. Both problems disappear when the row is always visible.
-        setContentView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(
-                    ScrollView(this@MainActivity).apply {
-                        addView(root)
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            0,
-                            1f,
-                        )
-                    },
-                )
-                addView(runBar())
-            },
-        )
+    private fun selectPage(chosen: Page) {
+        page = chosen
+        runScroll.showIf(chosen == Page.RUN)
+        routeScroll.showIf(chosen == Page.ROUTE)
+        settingsScroll.showIf(chosen == Page.SETTINGS)
+        for (i in 0 until tabRow.childCount) {
+            tabRow.getChildAt(i).isEnabled = Page.entries[i] != chosen
+        }
+    }
 
-        PacerConfigClient.init()
-        renderRoute()
-        renderSavedRoutes()
-        updatePauseButton()
-        // Opens on the stored configuration, not on this screen's defaults: every start
-        // writes all of these keys, so touching one switch on defaults would silently
-        // restore the others.
-        PacerConfigClient.onReady { runOnUiThread { restoreFromStore() } }
+    private fun openMap() {
+        startActivity(Intent(this, MapActivity::class.java))
+    }
+
+    /** Clears the drawn route, asking first when there is more than a stray point to lose. */
+    private fun clearDraftRoute() {
+        if (draft.size < 2) {
+            draft.clear()
+            persistAndRender()
+            renderSavedRoutes()
+            return
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(strings.clearRouteTitle)
+            .setMessage(String.format(Locale.US, strings.clearRouteMessage, draft.size))
+            .setPositiveButton(strings.clear) { _, _ ->
+                draft.clear()
+                persistAndRender()
+                renderSavedRoutes()
+            }
+            .setNegativeButton(strings.cancel, null)
+            .show()
     }
 
     /** Shows what is actually configured. */
@@ -1296,7 +1383,17 @@ class MainActivity : Activity() {
             setOnClickListener { onClick() }
         }
 
+    /** Takes no room while empty; the message area is otherwise a permanent blank line. */
+    private class MessageView(context: android.content.Context) : TextView(context) {
+        override fun setText(text: CharSequence?, type: BufferType?) {
+            super.setText(text, type)
+            visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+    }
+
     private companion object {
+        const val KEY_PAGE = "pacer.page"
+
         /** Speed presets, also used to recognise the stored value when the screen opens. */
         const val WALK_SPEED = 1.4
         const val RUN_SPEED = 3.0
