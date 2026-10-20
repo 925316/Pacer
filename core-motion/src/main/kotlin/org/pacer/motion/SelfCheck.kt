@@ -34,6 +34,16 @@ class SelfCheckReport(
     val items: List<CheckItem>,
     /** Free-form notes: what could not be checked here and why. */
     val notes: List<String> = emptyList(),
+    /**
+     * What this report is and is not evidence of.
+     *
+     * Carried in the report rather than in the panel's help text because the text form
+     * is the artefact that gets pasted into a chat, detached from whatever explained it
+     * on screen. Without this line a reader sees "position: OK" and concludes the target
+     * app is being spoofed, when all it proves is what THIS process's own API calls
+     * returned.
+     */
+    val scopeNote: String = "",
 ) {
     val okCount: Int get() = items.count { it.verdict == CheckItem.Verdict.OK }
     val failCount: Int get() = items.count { it.verdict == CheckItem.Verdict.FAIL }
@@ -67,6 +77,9 @@ class SelfCheckReport(
         sb.append("process: ").append(processLabel).append('\n')
         sb.append("time: ").append(nowMs).append('\n')
         sb.append(summaryLine()).append('\n')
+        if (scopeNote.isNotEmpty()) {
+            sb.append("scope: ").append(scopeNote).append('\n')
+        }
 
         val failed = items.filter { it.isFail }
         if (failed.isNotEmpty()) {
@@ -95,8 +108,12 @@ class SelfCheckReport(
 
     companion object {
         /** Builds the report, dropping nothing: an empty list is itself a finding. */
-        fun of(processLabel: String, items: List<CheckItem>, notes: List<String> = emptyList()) =
-            SelfCheckReport(processLabel, items, notes)
+        fun of(
+            processLabel: String,
+            items: List<CheckItem>,
+            notes: List<String> = emptyList(),
+            scopeNote: String = "",
+        ) = SelfCheckReport(processLabel, items, notes, scopeNote)
     }
 }
 

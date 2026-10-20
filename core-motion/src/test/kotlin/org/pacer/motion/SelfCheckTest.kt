@@ -82,6 +82,24 @@ class SelfCheckTest {
     }
 
     @Test
+    fun `the scope note travels with the report`() {
+        // The report is pasted into a chat detached from the panel that explained it, so
+        // a reader who sees "position: OK" must also see that it only describes the app
+        // that ran the check. Without this line a PASS over-claims coverage of every
+        // target app on the device.
+        val text = SelfCheckReport.of(
+            processLabel = "app",
+            items = listOf(SelfCheck.pass("position", "21.3 m off")),
+            scopeNote = "this process only",
+        ).copyText(nowMs = 1L)
+        assertTrue(text.contains("scope: this process only"))
+
+        val withoutNote = SelfCheckReport.of("app", listOf(SelfCheck.pass("a", "ok")))
+            .copyText(nowMs = 1L)
+        assertFalse(withoutNote.contains("scope:"))
+    }
+
+    @Test
     fun `the copy text leads with failures and still lists passes`() {
         val text = SelfCheckReport.of(
             processLabel = "app",

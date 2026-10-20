@@ -1,20 +1,25 @@
 // In-process self-check.
 //
 // WHY THIS EXISTS: the only person who can run Pacer is the person holding the
-// phone, and "does the hook work" is not a question a user should have to answer by
-// reading logcat. Every probe here follows the same shape - compute what the engine
-// says the device must report, ask the device, compare.
+// phone, and "what does the device actually report" should not require reading
+// logcat. Every probe follows the same shape - compute what the engine says the
+// device must report, ask the device, compare.
 //
-// WHAT IT MUST NOT DO: read the hook's own in-memory state.
+// WHAT IT DELIBERATELY CANNOT DO: decide whether a target app is being spoofed.
 //
-// The app ships the hook code and the framework loads it again from the same APK with
-// its own class loader, so `PacerRuntimeConfig` and `HookStatus` exist twice in this
-// process: the hook writes one copy and the app reads the other. An earlier version of
-// this file compared against the app's copy, which is never written, and so reported
-// "no hook attached, config never arrived" while 149 hooks were demonstrably live. The
-// expected values therefore come from the app's own stored configuration and the same
-// pure engine the hook uses - and "is the hook working" is answered by whether the
-// platform hands back what that engine says, not by asking the hook.
+// Two earlier versions of this file were wrong in opposite directions, and both are
+// worth remembering. The first asked the hook "are you installed?" and always heard
+// no, because the app ships the hook code and the framework loads it again with its
+// own class loader - two copies of every hook object, and the app can only ever read
+// its own. The second removed that probe and started measuring the real device
+// instead, reporting "getLastKnownLocation returned null" and "wifi SSIDs missing" as
+// failures while the system-server layer was rewriting fixes correctly.
+//
+// So this app is kept OUT of the module's scope (`scope.list` does not list it). It
+// is an ordinary client, and the report is an honest statement of what an ordinary
+// client sees - which is the same path a target app takes through the system server.
+// The scope note printed on every report says so, because the report travels without
+// the screen that explained it.
 package org.pacer.app
 
 import android.Manifest
@@ -28,7 +33,6 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.LocationManager
 import android.net.wifi.WifiManager
-import android.provider.Settings
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.env.FakeRadioEnvironment
 import org.pacer.hook.hooks.system.vendor.ProcessIdentity
@@ -68,12 +72,16 @@ class SelfCheckRunner(
                 "no run is active; start one, then run the check again so the injected " +
                     "values differ from the device's own",
             )
-            return SelfCheckReport.of(processLabel(), items, notes())
+            return SelfCheckReport.of(
+                processLabel(),
+                items,
+                notes(),
+                scopeNote = SCOPE_NOTE,
+            )
         }
 
         val expected = runCatching { expectedFix() }.getOrNull()
         items += locationProbes(expected)
-        items += antiDetectionProbes()
         items += radioProbes()
         // Sensors last and only when a step run is on: the probe waits several seconds
         // for the hook's own heartbeat, which would otherwise delay every check.
@@ -83,25 +91,7 @@ class SelfCheckRunner(
             items += SelfCheck.skip("step counter", "step simulation is switched off")
         }
 
-        return SelfCheckReport.of(processLabel(), items, notes())
-    }
-
-    // ----------------------------------------------------------- anti-detection
-
-    /**
-     * The one probe that can only pass if a hook is running in this process.
-     *
-     * `Settings.Secure.mock_location` is written by the system for an app that has been
-     * granted mock-location rights, and Pacer never holds that grant. A 0 here is
-     * therefore not something the app can produce by itself: it is the module answering
-     * the settings read. This is the evidence that replaces an earlier version which
-     * asked the hook "are you installed?" and, because the app holds a second copy of
-     * the hook's classes, always heard "no".
-     */
-    private fun antiDetectionProbes(): List<CheckItem> {
-        val out = ArrayList<CheckItem>()
-        out += mockLocationSettingProbe()
-        return out
+        return SelfCheckReport.of(processLabel(), items, notes(), scopeNote = SCOPE_NOTE)
     }
 
     // ---------------------------------------------------------------- location
@@ -126,19 +116,23 @@ class SelfCheckRunner(
 
         val last = runCatching { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) }.getOrNull()
         if (last == null) {
-            out += CheckItem(
+            // Not a failure: this app is normally outside the module's scope, so nothing
+            // injected a fix and the platform has no cache to answer from. Calling that a
+            // FAIL was the mistake that made an earlier report read as "the module is
+            // broken" while the system-server layer was rewriting fixes correctly.
+            out += SelfCheck.skip(
                 "getLastKnownLocation",
-                CheckItem.Verdict.FAIL,
-                "returned null while a simulation is active; read every getLastKnownLocation " +
-                    "overload and the platform may have a stale cache to answer from",
+                "the platform had no cached fix to return. This app is outside the module's " +
+                    "scope by design, so this says nothing about whether a target app is " +
+                    "being spoofed",
             )
             return out
         }
 
+        // Reported as a measurement, not a verdict, for the same reason: in a process the
+        // module does not hook the honest answer is "here is what this process sees and
+        // how far it is from the run", and the reader decides what that means.
         out += position("getLastKnownLocation", expected, last.latitude, last.longitude)
-        // The injected Location is built by the app itself, so this is a claim the app
-        // could also have made up. The position above is not: it comes back through the
-        // platform, and a hook that is not running cannot make it match the engine.
         out += SelfCheck.flag("mock flag hidden", false, last.isFromMockProvider)
         out += SelfCheck.number(
             "speed",
@@ -161,10 +155,30 @@ class SelfCheckRunner(
             tolerance = ALTITUDE_TOLERANCE_METERS,
             unit = " m",
         )
-        // The provider name is free to check and catches a fix delivered under the
-        // wrong provider, which a caller that filters by provider would ignore.
         out += SelfCheck.text("provider", LocationManager.GPS_PROVIDER, last.provider ?: "")
         return out
+    }
+
+    private fun position(name: String, expected: Expected, lat: Double, lon: Double): CheckItem {
+        val meters = EnvGeo.metersBetween(expected.lat, expected.lon, lat, lon)
+        return if (meters <= SelfCheck.POSITION_TOLERANCE_METERS) {
+            SelfCheck.pass(name, String.format(java.util.Locale.US, "%.5f,%.5f (%.2f m off)", lat, lon, meters))
+        } else {
+            // A distance this process's fix is away from the run. Whether that means "the
+            // module is not active in this app" or "the module is broken" cannot be told
+            // from here, so the item says which numbers disagreed and leaves the verdict
+            // to the scope note at the top of the report.
+            CheckItem(
+                name,
+                CheckItem.Verdict.FAIL,
+                String.format(
+                    java.util.Locale.US,
+                    "expected %.5f,%.5f but got %.5f,%.5f - %.0f m off; this process's fix " +
+                        "does not match the run",
+                    expected.lat, expected.lon, lat, lon, meters,
+                ),
+            )
+        }
     }
 
     private fun position(name: String, expected: Expected, lat: Double, lon: Double): CheckItem {
@@ -182,21 +196,6 @@ class SelfCheckRunner(
                 ),
             )
         }
-    }
-
-    /**
-     * `Settings.Secure.ALLOW_MOCK_LOCATION` and the AppOps answer for it.
-     *
-     * A real device reports 0 for the first (it is a per-app grant) and MODE_ERRORED
-     * for the second unless the user allowed mock locations; the module answers 0 and
-     * MODE_IGNORED for the mock-location op while a run is active.
-     */
-    @SuppressLint("HardwareIds")
-    private fun mockLocationSettingProbe(): CheckItem = try {
-        val value = Settings.Secure.getInt(context.contentResolver, "mock_location", -1)
-        SelfCheck.exact("Settings.Secure mock_location", 0, value)
-    } catch (t: Throwable) {
-        SelfCheck.skip("Settings.Secure mock_location", t.javaClass.simpleName)
     }
 
     // ------------------------------------------------------------------- radio
@@ -545,6 +544,19 @@ class SelfCheckRunner(
         const val SPEED_TOLERANCE_MPS = 0.8
         const val ACCURACY_TOLERANCE_METERS = 6.0
         const val ALTITUDE_TOLERANCE_METERS = 5.0
+
+        /**
+         * Printed at the top of every report.
+         *
+         * The report is pasted into a chat without the panel around it, so the limit has
+         * to travel with it. "Position OK" here means this app's own LocationManager
+         * returned the simulated fix; whether the target app sees the same depends on the
+         * system-server layer, which is checked by opening that app and looking.
+         */
+        const val SCOPE_NOTE =
+            "this process only. A PASS proves this app's own API calls return the simulated " +
+                "values; it does not prove any other app does. To check a target app, open it " +
+                "and look at its map."
 
         /** Long enough for the hook's quiet window plus one heartbeat. */
         const val SENSOR_WAIT_SECONDS = 8L

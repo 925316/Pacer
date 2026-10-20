@@ -325,10 +325,12 @@ class MainActivity : Activity() {
         root.addView(action("Run self-check") { runSelfCheck() })
         root.addView(
             hint(
-                "Reads the location, WiFi, cell, Bluetooth and step counter back through the " +
-                    "same APIs a target app uses, and compares them with what the engine says " +
-                    "they must be. Run it while a simulation is active. Copy puts the whole " +
-                    "report on the clipboard.",
+                "Reads this app's own location, WiFi, cell, Bluetooth and step counter back " +
+                    "through the public APIs and compares them with what the engine says they " +
+                    "must be. This app is deliberately outside the module's scope, so what it " +
+                    "sees is the system-wide result, not a private copy. To check a target app, " +
+                    "open that app and look at its map. Run this while a simulation is active. " +
+                    "Copy puts the whole report on the clipboard.",
             ),
         )
         selfCheckOutput = TextView(this).apply {
