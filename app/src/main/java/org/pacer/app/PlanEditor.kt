@@ -167,15 +167,13 @@ class PlanEditor(
         expanded -> ""
         !isValid -> strings.planInvalidShort
         draft.steps.isEmpty() -> strings.planNone
-        else -> String.format(Locale.US, strings.planSummary, draft.steps.size, draft.repeats)
-    }
-
-    private fun publish() {
-        // An empty list means "no plan, steady speed", which is a state the run supports; it
-        // is not a broken plan. Only a list that exists and would not run is invalid.
-        isValid = draft.steps.isEmpty() || draft.toPlan() != null
-        onChange(if (isValid) draft.toWireFormat() else "")
-        summary.text = headerSummary()
+        else -> String.format(
+            Locale.US,
+            strings.planSummary,
+            draft.steps.size,
+            // Repeats 0 means "for the whole route", and "x0" would read as a mistake.
+            if (draft.repeats == 0) strings.planForever else draft.repeats.toString(),
+        )
     }
 
     private fun rebuild() {
@@ -243,15 +241,24 @@ class PlanEditor(
             activity.smallAction("×") {
                 draft.remove(index)
                 refresh()
-            },
+            }.apply { contentDescription = strings.planRemove },
         )
         return row
     }
 
-    /** One step of change, then redraw. Every mutation goes through here. */
+    /**
+     * One step of change, then redraw. Every mutation goes through here.
+     *
+     * Validity is computed before the views are drawn: the totals line reports it, so
+     * deciding it afterwards would show the warning one edit behind.
+     */
     private fun refresh() {
+        // An empty list means "no plan, steady speed", which is a state the run supports; it
+        // is not a broken plan. Only a list that exists and would not run is invalid.
+        isValid = draft.steps.isEmpty() || draft.toPlan() != null
         rebuild()
-        publish()
+        onChange(if (isValid) draft.toWireFormat() else "")
+        summary.text = headerSummary()
     }
 
     /** A stepper button with a screen-reader label. */
