@@ -14,3 +14,6 @@ local.yml
 # locally on purpose: a commercial build must not be redistributed from this
 # repository, and the notes are research material, not part of the distribution.
 research/
+
+# Locally downloaded CI artefacts. An APK is a build output, never a source file.
+out/
