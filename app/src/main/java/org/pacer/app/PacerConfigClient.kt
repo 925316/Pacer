@@ -93,6 +93,9 @@ object PacerConfigClient {
         pendingReady.clear()
     }
 
+    /** True once the framework has bound and the config group can be read. */
+    fun bound(): Boolean = prefs != null
+
     /** What the UI needs to show the configuration that is actually stored. */
     data class Stored(
         val active: Boolean,
@@ -254,14 +257,23 @@ object PacerConfigClient {
         return true
     }
 
-    fun stop() {
-        val p = prefs ?: return
+    /**
+     * Ends the run.
+     *
+     * @return false when the config channel is not bound, in which case NOTHING was
+     * written. A Stop that silently did nothing while the screen said "stopped" is the
+     * one failure a user cannot detect: the target app keeps moving and the only
+     * explanation is a message that was never shown.
+     */
+    fun stop(): Boolean {
+        val p = prefs ?: return false
         p.edit()
             .putBoolean("active", false)
             .putLong("speed_mps", java.lang.Double.doubleToRawLongBits(0.0))
             .putBoolean("route_paused", false)
             .apply()
         Log.i(TAG, "simulation stopped")
+        return true
     }
 
     /**

@@ -30,6 +30,10 @@ import org.pacer.motion.MotionOwner
  */
 class JoystickOverlayService : Service() {
 
+    /** The service has no activity, so it resolves the labels itself. */
+    private val strings: Strings
+        get() = stringsFor(AppSettings(this).language)
+
     private var windowManager: WindowManager? = null
     private var joystick: JoystickView? = null
     private lateinit var params: WindowManager.LayoutParams
@@ -76,7 +80,7 @@ class JoystickOverlayService : Service() {
      */
     private fun startAsForeground() {
         try {
-            val channel = NotificationChannel(CHANNEL_ID, "Simulation control", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(CHANNEL_ID, strings.simControlChannel, NotificationManager.IMPORTANCE_LOW)
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(channel)
             val open = PendingIntent.getActivity(
@@ -88,7 +92,7 @@ class JoystickOverlayService : Service() {
             val notification = Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setContentTitle("Pacer")
-                .setContentText("Speed and heading controls are on screen.")
+                .setContentText(strings.simControlText)
                 .setContentIntent(open)
                 .setOngoing(true)
                 .build()
@@ -200,12 +204,14 @@ class JoystickOverlayService : Service() {
         }
 
         /** Why the knob refused, in terms of what the user actually started. */
-        private fun lockMessage(owner: MotionOwner): String = when (owner) {
-            MotionOwner.ROUTE -> "Route run: speed and heading come from the route."
-            MotionOwner.ROUTE_PAUSED ->
-                "Route paused: the subject stands still until the route resumes."
-            MotionOwner.PLAN -> "Interval plan running: speed comes from the plan, not the knob."
-            else -> "No run to steer."
+        private fun lockMessage(owner: MotionOwner): String {
+            val s = stringsFor(AppSettings(context).language)
+            return when (owner) {
+                MotionOwner.ROUTE -> s.lockRouteOwns
+                MotionOwner.ROUTE_PAUSED -> s.lockRoutePaused
+                MotionOwner.PLAN -> s.lockPlanOwns
+                else -> s.lockNothingToSteer
+            }
         }
 
         /** The knob is drawn at its current offset, so the hit test uses that offset too. */

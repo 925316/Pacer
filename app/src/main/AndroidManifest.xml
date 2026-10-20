@@ -30,14 +30,20 @@
         android:label="Pacer"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!-- The startup screen is the launcher: it is the only place the language is
+             chosen and the only place the device is checked before a route is built. -->
         <activity
-            android:name=".MainActivity"
+            android:name=".StartupActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
 
         <service
             android:name=".JoystickOverlayService"
