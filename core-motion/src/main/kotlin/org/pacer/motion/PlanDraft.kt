@@ -95,21 +95,63 @@ class PlanDraft(
         const val MAX_DURATION_SEC = 36_000.0
         const val MAX_SPEED_MPS = 30.0
 
-        /** Presets offered as buttons, so a plan can be built without typing at all. */
+        /**
+         * Presets offered as buttons, so a plan can be built without typing at all.
+         *
+         * These describe shapes, not steady speeds: a flat pace is already chosen by the
+         * speed radios above, so repeating it here would be two controls for one decision.
+         *
+         * [humanRun] is the reason this list exists. It is what a person actually does over
+         * a few kilometres - warm up, settle, then lose pace and keep going anyway - and a
+         * flat speed with jitter added on top does not produce that. It is a hand-written
+         * approximation of the fatigue curve, which the planner cannot yet model itself.
+         */
         val PRESETS: List<Preset> = listOf(
-            Preset("Walk", listOf(SpeedPlan.Step(1.4, 1800.0)), repeats = 0),
-            Preset("Run", listOf(SpeedPlan.Step(3.0, 1800.0)), repeats = 0),
-            Preset("Ride", listOf(SpeedPlan.Step(6.0, 1800.0)), repeats = 0),
+            Preset("Human run", HUMAN_RUN, repeats = 1),
+            Preset("Official", OFFICIAL_EXAMPLE, repeats = 5),
             Preset(
-                "Run/walk intervals",
-                listOf(SpeedPlan.Step(3.0, 180.0), SpeedPlan.Step(1.4, 60.0)),
-                repeats = 5,
-            ),
-            Preset(
-                "Sprints",
-                listOf(SpeedPlan.Step(6.0, 30.0), SpeedPlan.Step(1.4, 90.0)),
+                "400m reps",
+                listOf(SpeedPlan.Step(4.5, 90.0), SpeedPlan.Step(1.6, 120.0)),
                 repeats = 8,
             ),
+            Preset(
+                "Fartlek",
+                listOf(
+                    SpeedPlan.Step(3.0, 240.0),
+                    SpeedPlan.Step(5.0, 45.0),
+                    SpeedPlan.Step(2.0, 120.0),
+                ),
+                repeats = 6,
+            ),
+            Preset(
+                "Negative",
+                listOf(
+                    SpeedPlan.Step(3.0, 600.0),
+                    SpeedPlan.Step(3.4, 600.0),
+                    SpeedPlan.Step(3.8, 600.0),
+                ),
+                repeats = 1,
+            ),
+        )
+
+        /** Warm up, settle, fade, and hold. Roughly eight kilometres of running. */
+        private val HUMAN_RUN = listOf(
+            SpeedPlan.Step(1.6, 300.0),
+            SpeedPlan.Step(2.6, 180.0),
+            SpeedPlan.Step(3.4, 600.0),
+            SpeedPlan.Step(3.2, 600.0),
+            SpeedPlan.Step(2.9, 600.0),
+            SpeedPlan.Step(2.5, 600.0),
+            SpeedPlan.Step(1.6, 300.0),
+        )
+
+        /**
+         * `3.0@180;1.4@60` repeated five times: the plan the documented syntax uses as its
+         * example, offered as a button so it can be tried without typing it.
+         */
+        private val OFFICIAL_EXAMPLE = listOf(
+            SpeedPlan.Step(3.0, 180.0),
+            SpeedPlan.Step(1.4, 60.0),
         )
     }
 

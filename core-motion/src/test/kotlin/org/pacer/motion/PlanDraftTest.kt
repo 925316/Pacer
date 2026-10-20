@@ -151,4 +151,24 @@ class PlanDraftTest {
             assertNotNull("preset '${preset.name}' must be runnable", plan)
         }
     }
+
+    @Test
+    fun `the human run preset fades instead of holding one speed`() {
+        // The whole point of shipping it: a flat pace with jitter on top is what the engine
+        // already does on its own, so a preset that repeats one speed would be redundant.
+        val human = PlanDraft.PRESETS.firstOrNull { it.name == "Human run" }
+        assertNotNull("no human run preset", human)
+        val speeds = human!!.steps.map { it.speedMps }
+        assertTrue("needs several steps", speeds.size >= 4)
+        assertTrue("must not be one repeated speed", speeds.distinct().size >= 3)
+        assertTrue("should end slower than it peaks", speeds.last() < speeds.max())
+    }
+
+    @Test
+    fun `the official example is the documented syntax`() {
+        val official = PlanDraft.PRESETS.firstOrNull { it.name == "Official" }
+        assertNotNull("no official example preset", official)
+        // `3.0@180;1.4@60#5`, the string the documentation uses.
+        assertEquals("3.0@180.0;1.4@60.0#5", official!!.intoDraft().toWireFormat())
+    }
 }

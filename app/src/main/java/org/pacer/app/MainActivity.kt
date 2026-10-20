@@ -289,7 +289,8 @@ class MainActivity : Activity() {
         }
         root.addView(speedInput)
 
-        root.addView(section(strings.intervalPlanSection))
+        // The editor draws its own heading: it is folded, and the heading doubles as the
+        // tap target that opens it.
         planEditor = PlanEditor(this, strings) { wire -> planWire = wire }
         root.addView(planEditor.view)
         loopToggle = option(
@@ -332,6 +333,12 @@ class MainActivity : Activity() {
 
         root.addView(action(strings.loadSample) { loadSampleRoute() })
         root.addView(action(strings.clearRoute) { clearDraftRoute() })
+
+        // Hand steering and recording both need a run the joystick can drive, and only a
+        // straight-line run qualifies - a route or a plan owns its own motion. So this stays
+        // reachable, but here rather than in the bottom bar: it is how you record a walk,
+        // not how you run a drawn route.
+        root.addView(action(strings.startStraight) { startStraight() })
         recordBtn = action(strings.startRecording) { toggleRecording() }
         root.addView(recordBtn)
 
@@ -1371,31 +1378,37 @@ class MainActivity : Activity() {
     // how one page ends up with a 12 sp hint and another with 13 sp.
 
     /**
-     * The always-visible run controls.
+     * The controls that start and stop a run, pinned below the pages.
      *
-     * One row rather than a button per action: Start and Stop are mutually exclusive in
-     * effect, and showing only the ones that apply removes the "button that does nothing"
-     * case. Route and straight line stay separate because they produce different runs, and
-     * a single Start would have to guess which one the user meant.
+     * One full-width button to start, then a row of secondary actions. Starting is the only
+     * thing worth a thumb-sized target; pausing and stopping are reached once and rarely, so
+     * they stay small and share a line.
      */
     private fun runBar(): LinearLayout {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 12, 32, 12)
         }
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        top.addView(
-            weightedButton(strings.startRouteShort, strings.startRoute) { startRoute() },
+        bar.addView(
+            Button(this).apply {
+                text = strings.startRouteShort
+                contentDescription = strings.startRoute
+                textSize = 18f
+                minWidth = 0
+                minimumWidth = 0
+                isAllCaps = false
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                )
+                setOnClickListener { startRoute() }
+            },
         )
-        top.addView(
-            weightedButton(strings.startStraightShort, strings.startStraight) { startStraight() },
-        )
-        bar.addView(top)
 
-        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val secondary = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         pauseBtn = weightedButton(strings.pauseRoute, strings.pauseRoute) { toggleRoutePause() }
-        bottom.addView(pauseBtn)
-        bottom.addView(
+        secondary.addView(pauseBtn)
+        secondary.addView(
             weightedButton(strings.stopShort, strings.stopSimulation) {
                 if (PacerConfigClient.stop()) {
                     setNotice(strings.statusConfigIdle)
@@ -1405,8 +1418,8 @@ class MainActivity : Activity() {
                 updatePauseButton()
             },
         )
-        bottom.addView(weightedButton(strings.joystickShort, strings.showJoystick) { showJoystick() })
-        bar.addView(bottom)
+        secondary.addView(weightedButton(strings.joystickShort, strings.showJoystick) { showJoystick() })
+        bar.addView(secondary)
         return bar
     }
 

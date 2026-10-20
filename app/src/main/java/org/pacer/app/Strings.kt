@@ -86,7 +86,6 @@ interface Strings {
 
     /** Short forms for the pinned control bar, where the full label wraps to three lines. */
     val startRouteShort: String
-    val startStraightShort: String
     val stopShort: String
     val joystickShort: String
     val preview: String
@@ -170,6 +169,9 @@ interface Strings {
     val planForever: String
     val planPresets: String
     val planInvalid: String
+    val planNone: String
+    val planSummary: String
+    val planInvalidShort: String
     val planTotals: String
     val planTotalsForever: String
 }
@@ -180,7 +182,7 @@ object EnglishStrings : Strings {
     override val tabRun = "Run"
     override val tabRoute = "Route"
     override val tabSettings = "Settings"
-    override val speed = "Speed"
+    override val speed = "Steady speed"
     override val walk = "Walk 1.4"
     override val run = "Run 3.0"
     override val ride = "Ride 6.0"
@@ -244,8 +246,7 @@ object EnglishStrings : Strings {
     override val resumeRoute = "Resume route"
     override val stopSimulation = "Stop simulation"
     override val showJoystick = "Show floating joystick"
-    override val startRouteShort = "Route"
-    override val startStraightShort = "Straight"
+    override val startRouteShort = "Run"
     override val stopShort = "Stop"
     override val joystickShort = "Joystick"
     override val preview = "Preview engine locally (no hooks)"
@@ -347,6 +348,9 @@ object EnglishStrings : Strings {
     override val planForever = "forever"
     override val planPresets = "Start from a preset"
     override val planInvalid = "This plan does not run: every step needs a speed above zero."
+    override val planNone = "steady speed"
+    override val planSummary = "%d steps x%d"
+    override val planInvalidShort = "not runnable"
     override val planTotals = "One pass %.0f s / %.0f m, total %.0f min / %.2f km"
     override val planTotalsForever = "One pass %.0f s / %.0f m, repeating for the whole route"
 }
@@ -357,7 +361,7 @@ object ChineseStrings : Strings {
     override val tabRun = "运行"
     override val tabRoute = "路线"
     override val tabSettings = "设置"
-    override val speed = "速度"
+    override val speed = "常规速度"
     override val walk = "步行 1.4"
     override val run = "跑步 3.0"
     override val ride = "骑行 6.0"
@@ -409,8 +413,7 @@ object ChineseStrings : Strings {
     override val resumeRoute = "继续路线"
     override val stopSimulation = "停止模拟"
     override val showJoystick = "显示悬浮摇杆"
-    override val startRouteShort = "路线"
-    override val startStraightShort = "直线"
+    override val startRouteShort = "运行"
     override val stopShort = "停止"
     override val joystickShort = "摇杆"
     override val preview = "本地预览引擎（不经过 hook）"
@@ -497,6 +500,9 @@ object ChineseStrings : Strings {
     override val planForever = "无限"
     override val planPresets = "从预设开始"
     override val planInvalid = "这个计划跑不了：每一步的速度都必须大于零。"
+    override val planNone = "匀速"
+    override val planSummary = "%d 步 x%d"
+    override val planInvalidShort = "跑不了"
     override val planTotals = "单轮 %.0f 秒 / %.0f 米，合计 %.0f 分钟 / %.2f 公里"
     override val planTotalsForever = "单轮 %.0f 秒 / %.0f 米，之后按整条路线无限重复"
 }

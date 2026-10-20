@@ -85,6 +85,7 @@ class StringsFormatTest {
             val templates = listOf(
                 strings.planTotals,
                 strings.planTotalsForever,
+                strings.planSummary,
                 strings.waypointSelected,
                 strings.centredOnSubject,
                 strings.movedTo,
