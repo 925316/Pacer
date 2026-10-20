@@ -21,7 +21,20 @@ object RouteReplayHooker {
      * delivery has to match: calling onLocationChanged on a Consumer (or accept on a
      * listener) silently does nothing and looks exactly like spoofing that is not working.
      */
-    private class Sink(val sink: Any, val handler: Handler?, val provider: String)
+    private class Sink(
+        val sink: Any,
+        val handler: Handler?,
+        /**
+         * The executor the caller asked deliveries to arrive on, when it supplied one.
+         *
+         * `registerLocationListener` takes an Executor instead of a Handler, and a caller
+         * that chose one has stated where its callback must run. Ignoring it and answering
+         * on the main thread is a thread-affinity violation the caller cannot detect
+         * except as a race in its own code.
+         */
+        val executor: java.util.concurrent.Executor?,
+        val provider: String,
+    )
 
     private data class PiSink(val intent: android.app.PendingIntent, val provider: String)
 
@@ -71,7 +84,7 @@ object RouteReplayHooker {
                     // Re-registering the same listener must not produce two sinks, or the
                     // app receives each fix twice.
                     sinks.removeAll { it.sink === captured }
-                    sinks.add(Sink(captured, handler, provider))
+                    sinks.add(Sink(captured, handler, null, provider))
                 }
                 if (pendingIntent != null) {
                     piSinks.add(PiSink(pendingIntent, provider))
@@ -92,6 +105,81 @@ object RouteReplayHooker {
                 if (arg is android.app.PendingIntent) piSinks.removeAll { it.intent === arg }
             }
             chain.proceed(chain.args.toTypedArray())
+        }
+
+        // registerLocationListener is the registration API an app on Android 11+ is most
+        // likely to use, and it is a DIFFERENT method from requestLocationUpdates. Missing
+        // it was the widest hole in this layer: an app that registered here reached the
+        // real provider, and no amount of correct work in requestLocationUpdates could
+        // affect it. The listener, the executor and the provider are read from the same
+        // argument list, so the delivery below matches what the caller asked for.
+        HookUtils.hookAllMethods(lm, "registerLocationListener") { chain ->
+            val provider = chain.args.firstOrNull { it is String } as? String
+                ?: LocationManager.GPS_PROVIDER
+            val listener = chain.args.firstOrNull { it != null && isLocationSink(it) }
+            if (listener == null) {
+                chain.proceed(chain.args.toTypedArray())
+            } else {
+                val executor = chain.args.firstOrNull { it is java.util.concurrent.Executor }
+                    as? java.util.concurrent.Executor
+                sinks.removeAll { it.sink === listener }
+                sinks.add(Sink(listener, null, executor, provider))
+                startTimerIfNeeded()
+                // Same reason as requestLocationUpdates: the real provider must not also
+                // answer, or the app receives our track and the device's at once.
+                null
+            }
+        }
+
+        HookUtils.hookAllMethods(lm, "unregisterLocationListener") { chain ->
+            for (arg in chain.args) {
+                if (arg != null) sinks.removeAll { it.sink === arg }
+            }
+            chain.proceed(chain.args.toTypedArray())
+        }
+
+        // The PendingIntent form of the same registration. An app that wants fixes while
+        // its own process is asleep uses this, and it was uncovered: the intent reached
+        // the real provider unfiltered.
+        HookUtils.hookAllMethods(lm, "registerLocationPendingIntent") { chain ->
+            val provider = chain.args.firstOrNull { it is String } as? String
+                ?: LocationManager.GPS_PROVIDER
+            val intent = chain.args.firstOrNull { it is android.app.PendingIntent }
+                as? android.app.PendingIntent
+            if (intent == null) {
+                chain.proceed(chain.args.toTypedArray())
+            } else {
+                piSinks.removeAll { it.intent === intent }
+                piSinks.add(PiSink(intent, provider))
+                startTimerIfNeeded()
+                null
+            }
+        }
+
+        HookUtils.hookAllMethods(lm, "unregisterLocationPendingIntent") { chain ->
+            for (arg in chain.args) {
+                if (arg is android.app.PendingIntent) piSinks.removeAll { it.intent === arg }
+            }
+            chain.proceed(chain.args.toTypedArray())
+        }
+
+        // getLastKnownLocation is a cache read, and an app that asks for a cached fix
+        // before starting a stream would otherwise get either the device's own position or
+        // null. Answering it with the simulated fix makes the first frame consistent with
+        // everything that follows, instead of showing the real place and jumping a second
+        // later.
+        HookUtils.hookAllMethods(lm, "getLastKnownLocation") { chain ->
+            val cfg = PacerRuntimeConfig.snapshot()
+            val provider = chain.args.firstOrNull { it is String } as? String
+            if (cfg.active && provider != null) {
+                LocationInjector.buildLocation(
+                    provider,
+                    cfg,
+                    SystemClock.elapsedRealtimeNanos(),
+                )
+            } else {
+                chain.proceed(chain.args.toTypedArray())
+            }
         }
 
         // getCurrentLocation is a one-shot: the platform will answer with a cached or
@@ -189,14 +277,20 @@ object RouteReplayHooker {
         val loc = fakeIfActive(LocationManager.GPS_PROVIDER) ?: return
         for (sink in sinks.toList()) {
             try {
-                (sink.handler ?: Handler(Looper.getMainLooper())).post {
+                val deliver = Runnable {
                     try {
                         // The registration may have been removed between the snapshot and
-                        // this post; delivering then would be a callback after removeUpdates.
-                        if (!sinks.contains(sink)) return@post
-                        invokeAccept(sink.sink, Location(loc))
+                        // this post; delivering then would be a callback after
+                        // unregisterLocationListener.
+                        if (sinks.contains(sink)) invokeAccept(sink.sink, Location(loc))
                     } catch (_: Throwable) {
                     }
+                }
+                // The caller's executor wins, then its handler, then the main thread: the
+                // delivery has to land where the caller asked, in that order.
+                when {
+                    sink.executor != null -> sink.executor.execute(deliver)
+                    else -> (sink.handler ?: Handler(Looper.getMainLooper())).post(deliver)
                 }
             } catch (_: Throwable) {
             }

@@ -53,6 +53,160 @@ object SystemLocationServiceHooker {
         PacerLog.i("system location hooks installed (targets=$hooked)")
     }
 
+    // --- registration and one-shot APIs --------------------------------------
+
+    /**
+     * The names a registration or one-shot call uses to hand over its callback.
+     *
+     * Guessing the framework's INTERNAL transport classes is fragile: they are renamed
+     * between releases and differ on OEM ROMs, and a wrong guess hooks nothing while
+     * still counting as "installed". The callback object, by contrast, is supplied by the
+     * caller and is the same object for the whole registration, so hooking its delivery
+     * method works whatever the framework does in between.
+     */
+    private val callbackMethods = arrayOf(
+        "onLocation",
+        "onLocationChanged",
+        "acceptLocationChange",
+        "deliverOnLocationChanged",
+    )
+
+    /** Registration entry points, on both the service and the per-provider manager. */
+    private val registrationMethods = arrayOf(
+        "registerLocationListener",
+        "registerLocationRequest",
+        "registerLocationPendingIntent",
+        "requestLocationUpdates",
+        "registerLocationUpdates",
+    )
+
+    /** Classes whose callback method is already intercepted; one hook per class. */
+    private val hookedCallbackClasses: MutableSet<Class<*>> =
+        java.util.Collections.newSetFromMap(java.util.WeakHashMap<Class<*>, Boolean>())
+
+    /**
+     * Hooks the delivery method of the caller's own callback object.
+     *
+     * Returns the number of methods intercepted, so the install report can distinguish
+     * "this framework shape has no such callback" from "the callback arrived and was
+     * rewritten".
+     */
+    private fun hookCallbackSink(callback: Any?): Int {
+        if (callback == null) return 0
+        val clazz = callback.javaClass
+        if (!hookedCallbackClasses.add(clazz)) return 0
+        var n = 0
+        for (method in callbackMethods) {
+            n += HookUtils.hookAllMethods(clazz, method) { chain ->
+                try {
+                    if (PacerRuntimeConfig.snapshot().active) rewriteArgs(chain.args)
+                } catch (t: Throwable) {
+                    PacerLog.w("system-location", t)
+                }
+                chain.proceed(chain.args.toTypedArray())
+            }
+        }
+        return n
+    }
+
+    /** The argument that looks like a per-request callback, or null. */
+    private fun callbackArg(args: List<Any?>): Any? = args.firstOrNull { arg ->
+        if (arg == null) return@firstOrNull false
+        val name = arg.javaClass.name
+        // A binder stub for the client is the usual shape; a plain listener or consumer
+        // object is the other. Both are "the thing the answer is delivered to".
+        name.contains("ILocationCallback") ||
+            name.contains("ILocationListener") ||
+            name.contains("LocationResult") ||
+            HookUtils.hasTypeByName(arg.javaClass, "java.util.function.Consumer") ||
+            HookUtils.hasTypeByName(arg.javaClass, "android.location.LocationListener")
+    }
+
+    /**
+     * Covers the one-shot APIs, which answer through a callback rather than a return
+     * value.
+     *
+     * `getCurrentLocation` is what a modern map app uses for its first fix, and it was
+     * the largest uncovered path in this layer: the provider funnel below never sees it,
+     * because a one-shot result is not a provider report.
+     */
+    private fun hookOneShot(clazz: Class<*>): Int {
+        var n = 0
+        for (method in arrayOf("getCurrentLocation", "getLastLocation", "getLastLocationUnsafe")) {
+            n += HookUtils.hookAllMethods(clazz, method) { chain ->
+                // A synchronous overload returns the fix; rewrite that value. An
+                // asynchronous one returns null and answers through a callback, so the
+                // callback is intercepted as well. Both are handled here because the same
+                // method name exists in both shapes across releases.
+                var result: Any? = null
+                try {
+                    result = chain.proceed(chain.args.toTypedArray())
+                    if (result != null && isType(result, "android.location.Location")) {
+                        rewriteLocation(result)
+                    }
+                } catch (t: Throwable) {
+                    PacerLog.w("system-location", t)
+                }
+                try {
+                    if (PacerRuntimeConfig.snapshot().active) {
+                        hookCallbackSink(callbackArg(chain.args))
+                    }
+                } catch (t: Throwable) {
+                    PacerLog.w("system-location", t)
+                }
+                result
+            }
+        }
+        return n
+    }
+
+    /**
+     * Covers the registration APIs: the caller's listener is captured and its delivery
+     * method intercepted, so the fix is corrected at hand-off.
+     */
+    private fun hookRegistrations(clazz: Class<*>): Int {
+        var n = 0
+        for (method in registrationMethods) {
+            n += HookUtils.hookAllMethods(clazz, method) { chain ->
+                try {
+                    if (PacerRuntimeConfig.snapshot().active) {
+                        val listener = chain.args.firstOrNull { arg ->
+                            if (arg == null) return@firstOrNull false
+                            HookUtils.hasTypeByName(arg.javaClass, "android.location.LocationListener") ||
+                                arg.javaClass.name.contains("ILocationListener") ||
+                                arg.javaClass.name.contains("ILocationCallback") ||
+                                HookUtils.hasTypeByName(arg.javaClass, "java.util.function.Consumer")
+                        }
+                        hookCallbackSink(listener)
+                    }
+                } catch (t: Throwable) {
+                    PacerLog.w("system-location", t)
+                }
+                chain.proceed(chain.args.toTypedArray())
+            }
+        }
+        return n
+    }
+
+    /**
+     * Reports every provider as enabled while a simulation runs.
+     *
+     * An app that checks `isProviderEnabled("gps")` before registering and finds it false
+     * never registers at all, so nothing downstream can help it. Reporting true is the
+     * honest answer here: the simulation does provide fixes on those providers.
+     */
+    private fun hookProviderEnabled(clazz: Class<*>): Int {
+        var n = 0
+        for (method in arrayOf("isProviderEnabled", "isProviderEnabledForUser")) {
+            n += HookUtils.hookAllMethods(clazz, method) { chain ->
+                if (PacerRuntimeConfig.snapshot().active) true
+                else chain.proceed(chain.args.toTypedArray())
+            }
+        }
+        return n
+    }
+
+
     // --- LocationProviderManager --------------------------------------------
 
     private fun hookProviderManager(clazz: Class<*>): Int {
@@ -76,8 +230,9 @@ object SystemLocationServiceHooker {
             }
             chain.proceed(chain.args.toTypedArray())
         }
-        n += hookGetter(clazz, "getLastLocation")
-        n += hookGetter(clazz, "getLastLocationUnsafe")
+        n += hookOneShot(clazz)
+        n += hookRegistrations(clazz)
+        n += hookProviderEnabled(clazz)
         return n
     }
 
@@ -98,7 +253,9 @@ object SystemLocationServiceHooker {
             }
             chain.proceed(chain.args.toTypedArray())
         }
-        n += hookGetter(clazz, "getLastLocation")
+        n += hookOneShot(clazz)
+        n += hookRegistrations(clazz)
+        n += hookProviderEnabled(clazz)
         // callerIsMock decides whether a reported location is flagged as mock.
         // Reporting "not mock" keeps the flag off the cached fix; only a real
         // boolean method is intercepted.
@@ -130,20 +287,6 @@ object SystemLocationServiceHooker {
     }
 
     // --- shared rewriting ----------------------------------------------------
-
-    /** Rewrites the result of a synchronous getter in place when it is a fix. */
-    private fun hookGetter(clazz: Class<*>, method: String): Int =
-        HookUtils.hookAllMethods(clazz, method) { chain ->
-            val result = chain.proceed(chain.args.toTypedArray())
-            try {
-                if (PacerRuntimeConfig.snapshot().active && result != null) {
-                    rewriteArgs(listOf(result))
-                }
-            } catch (t: Throwable) {
-                PacerLog.w("system-location", t)
-            }
-            result
-        }
 
     /** Walks an argument list and rewrites every Location / LocationResult found. */
     private fun rewriteArgs(args: List<Any?>) {
