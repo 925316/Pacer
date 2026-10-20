@@ -53,22 +53,33 @@ object RouteReplayHooker {
                 if (arg is android.app.PendingIntent) pendingIntent = arg
                 if (arg != null && isLocationSink(arg)) captured = arg
             }
-            if (PacerRuntimeConfig.snapshot().active && (captured != null || pendingIntent != null)) {
+            if (captured != null || pendingIntent != null) {
                 if (captured != null) {
+                    // Captured unconditionally, NOT only while a run is active. A target
+                    // app registers its listener once, usually long before the user taps
+                    // start, so a capture guarded by `active` records nothing and the
+                    // timer then has no sink to push to - which looks exactly like
+                    // spoofing that does not work. The active check belongs in the
+                    // delivery path (fakeIfActive), where it is evaluated per tick.
+                    //
                     // No synchronous first fix and no onProviderEnabled() here. The real
                     // manager delivers nothing inside the registration call, and it only
                     // reports a provider-state change when the state changes. A caller
                     // that registers and immediately removes again must receive nothing -
                     // otherwise one deliberately minimal pair of calls proves the caller
                     // is not talking to the platform.
+                    // Re-registering the same listener must not produce two sinks, or the
+                    // app receives each fix twice.
+                    sinks.removeAll { it.sink === captured }
                     sinks.add(Sink(captured, handler, provider))
                 }
                 if (pendingIntent != null) {
                     piSinks.add(PiSink(pendingIntent, provider))
                 }
                 startTimerIfNeeded()
-                // The platform must not also register this: a second, real delivery path
-                // would race the timer and hand the app two contradictory fixes.
+                // Skip the real registration for this caller. Without this the platform
+                // also delivers real fixes, and the app sees two contradictory streams:
+                // the timer's simulated one and the device's own.
                 return@hookAllMethods null
             }
             chain.proceed(chain.args.toTypedArray())

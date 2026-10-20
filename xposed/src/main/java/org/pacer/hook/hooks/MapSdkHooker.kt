@@ -283,7 +283,8 @@ object MapSdkHooker {
         blankStrings(locClass, amapTextGetters)
     }
 
-    private fun hookQualityReport(classLoader: ClassLoader) {        val reportClass =
+    private fun hookQualityReport(classLoader: ClassLoader) {
+        val reportClass =
             HookUtils.findClassIfExists("com.amap.api.location.AMapLocationQualityReport", classLoader) ?: return
         HookUtils.hookAllMethods(reportClass, "isInstalledHighDangerMockApp") { chain ->
             if (PacerRuntimeConfig.snapshot().active) false
