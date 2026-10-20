@@ -5,7 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.graphics.Color
 import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
@@ -34,6 +36,7 @@ import org.pacer.motion.SpeedPlan
 import org.pacer.motion.TrackAudit
 import java.util.Locale
 import kotlin.concurrent.thread
+import kotlin.math.roundToInt
 
 /**
  * The three pages: what a run is, what it runs along, and how it is reported.
@@ -441,35 +444,59 @@ class MainActivity : Activity() {
         ScrollView(this).apply { addView(content) }
 
     /**
-     * The three pages, as one row.
+     * The three pages as a tab strip, not as three buttons.
      *
-     * Everything is built up front and swapped, so a page keeps its state and switching
-     * costs a visibility change rather than a rebuild.
+     * A button reads as "do something"; a tab reads as "go somewhere", and the underline is
+     * what says where you are. Disabling the current page's button would make the selected
+     * tab look broken rather than selected.
      */
     private fun tabBar(): LinearLayout {
         tabRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for (candidate in Page.entries) {
+            val label = TextView(this).apply {
+                text = when (candidate) {
+                    Page.RUN -> strings.tabRun
+                    Page.ROUTE -> strings.tabRoute
+                    Page.SETTINGS -> strings.tabSettings
+                }
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(12), 0, dp(8))
+            }
+            val underline = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(2),
+                )
+            }
             tabRow.addView(
-                Button(this).apply {
-                    text = when (candidate) {
-                        Page.RUN -> strings.tabRun
-                        Page.ROUTE -> strings.tabRoute
-                        Page.SETTINGS -> strings.tabSettings
-                    }
-                    textSize = 13f
-                    minWidth = 0
-                    minimumWidth = 0
-                    setPadding(8, 8, 8, 8)
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(
                         0,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         1f,
                     )
+                    isClickable = true
                     setOnClickListener { selectPage(candidate) }
+                    addView(label)
+                    addView(underline)
                 },
             )
         }
-        return tabRow
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(
+                View(this@MainActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(1),
+                    )
+                    setBackgroundColor(TAB_DIVIDER)
+                },
+            )
+            addView(tabRow)
+        }
     }
 
     private fun selectPage(chosen: Page) {
@@ -478,9 +505,14 @@ class MainActivity : Activity() {
         routeScroll.showIf(chosen == Page.ROUTE)
         settingsScroll.showIf(chosen == Page.SETTINGS)
         for (i in 0 until tabRow.childCount) {
-            tabRow.getChildAt(i).isEnabled = Page.entries[i] != chosen
+            val tab = tabRow.getChildAt(i) as? LinearLayout ?: continue
+            val active = Page.entries.getOrNull(i) == chosen
+            (tab.getChildAt(0) as? TextView)?.setTextColor(if (active) TAB_ACTIVE else TAB_INACTIVE)
+            tab.getChildAt(1)?.setBackgroundColor(if (active) TAB_ACTIVE else Color.TRANSPARENT)
         }
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     private fun openMap() {
         startActivity(Intent(this, MapActivity::class.java))
@@ -1393,6 +1425,11 @@ class MainActivity : Activity() {
 
     private companion object {
         const val KEY_PAGE = "pacer.page"
+
+        /** Tab strip colours: the selected page is marked by an underline, not by colour alone. */
+        val TAB_ACTIVE = 0xFF1A73E8.toInt()
+        val TAB_INACTIVE = 0xFF5F6368.toInt()
+        val TAB_DIVIDER = 0x14000000
 
         /** Speed presets, also used to recognise the stored value when the screen opens. */
         const val WALK_SPEED = 1.4
