@@ -79,6 +79,9 @@ class MainActivity : Activity() {
     private lateinit var previewBtn: Button
     private lateinit var auditBtn: Button
 
+    /** The self-check report as text; selectable, so an unselectable report is impossible. */
+    private lateinit var selfCheckOutput: TextView
+
     /** Pauses or resumes a route run; hidden whenever neither action applies. */
     private lateinit var pauseBtn: Button
 
@@ -228,6 +231,27 @@ class MainActivity : Activity() {
 
         auditBtn = action("Audit this track (server-side heuristics)") { auditRoute() }
         root.addView(auditBtn)
+
+        // --- diagnostics ------------------------------------------------------
+        // Plain text in a plain box. The sheet is for reading and for pasting into a
+        // chat, not for looking at, so there is no styling to keep in step with the
+        // rest of the page.
+        root.addView(section("Self-check"))
+        root.addView(action("Run self-check") { runSelfCheck() })
+        root.addView(
+            hint(
+                "Reads the location, WiFi, cell, Bluetooth and step counter back through the " +
+                    "same APIs a target app uses, and compares them with what the engine says " +
+                    "they must be. Run it while a simulation is active. Copy puts the whole " +
+                    "report on the clipboard.",
+            ),
+        )
+        selfCheckOutput = TextView(this).apply {
+            textSize = 13f
+            setTextIsSelectable(true)
+            setPadding(0, 8, 0, 0)
+        }
+        root.addView(selfCheckOutput)
 
         output = TextView(this).apply {
             text = "Tip: add the target app to the module scope in LSPosed."
@@ -638,8 +662,39 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Mean distance between two runs' positions at the same sample index. */
-    private fun meanDisplacementMeters(a: List<FixSample>, b: List<FixSample>): Double {
+    /**
+     * Runs the in-process self-check and shows the report.
+     *
+     * Off the main thread because one probe waits for a sensor heartbeat and the
+     * clipboard call is cheap but the report is long. The result is shown verbatim: the
+     * panel's job is to be pasted into a chat when something is wrong, so it must not
+     * be summarised away here.
+     */
+    private fun runSelfCheck() {
+        selfCheckOutput.text = "Checking..."
+        val stored = PacerConfigClient.stored()
+        thread {
+            val report = try {
+                SelfCheckRunner(this@MainActivity, stored).run()
+            } catch (t: Throwable) {
+                // The runner guards each probe, so this is a bug in the runner itself;
+                // say so rather than showing an empty report that reads like a pass.
+                selfCheckOutput.post {
+                    selfCheckOutput.text = "Self-check crashed: ${t.javaClass.simpleName}: ${t.message}"
+                }
+                return@thread
+            }
+            val text = report.copyText()
+            runOnUiThread {
+                selfCheckOutput.text = text
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Pacer self-check", text))
+                output.text = "Self-check: ${report.summaryLine()} (report copied to the clipboard)"
+            }
+        }
+    }
+
+    /** Mean distance between two runs' positions at the same sample index. */    private fun meanDisplacementMeters(a: List<FixSample>, b: List<FixSample>): Double {
         val n = minOf(a.size, b.size)
         if (n == 0) return 0.0
         var total = 0.0
