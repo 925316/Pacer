@@ -4,20 +4,14 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.InputType
 import android.view.View
 import android.widget.Button
-import android.widget.CheckBox
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionOwner
-import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
-import org.pacer.motion.RouteJson
-import org.pacer.motion.RoutePath
 import java.util.Locale
 
 /**
@@ -38,8 +32,6 @@ class MapActivity : Activity() {
     private lateinit var strings: Strings
 
     private lateinit var info: TextView
-    private lateinit var speedField: EditText
-    private lateinit var loopCheck: CheckBox
     private lateinit var mapHolder: LinearLayout
     private lateinit var styleRow: LinearLayout
     private lateinit var layerRow: LinearLayout
@@ -48,15 +40,8 @@ class MapActivity : Activity() {
     private var layer: MapLayer = MapLayer.ROAD
     private var map: TileMapView? = null
 
-    /** startedAtMs of the run whose speed/loop fields this page last adopted. */
-    private var lastSyncedStartedAt = Long.MIN_VALUE
-
     /** Enabled only while a waypoint is selected. */
     private lateinit var removeButton: Button
-
-    /** Pauses or resumes a route run; its label follows the stored state. */
-    private lateinit var pauseButton: Button
-    private lateinit var pauseRow: LinearLayout
 
     /**
      * The waypoint last tapped, or -1.
@@ -97,9 +82,6 @@ class MapActivity : Activity() {
                 // stopped from the other page, and a line that kept saying "Running"
                 // would be the very kind of stale status this page exists to avoid.
                 updateInfo()
-                // A pause can be toggled from this page or from the other one; the
-                // control has to follow the state rather than the last tap.
-                updatePauseControl()
             } catch (_: Throwable) {
             } finally {
                 if (polling) handler.postDelayed(this, LIVE_POLL_MS)
@@ -184,37 +166,12 @@ class MapActivity : Activity() {
         }
         column.addView(mapHolder)
 
-        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        controls.addView(button(strings.start) { startSimulation() })
-        controls.addView(button(strings.stop) {
-            if (PacerConfigClient.stop()) {
-                setNotice(strings.statusConfigIdle)
-            } else {
-                setNotice(PacerConfigClient.NOT_READY_MESSAGE)
-            }
-            updatePauseControl()
-            updateLivePosition()
-        })
-        controls.addView(TextView(this).apply { text = " ${strings.speedMpsLabel} "; textSize = 13f })
-        speedField = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText("3.0")
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        controls.addView(speedField)
-        loopCheck = CheckBox(this).apply { text = strings.loopShort }
-        controls.addView(loopCheck)
-        column.addView(controls)
-
-        // Pause is a second row because it is a different kind of action: it holds the run
-        // where it is, while Start replaces it and Stop ends it.
-        pauseRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        pauseButton = button(strings.pauseRoute) { toggleRoutePause() }
-        pauseRow.addView(pauseButton)
-        column.addView(pauseRow)
-
-        // The map keeps its weight because the page is a column, not a scroll view: controls
-        // that scrolled away would leave a map whose height changed while it was being used.
+        // NO START, STOP, PAUSE, SPEED OR LOOP HERE.
+        //
+        // This page places points; the control page starts the run. Both used to offer the
+        // same actions, which meant the same run could be started from two places and the
+        // speed shown here could disagree with the speed actually used. One action, one
+        // home is the rule this page now follows.
         setContentView(column)
 
         buildStyleRow()
@@ -227,25 +184,7 @@ class MapActivity : Activity() {
         if (draft.size >= 2) {
             mapHolder.post { if (!isFinishing && !isDestroyed) fitRoute() }
         }
-        // The controls open on the stored run, for the same reason the other screen does: a
-        // screen that opens on its own defaults silently rewrites the user's settings the
-        // next time it starts something.
-        PacerConfigClient.onReady {
-            runOnUiThread {
-                syncRunFields()
-                updatePauseControl()
-            }
-        }
-    }
-
-    /** The run settings this page shares with the main screen. */
-    private fun syncRunFields() {
-        val stored = PacerConfigClient.stored() ?: return
-        lastSyncedStartedAt = stored.startedAtMs
-        if (stored.speed > 0.0) {
-            speedField.setText(String.format(Locale.US, "%.1f", stored.speed))
-        }
-        loopCheck.isChecked = stored.loopRoute
+        PacerConfigClient.onReady { runOnUiThread { updateInfo() } }
     }
 
     /**
@@ -384,12 +323,6 @@ class MapActivity : Activity() {
         // other screen removed or reordered one; a stale Remove button would delete the
         // wrong waypoint.
         clearSelection()
-        // Another screen may have started a run with different speed/loop settings. Only a
-        // NEW run is adopted, so a value being typed here is not wiped by a permission
-        // dialog pausing and resuming the page.
-        val stored = PacerConfigClient.stored()
-        if (stored != null && stored.startedAtMs != lastSyncedStartedAt) syncRunFields()
-        updatePauseControl()
         render()
         // The marker is only worth computing while this page is in front of the user; a
         // tick left running behind another screen burns a full run's rebuild for nothing.
@@ -474,52 +407,6 @@ class MapActivity : Activity() {
         editDraft { draft.removeAt(index) }
     }
 
-    /**
-     * Freezes the running route where it stands, or lets it continue.
-     *
-     * A clock operation, not a position write: the module keeps reading the same run and
-     * stops advancing it, so position, steps, distance and lap stay consistent.
-     */
-    private fun toggleRoutePause() {
-        val owner = PacerConfigClient.owner()
-        val pause = owner.canPauseRoute
-        if (!pause && !owner.canResumeRoute) {
-            setNotice(strings.onlyRunningRouteCanPause)
-            updatePauseControl()
-            return
-        }
-        if (!PacerConfigClient.setRoutePaused(pause)) {
-            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
-            return
-        }
-        setNotice(
-            if (pause) {
-                strings.routePausedWhereItStands
-            } else {
-                strings.routeResumedFromPoint
-            },
-        )
-        updatePauseControl()
-        updateLivePosition()
-    }
-
-    /**
-     * Shows the pause control only when it can do something.
-     *
-     * An always-present but usually inert button makes the user tap it to find out whether
-     * the run is a route.
-     */
-    private fun updatePauseControl() {
-        if (!::pauseButton.isInitialized) return
-        val owner = PacerConfigClient.owner()
-        pauseRow.visibility = if (owner.canPauseRoute || owner.canResumeRoute) {
-            android.view.View.VISIBLE
-        } else {
-            android.view.View.GONE
-        }
-        pauseButton.text = if (owner.canResumeRoute) strings.resumeRoute else strings.pauseRoute
-    }
-
     // ---------------------------------------------------------------------
     // Map commands
     // ---------------------------------------------------------------------
@@ -576,70 +463,6 @@ class MapActivity : Activity() {
             }
             else -> setNotice(strings.longPressIdle)
         }
-    }
-
-    // ---------------------------------------------------------------------
-    // Simulation
-    // ---------------------------------------------------------------------
-
-    private fun startSimulation(confirmed: Boolean = false) {
-        if (!confirmed && PacerConfigClient.owner() != MotionOwner.NONE) {
-            android.app.AlertDialog.Builder(this)
-                .setTitle(strings.replaceRunTitle)
-                .setMessage(strings.replaceRunMessage)
-                .setPositiveButton(strings.replaceRunConfirm) { _, _ -> startSimulation(true) }
-                .setNegativeButton(strings.cancel, null)
-                .show()
-            return
-        }
-        if (!draft.isValid) {
-            setNotice(strings.needTwoWaypoints)
-            return
-        }
-        val geometry = store.geometry(draft)
-        val route = RoutePath(geometry)
-        val speed = speedField.text.toString().toDoubleOrNull()?.coerceIn(0.1, 30.0) ?: 3.0
-        // Everything not owned by this screen comes from the stored configuration, so
-        // starting here does not reset the other screen's switches or interval plan.
-        val stored = PacerConfigClient.stored()
-        val started = PacerConfigClient.start(
-            lat = route.points.first().lat,
-            lon = route.points.first().lon,
-            speed = speed,
-            bearing = 0f,
-            accuracy = stored?.accuracy ?: 5f,
-            altitudeMeters = stored?.altitude ?: 0.0,
-            routeJson = RouteJson.encode(geometry),
-            plan = stored?.plan ?: "",
-            loopRoute = loopCheck.isChecked,
-            mockBluetooth = stored?.mockBluetooth ?: true,
-            stepSimulation = stored?.stepSimulation ?: true,
-            realism = stored?.realism ?: RealismToggles(),
-        )
-        if (!started) {
-            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
-            return
-        }
-        val speedFromPlan = !stored?.plan.isNullOrBlank()
-        setNotice(
-            if (speedFromPlan) {
-                String.format(
-                    Locale.US,
-                    strings.simulatingWithPlan,
-                    draft.size,
-                    if (loopCheck.isChecked) strings.repeatingSuffix else "",
-                )
-            } else {
-                String.format(
-                    Locale.US,
-                    strings.simulatingAtSpeed,
-                    draft.size,
-                    speed,
-                    if (loopCheck.isChecked) strings.repeatingSuffix else "",
-                )
-            },
-        )
-        updateLivePosition()
     }
 
     // ---------------------------------------------------------------------

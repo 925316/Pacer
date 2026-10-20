@@ -94,7 +94,6 @@ class MainActivity : Activity() {
     private lateinit var signalDropoutToggle: CheckBox
 
     private lateinit var routeSummary: TextView
-    private lateinit var waypointBox: LinearLayout
 
     /** One row per saved route: name, length, and the three actions on it. */
     private lateinit var savedRouteBox: LinearLayout
@@ -227,11 +226,14 @@ class MainActivity : Activity() {
             startActivity(Intent(this, MapActivity::class.java))
         })
 
-        routeSummary = TextView(this).apply { textSize = 15f; setPadding(0, 16, 0, 8) }
+        routeSummary = TextView(this).apply {
+            textSize = 15f
+            setPadding(0, 16, 0, 8)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, MapActivity::class.java))
+            }
+        }
         root.addView(routeSummary)
-
-        waypointBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(waypointBox)
 
         root.addView(action(strings.loadSample) { loadSampleRoute() })
         root.addView(action(strings.clearRoute) {
@@ -771,6 +773,14 @@ class MainActivity : Activity() {
             .show()
     }
 
+    /**
+     * The route in one line.
+     *
+     * The per-point rows that used to live here are gone: the points are placed, dragged and
+     * removed on the map, and a second list that also edits them is exactly the duplication
+     * this screen is being cleared of. What is left is the one thing the map cannot say at a
+     * glance - how long the route is.
+     */
     private fun renderRoute() {
         routeSummary.text = String.format(
             Locale.US,
@@ -779,21 +789,6 @@ class MainActivity : Activity() {
             draft.totalLengthMeters(),
             if (draft.isValid) "" else "   (need two distinct points to run a route)",
         )
-
-        waypointBox.removeAllViews()
-        draft.points.forEachIndexed { index, point ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val label = TextView(this).apply {
-                text = String.format(Locale.US, "%d.  %.5f, %.5f", index + 1, point.lat, point.lon)
-                textSize = 14f
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            row.addView(label)
-            row.addView(smallAction("^") { if (draft.moveUp(index)) persistAndRender() })
-            row.addView(smallAction("v") { if (draft.moveDown(index)) persistAndRender() })
-            row.addView(smallAction("x") { draft.removeAt(index); persistAndRender() })
-            waypointBox.addView(row)
-        }
     }
 
     // ---------------------------------------------------------------------
