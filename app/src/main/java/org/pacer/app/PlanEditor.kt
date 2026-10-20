@@ -191,13 +191,18 @@ class PlanEditor(
         }
         repeatRow.findViewWithTag<TextView>(REPEAT_LABEL)?.text =
             if (draft.repeats == 0) strings.planForever else draft.repeats.toString()
+        // Repeats and totals only describe a plan that exists. With no steps they would read
+        // "1 x 0 s / 0 m", which looks like a plan that runs nowhere rather than no plan.
+        val hasPlan = draft.steps.isNotEmpty()
+        repeatRow.visibility = if (hasPlan) View.VISIBLE else View.GONE
         totals.text = buildString {
-            append(totalsText())
+            if (hasPlan) append(totalsText())
             if (!isValid) {
-                append('\n')
+                if (hasPlan) append('\n')
                 append(strings.planInvalid)
             }
         }
+        totals.visibility = if (hasPlan || !isValid) View.VISIBLE else View.GONE
     }
 
     /**

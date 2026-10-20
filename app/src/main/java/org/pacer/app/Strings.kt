@@ -182,7 +182,7 @@ interface Strings {
 /** The English strings; also the fallback for a language that has not been written yet. */
 object EnglishStrings : Strings {
     override val appTagline = "Simulate movement for testing."
-    override val tabRun = "Run"
+    override val tabRun = "Simulate"
     override val tabRoute = "Route"
     override val tabSettings = "Settings"
     override val speed = "Steady speed"
@@ -204,7 +204,7 @@ object EnglishStrings : Strings {
     override val stopRecording = "Stop recording"
     override val savedRoutes = "Saved routes"
     override val saveRoute = "Save current route as..."
-    override val simulation = "Simulation"
+    override val simulation = "Reported position"
     override val accuracy = "Steady accuracy (m)"
     override val altitude = "Start altitude (m)"
     override val bearing = "Straight-line bearing (deg, 0 = north)"
@@ -368,7 +368,7 @@ object EnglishStrings : Strings {
 /** The Chinese strings. */
 object ChineseStrings : Strings {
     override val appTagline = "用于测试的运动模拟。"
-    override val tabRun = "运行"
+    override val tabRun = "模拟"
     override val tabRoute = "路线"
     override val tabSettings = "设置"
     override val speed = "常规速度"
@@ -389,7 +389,7 @@ object ChineseStrings : Strings {
     override val stopRecording = "停止录制"
     override val savedRoutes = "已保存路线"
     override val saveRoute = "将当前路线另存为..."
-    override val simulation = "模拟"
+    override val simulation = "上报的位置参数"
     override val accuracy = "稳定精度（米）"
     override val altitude = "起始海拔（米）"
     override val bearing = "直线方位角（度，0 = 正北）"
