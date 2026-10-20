@@ -38,14 +38,11 @@ import kotlin.concurrent.thread
  * Control surface for everything that is not the map: speed, the signal switches, and the
  * two ways to start a run.
  *
- * THE ROUTE IS BUILT ON THE MAP, NOT HERE. There is no coordinate field, no paste parser and
- * no place search: an API key, an account and a geocoding service are all things this app
- * deliberately does not have, and typing a coordinate is not how a route is chosen anyway.
- * The map page is where a route is drawn, by panning to a place and tapping it; this screen
- * lists what was drawn so it can be reordered or removed, and starts the run.
+ * The route is drawn on the map, not here: there is no coordinate field and no place search,
+ * both of which would need a key or an account.
  *
- * Plain framework views on purpose: the engine is pure Kotlin, and the only thing that needs
- * a canvas is the map.
+ * Plain framework views on purpose: the engine is pure Kotlin, and only the map needs a
+ * canvas.
  */
 class MainActivity : Activity() {
 
@@ -64,11 +61,9 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
 
     /**
-     * The last failure or consequence, shown above the status line.
+     * The last failure or consequence, above the status line.
      *
-     * A failure used to be written to [output] at the bottom of a long scroll view with
-     * nothing scrolling to it, so "Start did nothing" was indistinguishable from "Start
-     * rejected this route". Held here so the status tick cannot overwrite it.
+     * Held here so the per-second status refresh cannot overwrite it.
      */
     private var notice: String? = null
 
@@ -100,15 +95,12 @@ class MainActivity : Activity() {
     /** One row per saved route: name, length, and the three actions on it. */
     private lateinit var savedRouteBox: LinearLayout
 
-    /** The saved route currently loaded, so saving again replaces it instead of forking. */
     /**
      * The saved route whose geometry matches the draft exactly, if any.
      *
-     * Derived from the content rather than from a "loaded this id" flag. Every edit path
-     * - tapping the map, undoing, recording, clearing, reloading a draft from the store -
-     * would otherwise have to remember to reset that flag, and one missed reset makes the
-     * next save silently overwrite an unrelated route. Comparing the points has no such
-     * failure mode: the draft is the saved route exactly when it is the same geometry.
+     * Derived from the content rather than a "loaded this id" flag: every edit path would
+     * otherwise have to reset it, and one missed reset makes the next save overwrite an
+     * unrelated route.
      */
     private fun currentSavedRouteId(routes: SavedRoutes = store.savedRoutes()): Long? =
         routes.routes.firstOrNull { it.points == draft.points }?.id
@@ -126,11 +118,10 @@ class MainActivity : Activity() {
     private lateinit var recordBtn: Button
 
     /**
-     * The recording in progress, or null when nothing is being recorded.
+     * The recording in progress, or null.
      *
-     * Held here rather than in the overlay service: this page is the only thing that
-     * writes the draft, and a recording that survived the page going away would keep
-     * collecting points nobody could stop except by returning to it.
+     * Held here rather than in the overlay service: this page is the only writer of the
+     * draft, and a recording that outlived it would collect points nobody could stop.
      */
     private var recorder: RouteRecorder? = null
     private var recordStartedAtMs = 0L
@@ -138,9 +129,8 @@ class MainActivity : Activity() {
     /**
      * The sampling tick.
      *
-     * Main thread on purpose: it reads the stored config and writes the draft, and both
-     * are cheap. A background thread would have to marshal every point back to this one
-     * anyway, since the draft is a view model of the list on screen.
+     * Main thread on purpose: it reads the config and writes the draft, both cheap, and a
+     * background thread would have to marshal every point back here anyway.
      */
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val subject = LiveSubject()
@@ -151,14 +141,7 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Refreshes the status line once a second.
-     *
-     * A run can be stopped, paused or replaced from the map page, and a status written
-     * only at the moment of a tap would then describe a run that no longer exists. One
-     * second is the resolution of the run's own clock, so nothing here can lag behind
-     * something the user can see elsewhere.
-     */
+    /** Refreshes the status line once a second, including runs changed on the map page. */
     private val statusTick = object : Runnable {
         override fun run() {
             updateStatus()
@@ -181,14 +164,9 @@ class MainActivity : Activity() {
         root.addView(titleView("Pacer"))
         root.addView(hint(strings.appTagline))
 
-        // The run's state, permanently at the top of the page.
-        //
-        // WHY HERE AND NOT AT THE BOTTOM: the Start buttons sit in the middle of a long
-        // column, and the only feedback used to be a line at the very bottom, past the
-        // self-check. A user who pressed Start stayed exactly where they were and the
-        // screen did not change at all - which reads as "the button did nothing". This
-        // line is refreshed on a timer, so it also reports a run stopped from the other
-        // page, and it is where every failure message goes.
+        // The run's state, at the top rather than at the bottom of a long column: a Start
+        // that changes nothing visible reads as a button that did nothing. Refreshed on a
+        // timer, so it also reports a run stopped from the map page.
         statusView = TextView(this).apply {
             textSize = 15f
             setPadding(0, 8, 0, 16)
@@ -209,14 +187,8 @@ class MainActivity : Activity() {
         runBtn.isChecked = true
         root.addView(speedGroup)
         speedInput = numberField(strings.customSpeed, "3.0")
-        // Typing a speed IS choosing Custom. Without this the field accepted text that
-        // nothing read: the radio group stayed on Run, and Start used 3.0 m/s while the
-        // screen showed the number the user had just typed. A value that is visible and
-        // ignored is worse than a field that is hidden.
-        //
-        // The guard matters: the radio listener below writes the preset into this field,
-        // and an unguarded watcher would read that write back as "the user is typing" and
-        // flip the group to Custom - so choosing Walk would silently end up as Custom.
+        // Typing a speed is choosing Custom. The guard stops the radio listener's own
+        // write from being read back as typing.
         var writingSpeed = false
         speedInput.addTextChangedListener(
             object : android.text.TextWatcher {
@@ -413,9 +385,8 @@ class MainActivity : Activity() {
             val chosen = Language.entries.getOrNull(checkedId - 1) ?: return@setOnCheckedChangeListener
             if (chosen == settings.language) return@setOnCheckedChangeListener
             settings.language = chosen
-            // A full rebuild: every label on the page changes, and several of them are
-            // produced by methods that take their text inline. Recreating the activity is
-            // the only way to guarantee no label is left in the previous language.
+            // Recreated rather than relabelled: labels are built inline by the view
+            // helpers, so a setText loop would leave some of them in the previous language.
             recreate()
         }
         root.addView(languageGroup)
@@ -433,14 +404,13 @@ class MainActivity : Activity() {
         renderRoute()
         renderSavedRoutes()
         updatePauseButton()
-        // Opens on the stored configuration rather than on this screen's defaults.
-        // Every start writes ALL of these keys, so opening on defaults meant that
-        // touching one switch silently restored the others - a user who had switched
-        // the Bluetooth simulation off got it switched back on by an unrelated tap.
+        // Opens on the stored configuration, not on this screen's defaults: every start
+        // writes all of these keys, so touching one switch on defaults would silently
+        // restore the others.
         PacerConfigClient.onReady { runOnUiThread { restoreFromStore() } }
     }
 
-    /** Shows what is actually configured. See the call site for why this exists. */
+    /** Shows what is actually configured. */
     private fun restoreFromStore() {
         val stored = PacerConfigClient.stored() ?: return
         lastRestoreStartedAt = stored.startedAtMs
@@ -484,8 +454,7 @@ class MainActivity : Activity() {
     /**
      * Freezes a running route where it stands, or lets it continue.
      *
-     * The clock is what stops: the module keeps reading the same run, so the position,
-     * the step count, the distance and the lap stay consistent with each other instead
+     * The clock is what stops, so position, steps, distance and lap stay consistent instead
      * of being re-derived from a separately stored point.
      */
     private fun toggleRoutePause() {
@@ -599,12 +568,7 @@ class MainActivity : Activity() {
     // Route editing
     // ---------------------------------------------------------------------
 
-    /**
-     * Replaces the route with a fixed one, for trying the engine without drawing anything.
-     *
-     * Kept because the map is the only other way in, and a route that depends on a tile
-     * service being reachable is not a good first experience of the engine.
-     */
+    /** Replaces the route with a fixed one, for trying the engine without drawing anything. */
     private fun loadSampleRoute() {
         draft.clear()
         SAMPLE_ROUTE.forEach { draft.add(it) }
@@ -612,13 +576,11 @@ class MainActivity : Activity() {
         renderSavedRoutes()
     }
 
-
     /**
      * Saves the per-app datum table.
      *
-     * Parsed before it is stored, and the normalised form is written back into the field:
-     * a typo then shows up as a dropped entry immediately, rather than as a fix in the
-     * wrong datum on the next run.
+     * Parsed before storing and written back normalised, so a typo shows up as a dropped
+     * entry immediately rather than as a fix in the wrong datum on the next run.
      */
     private fun saveCoordinateOverrides() {
         val typed = coordinateInput.text.toString()
@@ -847,13 +809,7 @@ class MainActivity : Activity() {
      * the first waypoint is the one the user placed first, and a run that ignored it would
      * be a run from nowhere in particular.
      */
-    /**
-     * Asks before replacing a run that is already going.
-     *
-     * Pressing Start during a run used to restart it silently: the clock reset to zero and
-     * a twenty-minute track became a fresh one, with the old one gone. A run in progress is
-     * the most expensive thing on this screen, so replacing it is worth one question.
-     */
+    /** Asks before replacing a run that is already going. */
     private fun confirmReplace(onConfirm: () -> Unit) {
         android.app.AlertDialog.Builder(this)
             .setTitle(strings.replaceRunTitle)
@@ -912,9 +868,7 @@ class MainActivity : Activity() {
     }
 
     /**
-     * A line about the interval plan that is about to run, using the plan's own
-     * arithmetic rather than a second calculation: a mistyped step is then visible
-     * before the run instead of only in its speed curve.
+     * A line about the interval plan that is about to run, using the plan's own arithmetic.
      */
     private fun planSummary(plan: String): String {
         val parsed = SpeedPlan.parse(plan) ?: return ""
@@ -927,9 +881,7 @@ class MainActivity : Activity() {
     /**
      * The interval plan as typed, or null when it cannot be read.
      *
-     * Refusing to start beats starting with the text silently ignored: the user would
-     * see one steady speed and have no way to tell whether the plan's syntax or the
-     * engine was at fault.
+     * Refusing to start beats starting with the text silently ignored.
      */
     private fun planTextOrNull(): String? {
         val text = planInput.text.toString().trim()
@@ -949,10 +901,8 @@ class MainActivity : Activity() {
     /**
      * Starts or stops a joystick recording.
      *
-     * Recording reads the subject's position from the stored run, so it needs a run that
-     * the joystick can steer: a hand-driven straight line. A route or an interval plan
-     * owns its own motion, and recording one would just re-record the route it is
-     * following, which is what the map already has.
+     * Recording needs a run the joystick can steer: a route or a plan owns its own motion,
+     * and recording one would just re-record the route the map already has.
      */
     private fun toggleRecording() {
         val active = recorder
@@ -1042,8 +992,7 @@ class MainActivity : Activity() {
             setNotice(strings.needTwoWaypoints)
             return
         }
-        // The road path when one was planned on the map screen, the plain polyline
-        // otherwise: both screens push the geometry that the map is drawing.
+        // The road path when one was planned on the map screen, the plain polyline otherwise.
         val geometry = store.geometry(draft)
         val route = RoutePath(geometry)
         val first = route.points.first()
@@ -1095,8 +1044,8 @@ class MainActivity : Activity() {
     private fun showJoystick() {
         if (Settings.canDrawOverlays(this)) {
             startForegroundService(Intent(this, JoystickOverlayService::class.java))
-            // Saying which input owns the run here is cheaper than letting the user
-            // find out by dragging the knob.
+            // Saying which input owns the run here is cheaper than letting the user find
+            // out by dragging the knob.
             output.text = when (PacerConfigClient.owner()) {
                 MotionOwner.ROUTE ->
                     "Joystick shown. A route run supplies its own speed and heading, so the knob " +
@@ -1135,10 +1084,8 @@ class MainActivity : Activity() {
     private fun auditRoute() {
         // The geometry that would actually be simulated, road path included.
         //
-        // No fallback to the sample route: an audit that quietly judged a route in Urumqi
-        // while the user was looking at their own three points produced a confident report
-        // about a track they never drew. Refusing is the only honest answer when there is
-        // nothing to audit.
+        // No fallback to the sample route: an audit of a track the user never drew produces
+        // a confident report about nothing.
         val route = routeForPreview()
         if (route == null) {
             setNotice(strings.needTwoWaypoints)
@@ -1147,14 +1094,12 @@ class MainActivity : Activity() {
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
-        // The preview follows the interval plan as well, otherwise it would show a
-        // steady-speed track for a session that will not be one.
+        // The preview follows the interval plan too, or it would show a steady-speed track
+        // for a session that will not be one.
         val plan = SpeedPlan.parse(planInput.text.toString())
         val speed = speedMps()
-        // Two DIFFERENT runs of the same route: the comparison below is only meaningful
-        // if the second run is a second run, so its seed advances by one. The shared
-        // derivation is used rather than Random.nextLong() so a report can be reproduced
-        // from the two numbers it names.
+        // Two different runs of the same route, so the divergence below is meaningful.
+        // Deterministic rather than Random, so a report can be reproduced from its numbers.
         val seedBase = System.currentTimeMillis()
         auditBtn.isEnabled = false
         setNotice(strings.auditing)
@@ -1168,9 +1113,8 @@ class MainActivity : Activity() {
 
             val first = runOnce(MotionSeed.forRun(seedBase))
             val second = runOnce(MotionSeed.forRun(seedBase + 1))
-            // The screen can only supply the duplicate check: it has the previous run
-            // of this route. Zone and checkpoint rules need a server's geometry, so
-            // they stay available to callers instead of running on invented defaults.
+            // Only the duplicate check is answerable here: zone and checkpoint rules need a
+            // server's geometry.
             val report = TrackAudit.audit(
                 second,
                 TrackAudit.AuditOptions(priorTracks = listOf(first.map { it.point })),
@@ -1248,9 +1192,6 @@ class MainActivity : Activity() {
     /**
      * The route the previews and the audit work on: the stored road path when the map
      * planned one, the draft's own polyline otherwise.
-     *
-     * This screen edits the same draft as the map, so it has to show what would actually
-     * be simulated there rather than a different line through the same waypoints.
      */
     private fun routeForPreview(): RoutePath? {
         if (!draft.isValid) return null
@@ -1300,9 +1241,8 @@ class MainActivity : Activity() {
                 previewBtn.isEnabled = true
             }
         }.also { worker ->
-            // A throw here used to leave the button greyed out for the rest of the
-            // session and the screen frozen on "Simulating...", which is
-            // indistinguishable from a run that is still working.
+            // A throw would otherwise leave the button greyed out for the rest of the
+            // session, frozen on "Simulating..."
             worker.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, t ->
                 runOnUiThread {
                     previewBtn.isEnabled = true
@@ -1398,12 +1338,10 @@ class MainActivity : Activity() {
         const val STATUS_POLL_MS = 1000L
 
         /**
-         * A sample loop in Urumqi.
+         * A sample loop in Urumqi, the same place the map opens on.
          *
-         * Deliberately the default the map also opens on: a sample somewhere almost no user
-         * is, so it cannot be mistaken for their own position, and the same place so the two
-         * screens agree about where "the sample" is. Inside China because AMap and Baidu
-         * serve blank tiles outside it.
+         * Somewhere almost no user is, so it cannot be mistaken for their own position.
+         * Inside China because AMap and Baidu serve blank tiles outside it.
          */
         val SAMPLE_ROUTE: List<GeoPoint> = listOf(
             GeoPoint(43.8240, 87.6140),

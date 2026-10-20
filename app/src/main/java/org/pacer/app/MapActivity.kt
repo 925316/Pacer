@@ -23,20 +23,12 @@ import java.util.Locale
 /**
  * The operation page: a map, the waypoints placed on it, and the run's own controls.
  *
- * HOW A ROUTE IS MADE. Drag the map to the place, tap to append a waypoint, drag a handle to
- * move one. That is the whole editing model - there is no coordinate field, no search box and
- * no road-routing service, because each of those needs either an API key or a network
- * dependency, and none of them is how someone actually chooses a place on a map.
+ * A route is made by dragging the map, tapping to append and dragging a handle to move one;
+ * there is no coordinate field, no search box and no road routing, each of which needs a key
+ * or a network dependency.
  *
- * THREE BASEMAPS, ONE INTERACTION. AMap, Baidu and Google are all drawn by [TileMapView] over
- * a [org.pacer.motion.TileGrid], so panning, zooming, tapping and dragging behave the same
- * whichever one is showing. They differ in datum and, for Baidu, in projection; that is the
- * grid's problem, not this page's.
- *
- * The live marker is DERIVED, not read from the module: it is computed with the same
- * core-motion code and the same run seed the hook uses, from the same stored inputs, so a
- * marker that disagreed with what the target app is told would be a bug in one shared
- * formula rather than drift between two copies.
+ * The live marker is derived from the same stored run the hook reads, not read back from the
+ * module, so the map cannot drift from what the target app is told.
  */
 class MapActivity : Activity() {
 
@@ -67,20 +59,18 @@ class MapActivity : Activity() {
     private lateinit var pauseRow: LinearLayout
 
     /**
-     * The waypoint last tapped on the map, or -1.
+     * The waypoint last tapped, or -1.
      *
-     * Selection exists because the only per-waypoint edit the map can offer is "remove this
-     * one": reordering already has a list on the other screen. An index rather than a point,
-     * so a drag cannot leave the selection naming coordinates that no longer exist.
+     * An index rather than a point, so a drag cannot leave the selection naming coordinates
+     * that no longer exist.
      */
     private var selectedWaypoint = -1
 
     /**
-     * A transient line above the state line, cleared when the selection changes.
+     * A transient line above the state line.
      *
-     * Kept separate from [updateInfo] because that method runs once a second from the
-     * poll, and a message written into the same TextView would disappear before it was
-     * read. This is the one place on the page that reports a consequence of a tap.
+     * Separate from the state line because [updateInfo] runs once a second and would erase a
+     * message before it could be read.
      */
     private var notice: String? = null
 
@@ -261,9 +251,7 @@ class MapActivity : Activity() {
     /**
      * Creates the map for the chosen basemap, or replaces the current one.
      *
-     * The camera is carried across a basemap switch: the user picked a place, not a
-     * projection, and being sent back to the default view for changing which tiles draw it
-     * would make the three sources useless for comparing them.
+     * The camera is carried across a switch: the user picked a place, not a projection.
      */
     private fun installMap() {
         val previous = map
@@ -285,9 +273,8 @@ class MapActivity : Activity() {
         created.onTap = { point -> editDraft { draft.add(point) } }
         created.onWaypointTap = { index -> selectWaypoint(index) }
         created.onWaypointMoving = { index, point ->
-            // Follow the drag live so the polyline tracks the finger. Nothing is saved here:
-            // a save per motion event would write prefs hundreds of times a second, and the
-            // drop below is the moment the route actually changed.
+            // Nothing saved here: a save per motion event would write prefs hundreds of
+            // times a second. The drop is the moment the route changed.
             if (index < draft.size) {
                 draft.replaceAt(index, point)
                 created.setRoute(draft.points.toList(), draft.points.toList())
@@ -356,13 +343,11 @@ class MapActivity : Activity() {
     /**
      * Rebuilds the layer buttons for the current source.
      *
-     * Rebuilt rather than disabled in place because the set differs by source: Baidu has
-     * roads only, so a dead Satellite button would promise a layer no tap can reach.
+     * Rebuilt rather than disabled in place: the set differs by source, so a dead Satellite
+     * button would promise a layer no tap can reach.
      */
     private fun buildLayerRow() {
         layerRow.removeAllViews()
-        // A row with one dead button says less than no row at all; the message shown when a
-        // source without imagery is selected explains the absence.
         layerRow.visibility = if (style.layers.size > 1) View.VISIBLE else View.GONE
         for (candidate in style.layers) {
             val b = button(candidate.label) {
@@ -372,8 +357,7 @@ class MapActivity : Activity() {
                 installMap()
                 render()
             }
-            // Equal shares: "Satellite" and "Hybrid" are long enough to push a third button
-            // off a narrow screen at their natural width.
+            // Equal shares: the labels are long enough to push a third button off screen.
             b.textSize = 12f
             layerRow.addView(
                 b,
@@ -436,8 +420,7 @@ class MapActivity : Activity() {
         val before = draft.toJson()
         change()
         if (draft.toJson() == before) return
-        // The points changed, so an index read before the edit may now name a different
-        // point: a selection does not survive an edit it was not part of.
+        // An index read before the edit may now name a different point.
         clearSelection()
         store.save(draft)
         render()
@@ -457,9 +440,7 @@ class MapActivity : Activity() {
     /**
      * Selects or deselects a waypoint, as the first half of "remove this one".
      *
-     * A second tap on the same point deselects, so the state can always be left without
-     * removing anything: a tap that removed the point outright would make a mis-tap cost the
-     * point, and clearing the route is the only undo there is.
+     * A second tap deselects, so a mis-tap cannot cost the point.
      */
     private fun selectWaypoint(index: Int) {
         if (index == selectedWaypoint) {
@@ -496,10 +477,8 @@ class MapActivity : Activity() {
     /**
      * Freezes the running route where it stands, or lets it continue.
      *
-     * Pausing is a clock operation, not a position write: the module keeps reading the
-     * same run and stops advancing it, so the coordinates, the step count, the distance
-     * and the lap all remain what that one run says. Nothing is teleported and nothing
-     * restarts when it is resumed.
+     * A clock operation, not a position write: the module keeps reading the same run and
+     * stops advancing it, so position, steps, distance and lap stay consistent.
      */
     private fun toggleRoutePause() {
         val owner = PacerConfigClient.owner()
@@ -527,9 +506,8 @@ class MapActivity : Activity() {
     /**
      * Shows the pause control only when it can do something.
      *
-     * A button that is always present but usually inert is the same class of lie as a
-     * button that does nothing: it makes the user check whether the run is a route by
-     * tapping it. The label states which way the next tap goes.
+     * An always-present but usually inert button makes the user tap it to find out whether
+     * the run is a route.
      */
     private fun updatePauseControl() {
         if (!::pauseButton.isInitialized) return
@@ -555,12 +533,7 @@ class MapActivity : Activity() {
         map?.fitRoute(points)
     }
 
-    /**
-     * Centres on the simulated subject, or on the last waypoint when nothing is running.
-     *
-     * Two different targets on purpose: "centre" on this page means "show me where the run
-     * is", and with no run the only meaningful thing to show is where the route ends.
-     */
+    /** Centres on the subject, or on the last waypoint when nothing is running. */
     private fun centreOnSubject() {
         val map = this.map ?: return
         val stored = PacerConfigClient.stored()
@@ -583,9 +556,8 @@ class MapActivity : Activity() {
     /**
      * Moves a running straight-line simulation to the point under a long press.
      *
-     * A route run is refused rather than moved: its position comes from its geometry, so
-     * moving the anchor would change nothing, and a press that quietly does nothing is
-     * worse than one that says why.
+     * A route run is refused: its position comes from its geometry, so moving the anchor
+     * would change nothing.
      */
     private fun relocate(point: GeoPoint) {
         when (PacerConfigClient.owner()) {
@@ -627,9 +599,8 @@ class MapActivity : Activity() {
         val geometry = store.geometry(draft)
         val route = RoutePath(geometry)
         val speed = speedField.text.toString().toDoubleOrNull()?.coerceIn(0.1, 30.0) ?: 3.0
-        // Everything the app does not own here comes from the stored configuration:
-        // starting a route from this screen must not silently reset the signal-realism
-        // switches or the interval plan the user chose on the other screen.
+        // Everything not owned by this screen comes from the stored configuration, so
+        // starting here does not reset the other screen's switches or interval plan.
         val stored = PacerConfigClient.stored()
         val started = PacerConfigClient.start(
             lat = route.points.first().lat,

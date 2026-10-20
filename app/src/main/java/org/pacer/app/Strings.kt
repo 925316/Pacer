@@ -3,11 +3,9 @@ package org.pacer.app
 /**
  * The two languages the interface is written in.
  *
- * ENGLISH IS THE DEFAULT, not the system language. The app is a development tool whose
- * output - route names, log lines, the self-check report - is all English, and a UI in a
- * second language next to it reads as two products. A phone set to Chinese still opens in
- * English until the user says otherwise; that choice is stored, not re-derived from the
- * system on every start, so it does not flip when a device is re-flashed.
+ * English is the default, not the system language: the app's own output - route names, log
+ * lines, the self-check report - is English, and the choice is stored rather than re-derived
+ * on every start.
  */
 enum class Language(val tag: String, val label: String) {
     ENGLISH("en", "English"),
@@ -23,17 +21,13 @@ enum class Language(val tag: String, val label: String) {
 }
 
 /**
- * The interface strings, in one place per language.
+ * The interface strings, one object per language.
  *
- * WHY NOT res/values-zh/strings.xml: the whole UI is built in Kotlin, by methods that take
- * their labels inline. Splitting one screen across two languages in three layers - XML
- * resources, Kotlin literals, and a lookup - is how the two drift and half a page ends up
- * untranslated. A single object with a field per string makes a missing translation a
- * compile error rather than a stray English label on a Chinese page.
+ * Not res/values-zh: the UI is built in Kotlin with inline labels, and splitting one screen
+ * across XML, literals and a lookup is how half a page ends up untranslated. A field per
+ * string makes a missing translation a compile error.
  *
- * The self-check report and the module's log output stay English in both: they are
- * diagnostic text meant to be pasted into an issue, and translating them would make two
- * readers unable to compare the same report.
+ * Diagnostic text (self-check report, module log) stays English in both.
  */
 interface Strings {
     val appTagline: String

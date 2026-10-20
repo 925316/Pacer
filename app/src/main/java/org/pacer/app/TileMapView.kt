@@ -384,11 +384,7 @@ internal class TileMapView(
     private var pinchStartSpan = 0f
     private var pinchStartZoom = 0
 
-    /**
-     * Fires while the finger is still down, so the map must remember that it already acted:
-     * otherwise the lift that follows would be read as a tap and append a waypoint at the
-     * same place the simulation was just moved to.
-     */
+    /** Fires while the finger is down, so the lift that follows is not read as a tap. */
     private val longPress = Runnable {
         if (mode == Mode.PAN && !movedFar) {
             longPressFired = true
@@ -409,13 +405,9 @@ internal class TileMapView(
                 lastY = event.y
                 movedFar = false
                 longPressFired = false
-                // Only an ALREADY SELECTED waypoint may be dragged.
-                //
-                // The grab radius is 20 dp, and every point on a dense route falls inside
-                // some other point's radius. Taking any point on touch-down as a drag
-                // turned "pan the map" into "silently move someone's waypoint", and the
-                // only way back was another drag to the place it came from. Selecting
-                // first costs one tap and makes the two gestures unambiguous.
+                // Only an already selected waypoint may be dragged: the 20 dp grab radius
+                // overlaps neighbours on a dense route, so taking any hit as a drag turned
+                // "pan the map" into "silently move someone's waypoint".
                 val near = waypointNear(event.x, event.y)
                 draggedWaypoint = if (near >= 0 && near == selectedWaypoint) near else -1
                 mode = if (draggedWaypoint >= 0) Mode.WAYPOINT else Mode.PAN
@@ -437,27 +429,20 @@ internal class TileMapView(
                 if (mode == Mode.PINCH && event.pointerCount >= 2) {
                     val scale = span(event) / pinchStartSpan
                     if (scale > 0f && !scale.isNaN()) {
-                        // Round rather than truncate: with a truncation a 1.9x pinch was
-                        // still "zero steps", so two-finger zooming felt broken until the
-                        // fingers were almost twice as far apart.
+                        // Rounded, not truncated: a 1.9x pinch is zero steps when truncated.
                         val steps = kotlin.math.round(ln(scale.toDouble()) / LN_2).toInt()
                         val target = (pinchStartZoom + steps)
                             .coerceIn(source.grid.minZoom, source.grid.maxZoom)
                         if (target != zoom) {
-                            // Zoom around the MIDPOINT OF THE FINGERS, not the centre of
-                            // the view: pinching a street corner and having that corner
-                            // slide off screen is the most common complaint about a
-                            // hand-rolled map.
-                            //
-                            // Read the focal point in the OLD grid, before zoom changes.
+                            // Zoom around the midpoint of the fingers, not the view centre,
+                            // or the place being pinched slides off screen. The anchor is
+                            // read in the old grid, before the zoom changes.
                             val focalX = (event.getX(0) + event.getX(1)) / 2f
                             val focalY = (event.getY(0) + event.getY(1)) / 2f
                             val anchor = source.grid.point(screenToPixel(focalX, focalY), zoom)
                             val screenFocal = PixelPoint(focalX.toDouble(), focalY.toDouble())
                             zoom = target
-                            // Put `anchor` back under the fingers, then derive the centre
-                            // that implies. The focal offset from the view centre is the
-                            // same on screen at the new zoom; only the grid changes.
+                            // Centre that puts the anchor back under the fingers.
                             val anchorPixel = source.grid.pixel(anchor, target)
                             centerPixel = PixelPoint(
                                 anchorPixel.x - screenFocal.x + width / 2.0,
@@ -565,25 +550,18 @@ internal class TileMapView(
         /**
          * Urumqi: the default view, deliberately nowhere near most users.
          *
-         * Inside China on purpose. AMap and Baidu serve blank tiles outside it, so opening
-         * on a foreign city drew a screen of successful, empty tiles and looked like a
-         * broken map. The city itself still carries no relation to the user.
+         * Inside China on purpose: AMap and Baidu serve blank tiles outside it.
          */
         val DEFAULT_CENTER = GeoPoint(43.8256, 87.6168)
         const val DEFAULT_ZOOM = 13
 
-        // 256x256 ARGB tiles are 256 KiB each, so this is a ~38 MiB ceiling: enough for a
-        // screen and a little panning, small enough not to be the reason the app is killed.
+        // 256x256 ARGB tiles are 256 KiB each, so this is a ~38 MiB ceiling.
         const val MAX_CACHED_TILES = 150
         const val FIT_PADDING = 48
         const val TOUCH_SLOP_DP = 4f
         const val LONG_PRESS_MS = 500L
-        // Radii in DENSITY-INDEPENDENT pixels, converted on use.
-        //
-        // These were raw pixels, which is correct only on a 1x screen: on a 3x phone a
-        // waypoint was a 3 dp dot with an 11 dp grab radius, well under the 48 dp touch
-        // target, so points looked clickable and were not. The values below are what the
-        // original pixels were meant to express on the screen they were tuned on.
+        // Density-independent pixels, converted on use. Raw pixels were correct only on a
+        // 1x screen; on a 3x phone a waypoint was a 3 dp dot with an 11 dp grab radius.
         const val WAYPOINT_RADIUS_DP = 3.5f
         const val SELECTED_RADIUS_DP = 5f
         const val LIVE_RADIUS_DP = 3f

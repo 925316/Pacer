@@ -15,27 +15,18 @@ import android.widget.TextView
 /**
  * The first screen: language, and whether this device can run what Pacer needs.
  *
- * WHY IT EXISTS AT ALL. The module half of Pacer is an LSPosed module, and every failure of
- * it looks the same from the inside: the map does not move, and nothing says why. The two
- * facts that decide whether it can work at all - a rooted device, and a connected module -
- * are cheap to check and are checked here, before the user places a route. The reference
- * implementation the user asked to follow opens the same way.
+ * Every failure of the module half looks the same from the inside - the map does not move,
+ * and nothing says why - so the two facts that decide whether it can work at all are
+ * checked before the user places a route.
  *
- * IT IS NOT A GATE. Every conclusion is reported, none blocks the next screen: an
- * unrooted device can still run the preview and the engine tests, and a module that is not
- * bound yet binds a second later. A screen that refuses to continue would be wrong about
- * both.
- *
- * LANGUAGE IS CHOSEN HERE AND NOWHERE ELSE. The default is English regardless of the
- * phone's locale, and the choice is stored rather than re-derived, so it survives a
- * re-flash of the device and does not change under a user who has set it deliberately.
+ * It is not a gate: everything is reported, nothing blocks the next screen.
  */
 class StartupActivity : Activity() {
 
     private lateinit var settings: AppSettings
     private lateinit var strings: Strings
 
-    /** Latest environment answer, kept so a language switch redraws it in the new words. */
+    /** Latest environment answer, so a language switch redraws it in the new words. */
     private var rootResult: RootCheck.Result? = null
     private var rootChecking = false
 
@@ -43,20 +34,14 @@ class StartupActivity : Activity() {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
         strings = stringsFor(settings.language)
-        // The module line is a fact about the framework binding, not about this app's
-        // memory: without this the startup screen always claimed "not connected", because
-        // nothing had asked the framework yet.
+        // Asked before drawing, or the screen always claims "not connected".
         PacerConfigClient.init()
         PacerConfigClient.onReady { runOnUiThread { if (!isFinishing) render() } }
-        // A returning user goes straight in. The check is a first-run aid, not a toll gate.
         if (settings.skipStartup) {
             openMain()
             return
         }
         render()
-        // Started immediately rather than behind the button: an answer that is already
-        // there when the screen appears is one less tap, and `su` costs nothing when it
-        // is denied. The button re-runs it for the case where the user just allowed it.
         startRootCheck()
     }
 
@@ -97,9 +82,8 @@ class StartupActivity : Activity() {
             if (chosen == settings.language) return@setOnCheckedChangeListener
             settings.language = chosen
             strings = stringsFor(chosen)
-            // Rebuilt rather than relabelled: every string on the page changes, and a
-            // loop of setText calls would still miss the environment report, which is
-            // assembled from more than one language-dependent part.
+            // Rebuilt rather than relabelled: the environment report is assembled from
+            // several language-dependent parts.
             render()
         }
         root.addView(group)
