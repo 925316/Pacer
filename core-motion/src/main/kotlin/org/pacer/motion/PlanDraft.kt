@@ -1,18 +1,14 @@
 package org.pacer.motion
 
 /**
- * The mutable list of interval steps a plan is edited through.
+ * The mutable step list a plan is edited through.
  *
- * WHY THIS EXISTS: `SpeedPlan` is the immutable, validated form the engine reads, and
- * `parse`/`format` expose it as the string `3.0@180;1.4@60#5`. That string is the right
- * storage form and the wrong input form - a user who wants to change one duration has to
- * find the right `@` and `;` in a line of punctuation. This holds the same information as
- * separate fields so the screen can offer buttons instead, and converts at the boundary.
+ * [SpeedPlan] is the immutable, validated form the engine reads; `parse`/`format` expose it
+ * as `3.0@180;1.4@60#5`. That is the right storage form and the wrong input form, so this
+ * holds the same information as separate fields and converts at the boundary.
  *
- * VALIDITY IS NOT ENFORCED HERE. An editor has to be able to hold a half-built plan: a step
- * whose speed field is still being typed, a plan with no steps yet. [toPlan] answers null
- * while the list would not pass [SpeedPlan]'s own rules, and the screen reports that
- * instead of preventing the edit.
+ * It accepts an incomplete plan on purpose - a half-typed step, no steps at all. [toPlan]
+ * answers null until the draft would pass [SpeedPlan]'s own rules.
  */
 class PlanDraft(
     steps: List<SpeedPlan.Step> = listOf(DEFAULT_STEP),

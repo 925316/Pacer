@@ -50,8 +50,7 @@ interface Strings {
     val accuracy: String
     val altitude: String
     val bearing: String
-    val intervalPlan: String
-    val intervalPlanHint: String
+    val intervalPlanSection: String
     val loopRoute: String
     val loopRouteHint: String
     val stepSimulation: String
@@ -151,6 +150,17 @@ interface Strings {
     val replaceRunTitle: String
     val replaceRunMessage: String
     val replaceRunConfirm: String
+    val planNoSteps: String
+    val planAddStep: String
+    val planRemove: String
+    val planSpeed: String
+    val planDuration: String
+    val planRepeats: String
+    val planForever: String
+    val planPresets: String
+    val planInvalid: String
+    val planTotals: String
+    val planTotalsForever: String
 }
 
 /** The English strings; also the fallback for a language that has not been written yet. */
@@ -177,12 +187,7 @@ object EnglishStrings : Strings {
     override val accuracy = "Steady accuracy (m)"
     override val altitude = "Start altitude (m)"
     override val bearing = "Straight-line bearing (deg, 0 = north)"
-    override val intervalPlan = "Interval plan (blank = steady speed)"
-    override val intervalPlanHint =
-        "For example \"3.0@180;1.4@60#5\": speed in m/s, @, seconds, \";\" between steps, " +
-            "\"#N\" repeats (0 = forever). Works on a route and on the straight line; the " +
-            "reported speed follows it. While a plan is set, the plan owns the speed and the " +
-            "floating joystick cannot change it, so clear this field to steer by hand."
+    override val intervalPlanSection = "Interval plan"
     override val loopRoute = "Repeat the route (laps)"
     override val loopRouteHint =
         "A route run starts over at the first waypoint instead of stopping at the end. " +
@@ -313,6 +318,17 @@ object EnglishStrings : Strings {
         "Starting again replaces it: the run restarts from the beginning and the progress " +
             "so far is lost."
     override val replaceRunConfirm = "Replace"
+    override val planNoSteps = "No steps yet. Add one below."
+    override val planAddStep = "+ Add a step"
+    override val planRemove = "Remove"
+    override val planSpeed = "Speed"
+    override val planDuration = "Duration"
+    override val planRepeats = "Repeat"
+    override val planForever = "forever"
+    override val planPresets = "Start from a preset"
+    override val planInvalid = "This plan does not run: every step needs a speed above zero."
+    override val planTotals = "One pass %.0f s / %.0f m, total %.0f min / %.2f km"
+    override val planTotalsForever = "One pass %.0f s / %.0f m, repeating for the whole route"
 }
 
 /** The Chinese strings. */
@@ -338,10 +354,7 @@ object ChineseStrings : Strings {
     override val accuracy = "稳定精度（米）"
     override val altitude = "起始海拔（米）"
     override val bearing = "直线方位角（度，0 = 正北）"
-    override val intervalPlan = "变速计划（留空 = 匀速）"
-    override val intervalPlanHint =
-        "例如 \"3.0@180;1.4@60#5\"：速度 m/s、@、持续秒数，步骤之间用 \";\"，\"#N\" 为重复次数（0 = 无限）。" +
-            "路线和直线都适用，上报速度会跟随它。设置了计划时速度由计划决定，悬浮摇杆无法改变它，要手动控制请清空此栏。"
+    override val intervalPlanSection = "变速计划"
     override val loopRoute = "循环跑这条路线"
     override val loopRouteHint = "跑完最后一站后回到第一个路径点继续，而不是停下。距离和步数会继续累加。"
     override val stepSimulation = "步数与传感器模拟"
@@ -446,6 +459,17 @@ object ChineseStrings : Strings {
     override val replaceRunTitle = "已有模拟在运行"
     override val replaceRunMessage = "再次开始会替换当前模拟：从头开始，之前的进度会丢失。"
     override val replaceRunConfirm = "替换"
+    override val planNoSteps = "还没有步骤，在下面添加一个。"
+    override val planAddStep = "＋ 添加一步"
+    override val planRemove = "删除"
+    override val planSpeed = "速度"
+    override val planDuration = "时长"
+    override val planRepeats = "重复"
+    override val planForever = "无限"
+    override val planPresets = "从预设开始"
+    override val planInvalid = "这个计划跑不了：每一步的速度都必须大于零。"
+    override val planTotals = "单轮 %.0f 秒 / %.0f 米，合计 %.0f 分钟 / %.2f 公里"
+    override val planTotalsForever = "单轮 %.0f 秒 / %.0f 米，之后按整条路线无限重复"
 }
 
 /** The strings for [language]. */

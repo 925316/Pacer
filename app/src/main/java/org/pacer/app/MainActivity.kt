@@ -78,7 +78,12 @@ class MainActivity : Activity() {
     private lateinit var accuracyInput: EditText
     private lateinit var altitudeInput: EditText
     private lateinit var bearingInput: EditText
-    private lateinit var planInput: EditText
+
+    /** The interval-plan editor; the wire string lives in [planWire]. */
+    private lateinit var planEditor: PlanEditor
+
+    /** The plan as the module reads it, or "" when the editor holds no usable plan. */
+    private var planWire: String = ""
 
     /** The per-app coordinate table as typed. */
     private lateinit var coordinateInput: EditText
@@ -268,12 +273,11 @@ class MainActivity : Activity() {
         root.addView(altitudeInput)
         bearingInput = numberField(strings.bearing, "45.0")
         root.addView(bearingInput)
-        planInput = EditText(this).apply {
-            hint = strings.intervalPlan
-            setText("")
-        }
-        root.addView(planInput)
-        root.addView(hint(strings.intervalPlanHint))
+        // The interval plan as steps with steppers and presets. The stored value is still
+        // the `3.0@180;1.4@60#5` string; only the input form changed.
+        root.addView(section(strings.intervalPlanSection))
+        planEditor = PlanEditor(this, strings) { wire -> planWire = wire }
+        root.addView(planEditor.view)
         loopToggle = option(
             root,
             strings.loopRoute,
@@ -429,7 +433,7 @@ class MainActivity : Activity() {
         }
         stepToggle.isChecked = stored.stepSimulation
         bluetoothToggle.isChecked = stored.mockBluetooth
-        planInput.setText(stored.plan)
+        planEditor.load(stored.plan)
         coordinateInput.setText(stored.coordinateOverrides)
         loopToggle.isChecked = stored.loopRoute
         bearingHoldToggle.isChecked = stored.realism.bearingHold
@@ -831,7 +835,7 @@ class MainActivity : Activity() {
         val lat = start.lat
         val lon = start.lon
         val speed = speedMps()
-        val plan = planTextOrNull() ?: run {
+        val plan = planWire.takeIf { planEditor.isValid } ?: run {
             setNotice(strings.badPlan)
             return
         }
@@ -875,17 +879,6 @@ class MainActivity : Activity() {
         val total = parsed.totalMeters?.let { String.format(Locale.US, ", %.0f m in total", it) }
             ?: ", repeating for the whole route"
         return " Plan: $pass$total."
-    }
-
-    /**
-     * The interval plan as typed, or null when it cannot be read.
-     *
-     * Refusing to start beats starting with the text silently ignored.
-     */
-    private fun planTextOrNull(): String? {
-        val text = planInput.text.toString().trim()
-        if (text.isEmpty()) return ""
-        return if (SpeedPlan.parse(text) != null) text else null
     }
 
     /** The signal-realism switches as the engine's own type, so nothing has to list them twice. */
@@ -996,7 +989,7 @@ class MainActivity : Activity() {
         val route = RoutePath(geometry)
         val first = route.points.first()
         val speed = speedMps()
-        val plan = planTextOrNull() ?: run {
+        val plan = planWire.takeIf { planEditor.isValid } ?: run {
             setNotice(strings.badPlan)
             return
         }
@@ -1095,7 +1088,7 @@ class MainActivity : Activity() {
         val accuracy = numberOr(accuracyInput, 5f)
         // The preview follows the interval plan too, or it would show a steady-speed track
         // for a session that will not be one.
-        val plan = SpeedPlan.parse(planInput.text.toString())
+        val plan = SpeedPlan.parse(planWire)
         val speed = speedMps()
         // Two different runs of the same route, so the divergence below is meaningful.
         // Deterministic rather than Random, so a report can be reproduced from its numbers.
@@ -1211,7 +1204,7 @@ class MainActivity : Activity() {
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
-        val plan = SpeedPlan.parse(planInput.text.toString())
+        val plan = SpeedPlan.parse(planWire)
         val speed = speedMps()
         thread {
             val route = previewRoute

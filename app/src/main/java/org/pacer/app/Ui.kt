@@ -15,9 +15,8 @@ import android.widget.TextView
 /**
  * The plain view builders every screen uses.
  *
- * Shared because three screens now build their own content, and a per-screen copy is how
- * one page ends up with a 12 sp hint and another with 13 sp. Plain framework views on
- * purpose: the engine is pure Kotlin and only the map needs a canvas.
+ * Shared so the three screens cannot drift into different type sizes. Plain framework views
+ * on purpose: the engine is pure Kotlin and only the map needs a canvas.
  */
 
 /** A screen title. */
