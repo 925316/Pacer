@@ -19,8 +19,19 @@ object HookUtils {
 
     fun isBound(): Boolean = ::module.isInitialized
 
-    private val fieldCache = ConcurrentHashMap<String, Field?>()
-    private val methodCache = ConcurrentHashMap<String, Method?>()
+    private val fieldCache = ConcurrentHashMap<String, Field>()
+
+    private val methodCache = ConcurrentHashMap<String, Method>()
+
+    /**
+     * Member names already proved absent, keyed `Class#member`.
+     *
+     * A ConcurrentHashMap refuses null values, so "not found" cannot be stored in the
+     * caches above; writing null threw instead, and since every reflective read goes
+     * through here, one missing member turned into an exception on every call - which
+     * is how a Location fix silently degraded to the device's real position.
+     */
+    private val missingMembers = ConcurrentHashMap.newKeySet<String>()
 
     fun findClass(className: String, classLoader: ClassLoader?): Class<*> =
         Class.forName(className, false, classLoader ?: ClassLoader.getSystemClassLoader())
@@ -78,7 +89,8 @@ object HookUtils {
 
     private fun field(clazz: Class<*>, name: String): Field? {
         val key = clazz.name + "#" + name
-        if (fieldCache.containsKey(key)) return fieldCache[key]
+        fieldCache[key]?.let { return it }
+        if (key in missingMembers) return null
         var c: Class<*>? = clazz
         while (c != null) {
             try {
@@ -90,7 +102,10 @@ object HookUtils {
                 c = c.superclass
             }
         }
-        fieldCache[key] = null
+        // Caching the miss matters as much as caching the hit: Location carries mock-flag
+        // field names that no longer exist on some releases, and without a negative entry
+        // every fix would repeat the whole hierarchy walk.
+        missingMembers.add(key)
         return null
     }
 
@@ -135,7 +150,8 @@ object HookUtils {
      */
     fun noArgAccessor(clazz: Class<*>, name: String): Method? {
         val key = clazz.name + "#" + name + "()"
-        if (methodCache.containsKey(key)) return methodCache[key]
+        methodCache[key]?.let { return it }
+        if (key in missingMembers) return null
         var c: Class<*>? = clazz
         while (c != null) {
             try {
@@ -147,7 +163,7 @@ object HookUtils {
                 c = c.superclass
             }
         }
-        methodCache[key] = null
+        missingMembers.add(key)
         return null
     }
 

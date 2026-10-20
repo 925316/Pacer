@@ -3,14 +3,18 @@
 // WHY THIS EXISTS: the only person who can run Pacer is the person holding the
 // phone, and "does the hook work" is not a question a user should have to answer by
 // reading logcat. Every probe here follows the same shape - compute what the engine
-// says the device must report, ask the device, compare - so the verdict is derived
-// from the same engine that would be wrong, not from a second implementation that
-// could agree with the bug.
+// says the device must report, ask the device, compare.
 //
-// It runs INSIDE the Pacer app's own process, which is in the module's scope. That is
-// what makes it possible at all: the hooks are already installed here, so a plain
-// LocationManager / WifiManager / SensorManager call returns the injected answer. No
-// root, no cross-process status file, no adb.
+// WHAT IT MUST NOT DO: read the hook's own in-memory state.
+//
+// The app ships the hook code and the framework loads it again from the same APK with
+// its own class loader, so `PacerRuntimeConfig` and `HookStatus` exist twice in this
+// process: the hook writes one copy and the app reads the other. An earlier version of
+// this file compared against the app's copy, which is never written, and so reported
+// "no hook attached, config never arrived" while 149 hooks were demonstrably live. The
+// expected values therefore come from the app's own stored configuration and the same
+// pure engine the hook uses - and "is the hook working" is answered by whether the
+// platform hands back what that engine says, not by asking the hook.
 package org.pacer.app
 
 import android.Manifest
@@ -25,12 +29,9 @@ import android.hardware.SensorManager
 import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.provider.Settings
-import org.pacer.hook.config.PacerRuntimeConfig
-import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.env.FakeRadioEnvironment
 import org.pacer.hook.hooks.system.vendor.ProcessIdentity
-import org.pacer.hook.utils.HookStatus
 import org.pacer.motion.CheckItem
 import org.pacer.motion.MotionOwner
 import org.pacer.motion.SelfCheck
@@ -45,21 +46,21 @@ import org.pacer.motion.SelfCheckReport
  * first problem is worth less than the report of everything else that still works.
  *
  * @param cfg the configuration the app itself wrote, so the expected values come from
- *   the same run the hooks are reading rather than from a second copy of the settings.
+ *   the same run the hooks read rather than from a second copy of the settings.
  */
 class SelfCheckRunner(
     private val context: android.app.Activity,
     private val cfg: PacerConfigClient.Stored?,
 ) {
 
+    /** Rebuilds the run exactly as the hook does, from the app's own stored config. */
+    private val subject = LiveSubject()
+
     fun run(): SelfCheckReport {
         // The probes need these to read anything at all; asking here rather than at
         // launch keeps a permission wall away from a page nobody is using yet.
         requestProbePermissions(context)
         val items = ArrayList<CheckItem>()
-        // Install report first: when nothing is injected, every later probe is a
-        // measurement of the real device and its "FAIL" says nothing about Pacer.
-        items += installReport()
 
         if (cfg == null || !cfg.active) {
             items += SelfCheck.skip(
@@ -70,14 +71,10 @@ class SelfCheckRunner(
             return SelfCheckReport.of(processLabel(), items, notes())
         }
 
-        // Before anything is measured: if the config never arrived, every later
-        // expectation is the module's defaults and the whole sheet is meaningless.
-        items += configChannelProbe()
-        items += locationProbes()
+        val expected = runCatching { expectedFix() }.getOrNull()
+        items += locationProbes(expected)
+        items += antiDetectionProbes()
         items += radioProbes()
-        // A Settings read needs no permission, so it runs even when the probes above are
-        // skipped: it is the one anti-detection answer the app can always ask for.
-        items += mockLocationSettingProbe()
         // Sensors last and only when a step run is on: the probe waits several seconds
         // for the hook's own heartbeat, which would otherwise delay every check.
         if (cfg.stepSimulation) {
@@ -89,75 +86,28 @@ class SelfCheckRunner(
         return SelfCheckReport.of(processLabel(), items, notes())
     }
 
-    // ---------------------------------------------------------------- installs
+    // ----------------------------------------------------------- anti-detection
 
     /**
-     * What attached in this process.
+     * The one probe that can only pass if a hook is running in this process.
      *
-     * `HookStatus` is the module's own record, so this item is the one that can tell
-     * "the probe failed because the value is wrong" from "the probe failed because
-     * nothing was installed here" - the two look identical from a LocationManager.
+     * `Settings.Secure.mock_location` is written by the system for an app that has been
+     * granted mock-location rights, and Pacer never holds that grant. A 0 here is
+     * therefore not something the app can produce by itself: it is the module answering
+     * the settings read. This is the evidence that replaces an earlier version which
+     * asked the hook "are you installed?" and, because the app holds a second copy of
+     * the hook's classes, always heard "no".
      */
-    private fun installReport(): CheckItem {
-        val total = HookStatus.countHooked()
-        val summary = HookStatus.summary()
-        return if (total > 0) {
-            SelfCheck.pass("hooks installed", summary)
-        } else {
-            CheckItem(
-                "hooks installed",
-                CheckItem.Verdict.FAIL,
-                "no hook attached in this process. Add Pacer to its own LSPosed scope and " +
-                    "restart it. ($summary)",
-            )
-        }
-    }
-
-    /**
-     * Whether the module copied a config into this process at all.
-     *
-     * This is the probe that makes the rest trustworthy. The expected values below are
-     * computed from `PacerRuntimeConfig`, which only the hook side populates: without
-     * that channel the holder keeps its defaults and the "expected" fix would be the
-     * origin, not the run. Comparing against the app's own stored settings instead would
-     * hide a dead config channel behind a green sheet, so the channel itself is a check.
-     */
-    private fun configChannelProbe(): CheckItem {
-        val state = cfg ?: return CheckItem(
-            "config channel",
-            CheckItem.Verdict.FAIL,
-            "the app has no stored configuration to compare with",
-        )
-        val snap = PacerRuntimeConfig.snapshot()
-        if (!snap.active) {
-            return CheckItem(
-                "config channel",
-                CheckItem.Verdict.FAIL,
-                "the stored run says active=true but this process never received it; the " +
-                    "hooks are idle here",
-            )
-        }
-        val seconds = kotlin.math.abs(snap.startTimestamp - state.startedAtMs) / 1000.0
-        return if (seconds <= CONFIG_START_TOLERANCE_SECONDS) {
-            SelfCheck.pass(
-                "config channel",
-                "received start=${snap.startTimestamp}, active=true",
-            )
-        } else {
-            CheckItem(
-                "config channel",
-                CheckItem.Verdict.FAIL,
-                "this process holds a different run than the app (start ${snap.startTimestamp} " +
-                    "vs ${state.startedAtMs}); the config did not reach it",
-            )
-        }
+    private fun antiDetectionProbes(): List<CheckItem> {
+        val out = ArrayList<CheckItem>()
+        out += mockLocationSettingProbe()
+        return out
     }
 
     // ---------------------------------------------------------------- location
 
-    private fun locationProbes(): List<CheckItem> {
+    private fun locationProbes(expected: Expected?): List<CheckItem> {
         val out = ArrayList<CheckItem>()
-        val expected = runCatching { expectedFix() }.getOrNull()
         if (expected == null) {
             out += SelfCheck.skip("location", "the engine could not compute a fix for this config")
             return out
@@ -182,37 +132,38 @@ class SelfCheckRunner(
                 "returned null while a simulation is active; read every getLastKnownLocation " +
                     "overload and the platform may have a stale cache to answer from",
             )
-        } else {
-            out += position("getLastKnownLocation", expected, last.latitude, last.longitude)
-            out += SelfCheck.flag("mock flag hidden", false, last.isFromMockProvider)
-            out += SelfCheck.number(
-                "speed",
-                expected.speedMps,
-                last.speed.toDouble(),
-                tolerance = SPEED_TOLERANCE_MPS,
-                unit = " m/s",
-            )
-            out += SelfCheck.number(
-                "accuracy",
-                expected.accuracyMeters.toDouble(),
-                last.accuracy.toDouble(),
-                tolerance = ACCURACY_TOLERANCE_METERS,
-                unit = " m",
-            )
-            out += SelfCheck.number(
-                "altitude",
-                expected.altitudeMeters,
-                last.altitude,
-                tolerance = ALTITUDE_TOLERANCE_METERS,
-                unit = " m",
-            )
-            // The provider name is free to check and catches a fix delivered under the
-            // wrong provider, which a caller that filters by provider would ignore.
-            out += SelfCheck.text("provider", LocationManager.GPS_PROVIDER, last.provider ?: "")
+            return out
         }
 
-        // The permission state the anti-detection layer answers with is checked in
-        // run(), because it needs no permission and therefore always runs.
+        out += position("getLastKnownLocation", expected, last.latitude, last.longitude)
+        // The injected Location is built by the app itself, so this is a claim the app
+        // could also have made up. The position above is not: it comes back through the
+        // platform, and a hook that is not running cannot make it match the engine.
+        out += SelfCheck.flag("mock flag hidden", false, last.isFromMockProvider)
+        out += SelfCheck.number(
+            "speed",
+            expected.speedMps,
+            last.speed.toDouble(),
+            tolerance = SPEED_TOLERANCE_MPS,
+            unit = " m/s",
+        )
+        out += SelfCheck.number(
+            "accuracy",
+            expected.accuracyMeters.toDouble(),
+            last.accuracy.toDouble(),
+            tolerance = ACCURACY_TOLERANCE_METERS,
+            unit = " m",
+        )
+        out += SelfCheck.number(
+            "altitude",
+            expected.altitudeMeters,
+            last.altitude,
+            tolerance = ALTITUDE_TOLERANCE_METERS,
+            unit = " m",
+        )
+        // The provider name is free to check and catches a fix delivered under the
+        // wrong provider, which a caller that filters by provider would ignore.
+        out += SelfCheck.text("provider", LocationManager.GPS_PROVIDER, last.provider ?: "")
         return out
     }
 
@@ -482,43 +433,48 @@ class SelfCheckRunner(
 
     // ------------------------------------------------------------------ helpers
 
-    /** The fix the engine says the injected location must carry at this instant. */
-    private fun expectedFix(): Expected {
-        val snap = PacerRuntimeConfig.snapshot()
-        val point = CurrentFix.of(snap)
-        val route = org.pacer.hook.hooks.RouteEngine.sampleAt()
-        val state = cfg
+    /**
+     * The fix the engine says the injected location must carry at this instant.
+     *
+     * Derived from the app's stored run through [LiveSubject], which is the same
+     * simulation the module builds from the same inputs and the same seed.
+     */
+    private fun expectedFix(): Expected? {
+        val state = cfg ?: return null
+        val point = subject.point(state) ?: return null
+        // Speed follows the same owner rule the module uses: a paused route reports zero,
+        // and any other running owner reports the configured speed.
+        val speed = if (state.routePaused) 0.0 else state.speed
         return Expected(
-            lat = route?.point?.lat ?: point.lat,
-            lon = route?.point?.lon ?: point.lon,
-            speedMps = route?.speedMps ?: CurrentFix.linearSpeedAt(snap),
-            accuracyMeters = route?.accuracyMeters ?: state?.accuracy ?: snap.accuracyMeters,
-            altitudeMeters = (state?.altitude ?: snap.altitudeMeters) +
-                (route?.altitudeMeters ?: 0.0),
+            lat = point.lat,
+            lon = point.lon,
+            speedMps = speed,
+            accuracyMeters = state.accuracy,
+            altitudeMeters = state.altitude,
         )
     }
 
     private fun expectedWifi(): List<FakeRadioEnvironment.WifiAp> {
-        val snap = PacerRuntimeConfig.snapshot()
-        val fix = CurrentFix.of(snap)
+        val state = cfg ?: return emptyList()
+        val fix = subject.point(state) ?: return emptyList()
         // The same function and the same session seed the WiFi hook uses, so this
         // compares the whole chain - config, fix, model, fabricator - rather than a
         // second model that could agree with the bug.
         return FakeRadioEnvironment.scanResults(
             latitude = fix.lat,
             longitude = fix.lon,
-            sessionSeed = EnvGeo.sessionSeed(snap.startTimestamp),
+            sessionSeed = EnvGeo.sessionSeed(state.startedAtMs),
             nowMs = System.currentTimeMillis(),
         ).filter { it.ssid.isNotEmpty() }
     }
 
     private fun expectedCells(): List<FakeRadioEnvironment.Cell> {
-        val snap = PacerRuntimeConfig.snapshot()
-        val fix = CurrentFix.of(snap)
+        val state = cfg ?: return emptyList()
+        val fix = subject.point(state) ?: return emptyList()
         return FakeRadioEnvironment.cells(
             latitude = fix.lat,
             longitude = fix.lon,
-            sessionSeed = EnvGeo.sessionSeed(snap.startTimestamp),
+            sessionSeed = EnvGeo.sessionSeed(state.startedAtMs),
         )
     }
 
@@ -592,12 +548,6 @@ class SelfCheckRunner(
 
         /** Long enough for the hook's quiet window plus one heartbeat. */
         const val SENSOR_WAIT_SECONDS = 8L
-
-        /**
-         * A start timestamp that differs by more than this did not come from the same
-         * run: the app writes it once, and the hook copies it verbatim.
-         */
-        const val CONFIG_START_TOLERANCE_SECONDS = 1.0
 
         const val PROBE_PERMISSION_REQUEST = 1001
 
