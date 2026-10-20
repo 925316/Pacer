@@ -61,7 +61,16 @@ object SystemLocationServiceHooker {
         // cached last location handed to a fresh registration.
         n += HookUtils.hookAllMethods(clazz, "onReportLocation") { chain ->
             try {
-                if (PacerRuntimeConfig.snapshot().active) rewriteArgs(chain.args)
+                if (PacerRuntimeConfig.snapshot().active) {
+                    // Logged once, not per fix: "the report never reaches this method"
+                    // and "it arrives but is rewritten incorrectly" look identical from
+                    // the outside, and a single first-hit line settles which it is
+                    // without filling the log at one line per second.
+                    if (reportHits.getAndIncrement() == 0) {
+                        PacerLog.i("system-location: onReportLocation reached (first hit)")
+                    }
+                    rewriteArgs(chain.args)
+                }
             } catch (t: Throwable) {
                 PacerLog.w("system-location", t)
             }
@@ -71,6 +80,9 @@ object SystemLocationServiceHooker {
         n += hookGetter(clazz, "getLastLocationUnsafe")
         return n
     }
+
+    /** Counts deliveries into the provider funnel; see the first-hit log above. */
+    private val reportHits = java.util.concurrent.atomic.AtomicInteger(0)
 
     // --- LocationManagerService ---------------------------------------------
 
@@ -185,6 +197,22 @@ object SystemLocationServiceHooker {
         setDouble(location, "setAltitude", fake.altitude)
         setFloat(location, "setBearing", fake.bearing)
         setFloat(location, "setSpeed", fake.speed)
+        // Read the value back: a setter that ran but did not stick (a final field, a
+        // setter missing on this release) would leave the real fix in place while the
+        // hook reports success. One line per rewrite is cheap next to a fix per second,
+        // and without it "the hook ran" and "the hook worked" are indistinguishable.
+        val after = try {
+            HookUtils.callMethod(location, "getLatitude") as? Double
+        } catch (_: Throwable) {
+            null
+        }
+        if (after == null || kotlin.math.abs(after - fake.latitude) > 1e-6) {
+            PacerLog.w(
+                "system-location",
+                "rewrite did not stick: wanted ${fake.latitude}, read back $after " +
+                    "(provider=$provider, class=${location.javaClass.name})",
+            )
+        }
         try {
             HookUtils.callMethod(location, "setTime", System.currentTimeMillis())
         } catch (_: Throwable) {
