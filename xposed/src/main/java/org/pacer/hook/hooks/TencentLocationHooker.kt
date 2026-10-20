@@ -18,7 +18,8 @@ import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
-import org.pacer.motion.CoordinateTransform
+import org.pacer.motion.CoordinatePolicy
+import org.pacer.motion.CoordinateSystem
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -112,17 +113,23 @@ object TencentLocationHooker {
         // warm-up ramp would exist in one API and not in the other.
         val reported = LocationInjector.lastReported()
         val name = method.name
+        // Tencent's SDK is GCJ-02 by default; a per-app override still wins, and the
+        // reported coordinate type has to follow it or the SDK would describe the datum
+        // it did not receive.
+        val datum = cfg.datumFor(CoordinateSystem.GCJ02)
+        val here = CurrentFix.of(cfg)
         val number: Double = when (name) {
-            "getLatitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lat
-            "getLongitude" -> CoordinateTransform.wgs84ToGcj02(CurrentFix.of(cfg)).lon
+            "getLatitude" -> CoordinatePolicy.convert(here, datum).lat
+            "getLongitude" -> CoordinatePolicy.convert(here, datum).lon
             "getSpeed" -> reported?.speedMps?.toDouble() ?: CurrentFix.speedAt(cfg)
             "getBearing" -> reported?.bearingDeg?.toDouble() ?: cfg.bearingDeg.toDouble()
             "getAccuracy" -> reported?.accuracyMeters?.toDouble() ?: cfg.accuracyMeters.toDouble()
             "getTime" -> System.currentTimeMillis().toDouble()
             // 0 == not mock; the SDK exposes this as an int, not a boolean.
             "isMockGps", "getMockGps" -> 0.0
-            // Constant 1 == COORDINATE_TYPE_GCJ02.
-            "getCoordinateType" -> 1.0
+            // 1 == COORDINATE_TYPE_GCJ02, 0 == WGS84. Report what was actually delivered.
+            "getCoordinateType" ->
+                if (datum == CoordinateSystem.WGS84) 0.0 else 1.0
             else -> return null
         }
         val rt = method.returnType

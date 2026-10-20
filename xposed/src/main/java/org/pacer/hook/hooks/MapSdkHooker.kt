@@ -5,6 +5,8 @@ import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import org.pacer.motion.CoordinatePolicy
+import org.pacer.motion.CoordinateSystem
 import org.pacer.motion.CoordinateTransform
 import org.pacer.motion.GeoPoint
 import java.text.SimpleDateFormat
@@ -90,7 +92,9 @@ object MapSdkHooker {
     // ---- AMap (GCJ-02) ----
 
     private fun gcjCoords(): Coords? = activeWgs84()?.let {
-        val g = CoordinateTransform.wgs84ToGcj02(it)
+        // GCJ-02 is this SDK's default; an explicit per-app override wins over it.
+        val system = PacerRuntimeConfig.snapshot().datumFor(CoordinateSystem.GCJ02)
+        val g = CoordinatePolicy.convert(it, system)
         Coords(g.lat, g.lon)
     }
 
@@ -171,15 +175,22 @@ object MapSdkHooker {
      * converted and falls back to BD-09 with a log line.
      */
     private fun baiduCoords(coorType: String?): Coords? = activeWgs84()?.let { wgs ->
+        // The SDK reads its own requested datum per object, which is more specific than
+        // the package-level override: a client that explicitly asked for WGS-84 must get
+        // WGS-84 even if the package override says BD-09. Only the fall-through case (no
+        // recognisable coorType) consults the override, with BD-09 as the SDK default.
         val kind = coorType?.trim()?.lowercase(Locale.US) ?: ""
         val p = when (kind) {
             "gcj02", "gcj02ll", "gcj" -> CoordinateTransform.wgs84ToGcj02(wgs)
             "wgs84", "wgs" -> wgs
             "bd09mc" -> {
                 PacerLog.i("baidu bd09mc requested; injecting BD-09 (Mercator conversion unsupported)")
-                CoordinateTransform.wgs84ToBd09(wgs)
+                CoordinatePolicy.convert(wgs, CoordinateSystem.BD09)
             }
-            else -> CoordinateTransform.wgs84ToBd09(wgs)
+            else -> CoordinatePolicy.convert(
+                wgs,
+                PacerRuntimeConfig.snapshot().datumFor(CoordinateSystem.BD09),
+            )
         }
         Coords(p.lat, p.lon)
     }

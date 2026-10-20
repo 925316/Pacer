@@ -12,6 +12,9 @@ import org.pacer.hook.hooks.env.CurrentFix
 import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
+import org.pacer.motion.CoordinatePolicy
+import org.pacer.motion.CoordinateSystem
+import org.pacer.motion.GeoPoint
 import org.pacer.motion.SatelliteStatus
 import org.pacer.motion.SignalRealism
 import org.pacer.motion.StationaryJitter
@@ -297,12 +300,22 @@ object LocationInjector {
         // receiver reports anyway, so it is a smaller lie than the triple zero.
         if (speed == 0.0 && bearing == 0f && altitude == 0.0) altitude = ALTITUDE_FLOOR_METERS
 
+        // The datum boundary. Everything above is WGS-84, including the cached target
+        // values the environment layers read; only the object handed to the target app is
+        // converted, and only when that app asked for a different datum. Converting the
+        // cache as well would shift the WiFi and cell environments too, which are derived
+        // from the WGS-84 fix and are not consumed as coordinates by anyone.
+        val reported = CoordinatePolicy.convert(
+            GeoPoint(lat, lon),
+            cfg.datumFor(CoordinateSystem.WGS84),
+        )
+
         val location = Location(provider)
         targetLat = lat
         targetLon = lon
         targetAtMs = SystemClock.elapsedRealtime()
-        location.latitude = lat
-        location.longitude = lon
+        location.latitude = reported.lat
+        location.longitude = reported.lon
         location.accuracy = accuracy
         location.altitude = altitude
         location.bearing = bearing

@@ -22,11 +22,27 @@ object ProcessIdentity {
      */
     @Volatile private var cached: SystemProcess? = null
 
+    /** The same cmdline, kept so the per-app coordinate override can name the package. */
+    @Volatile private var cachedName: String? = null
+
     fun current(): SystemProcess {
         cached?.let { return it }
-        val process = classify(readCmdline())
+        val name = readCmdline()
+        cachedName = name
+        val process = classify(name)
         cached = process
         return process
+    }
+
+    /**
+     * The process name (`com.example.app` or `com.example.app:remote`), or null.
+     *
+     * The same value [current] classifies, cached together with it so the two can never
+     * describe different reads.
+     */
+    fun processName(): String? {
+        current()
+        return cachedName
     }
 
     fun classify(cmdline: String?): SystemProcess {

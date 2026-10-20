@@ -15,6 +15,7 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
+import org.pacer.motion.CoordinatePolicy
 import org.pacer.motion.FixSample
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
@@ -69,6 +70,9 @@ class MainActivity : Activity() {
     private lateinit var altitudeInput: EditText
     private lateinit var bearingInput: EditText
     private lateinit var planInput: EditText
+
+    /** The per-app coordinate table as typed. */
+    private lateinit var coordinateInput: EditText
     private lateinit var bearingHoldToggle: CheckBox
     private lateinit var altitudeDriftToggle: CheckBox
     private lateinit var accuracyWarmupToggle: CheckBox
@@ -242,6 +246,26 @@ class MainActivity : Activity() {
                 "while pairing hardware.",
         )
 
+        // --- per-app coordinate systems --------------------------------------
+        // One plain text field. The table is a preference that applies to whatever
+        // package it names, and it is saved on its own rather than only at Start.
+        root.addView(section("Per-app coordinate system"))
+        coordinateInput = EditText(this).apply {
+            hint = "com.example.app=GCJ02;com.other.app=WGS84"
+            setInputType(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
+        }
+        root.addView(coordinateInput)
+        root.addView(
+            hint(
+                "A fix carries no datum, so an app that draws it on a Chinese base map " +
+                    "assumes GCJ-02 while one that draws it on a Google base map assumes " +
+                    "WGS-84; the two differ by about half a kilometre. AUTO follows the " +
+                    "API being hooked. This table overrides that per package; semicolons " +
+                    "separate entries.",
+            ),
+        )
+        root.addView(action("Save coordinate overrides") { saveCoordinateOverrides() })
+
         // --- signal realism --------------------------------------------------
         root.addView(section("Signal realism"))
         root.addView(
@@ -355,6 +379,7 @@ class MainActivity : Activity() {
         stepToggle.isChecked = stored.stepSimulation
         bluetoothToggle.isChecked = stored.mockBluetooth
         planInput.setText(stored.plan)
+        coordinateInput.setText(stored.coordinateOverrides)
         loopToggle.isChecked = stored.loopRoute
         bearingHoldToggle.isChecked = stored.realism.bearingHold
         altitudeDriftToggle.isChecked = stored.realism.altitudeDrift
@@ -451,6 +476,32 @@ class MainActivity : Activity() {
         // collecting points nobody can see or stop. Ending it here keeps the promise the
         // button makes - what was walked is what gets saved.
         recorder?.let { finishRecording(it) }
+    }
+
+    /**
+     * Saves the per-app datum table.
+     *
+     * Parsed before it is stored, and the normalised form is written back into the field:
+     * a typo then shows up as a dropped entry immediately, rather than as a fix in the
+     * wrong datum on the next run.
+     */
+    private fun saveCoordinateOverrides() {
+        val typed = coordinateInput.text.toString()
+        val parsed = CoordinatePolicy.parse(typed)
+        val normalised = CoordinatePolicy.format(parsed)
+        coordinateInput.setText(normalised)
+        if (!PacerConfigClient.saveCoordinateOverrides(normalised)) {
+            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            return
+        }
+        val dropped = typed.split(';').count { it.isNotBlank() } - parsed.size
+        output.text = when {
+            parsed.isEmpty() && typed.isBlank() -> "Coordinate overrides cleared; AUTO applies."
+            parsed.isEmpty() -> "No valid entry in that text; nothing was saved."
+            dropped > 0 -> "Saved ${parsed.size} override(s); $dropped entr(y/ies) were unreadable " +
+                "and are shown dropped."
+            else -> "Saved ${parsed.size} coordinate override(s)."
+        }
     }
 
     private fun persistAndRender() {

@@ -113,6 +113,8 @@ object PacerConfigClient {
         val plan: String,
         /** Whether a route run starts over when it reaches the end. */
         val loopRoute: Boolean,
+        /** Per-app coordinate overrides as the user typed them. */
+        val coordinateOverrides: String,
         /** True while the route run is frozen. */
         val routePaused: Boolean,
         /** Route time reached at the last pause, in milliseconds. */
@@ -176,6 +178,7 @@ object PacerConfigClient {
             routePaused = p.getBoolean("route_paused", false),
             routeOffsetMs = p.getLong("route_offset_ms", 0L),
             routeResumedAtMs = p.getLong("route_resumed_ts", 0L),
+            coordinateOverrides = p.getString("coord_overrides", "") ?: "",
         )
     }
 
@@ -198,6 +201,7 @@ object PacerConfigClient {
         mockBluetooth: Boolean = true,
         stepSimulation: Boolean = true,
         realism: RealismToggles = RealismToggles(),
+        coordinateOverrides: String? = null,
     ): Boolean {
         val p = prefs ?: run {
             Log.w(TAG, "config channel not ready yet")
@@ -228,8 +232,25 @@ object PacerConfigClient {
             .putBoolean("route_paused", false)
             .putLong("route_offset_ms", 0L)
             .putLong("route_resumed_ts", 0L)
+            // Null means "leave the stored table alone": the per-app datum is a preference
+            // that outlives any one run, and a Start must not silently clear it.
+            .also { editor -> coordinateOverrides?.let { editor.putString("coord_overrides", it) } }
             .apply()
         Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")
+        return true
+    }
+
+    /**
+     * Writes the per-app datum table on its own, without starting or stopping a run.
+     *
+     * A separate write because this is a preference, not a run setting: it applies to
+     * whatever the next run pushes, and forcing the user to restart a simulation to
+     * change it would be a worse deal than one extra button.
+     */
+    fun saveCoordinateOverrides(table: String): Boolean {
+        val p = prefs ?: return false
+        p.edit().putString("coord_overrides", table).apply()
+        Log.i(TAG, "coordinate overrides: ${table.ifBlank { "none" }}")
         return true
     }
 
