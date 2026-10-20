@@ -122,6 +122,7 @@ class PacerHook : XposedModule() {
         HookUtils.runCatchingLogged("map-sdks") {
             MapSdkHooker.install(classLoader)
         }
+        hookRealApplicationLoader(classLoader)
         HookUtils.runCatchingLogged("gms-fused") {
             GmsFusedHooker.install(classLoader)
         }
@@ -148,6 +149,39 @@ class PacerHook : XposedModule() {
         }
         HookUtils.runCatchingLogged("raw-gnss") {
             RawGnssSuppressionHooker.install(classLoader)
+        }
+    }
+
+    /**
+     * Re-hooks the map SDKs against the application's OWN class loader.
+     *
+     * The loader the framework hands to onPackageReady does not see every SDK class.
+     * AMap keeps its location classes behind the app's own loader, and Baidu ships
+     * extra dex files it loads later, so a single install at the framework's callback
+     * finds nothing: measured as `map-sdks=0` in AMap's process, with the consequence
+     * that Pacer looked installed and changed nothing on the map.
+     *
+     * Both callbacks are hooked because neither is guaranteed on every release:
+     * attachBaseContext fires before the app's own loader is fully populated on some
+     * builds, and onCreate fires after the SDK singleton may already have been built
+     * on others. MapSdkHooker.install is idempotent per loader, so running twice is
+     * free; running zero times is the failure being fixed.
+     */
+    private fun hookRealApplicationLoader(classLoader: ClassLoader) {
+        for (method in listOf("attachBaseContext", "onCreate")) {
+            HookUtils.runCatchingLogged("app-loader/$method") {
+                val app = HookUtils.findClassIfExists("android.app.Application", classLoader)
+                    ?: return@runCatchingLogged
+                HookUtils.hookAllMethods(app, method) { chain ->
+                    val result = chain.proceed(chain.args.toTypedArray())
+                    try {
+                        val loader = (chain.thisObject as? android.content.Context)?.classLoader
+                        if (loader != null) MapSdkHooker.install(loader)
+                    } catch (_: Throwable) {
+                    }
+                    result
+                }
+            }
         }
     }
 

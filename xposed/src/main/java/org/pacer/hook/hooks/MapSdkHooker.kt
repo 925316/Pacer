@@ -36,7 +36,7 @@ object MapSdkHooker {
 
     private const val BAIDU_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
-    private class Coords(val lat: Double, val lon: Double)
+    private class Coords(val lat: Double, val lon: Double, val loader: ClassLoader?)
 
     /**
      * The non-coordinate fields a location object carries.
@@ -82,12 +82,107 @@ object MapSdkHooker {
         return CurrentFix.of(cfg)
     }
 
+    /**
+     * SDK listeners that have been registered, so they can be fed on a timer.
+     *
+     * An SDK that never produces a fix - no GNSS, no network location, which is the
+     * normal state of a spoofing target - will never call a listener, so a layer that
+     * only rewrites the argument of a callback that does not happen has no effect at
+     * all. This set is what the timer drives instead.
+     */
+    private val locationSinks = java.util.concurrent.CopyOnWriteArrayList<Any>()
+
+    @Volatile private var pumpStarted = false
+
+    /**
+     * Builds an AMapLocation carrying the current fix.
+     *
+     * Constructed reflectively inside the caller's loader because the class belongs to
+     * the app, not to the module: resolving it against the module's loader would produce
+     * an object the SDK cannot recognise.
+     */
+    private fun buildAmapLocation(coords: Coords): Any? = try {
+        val loader = coords.loader ?: return null
+        val clazz = Class.forName("com.amap.api.location.AMapLocation", false, loader)
+        val loc = clazz.getConstructor(String::class.java).newInstance("gps")
+        invokeQuietly(loc, "setLatitude", coords.lat)
+        invokeQuietly(loc, "setLongitude", coords.lon)
+        val cfg = PacerRuntimeConfig.snapshot()
+        val fix = CurrentFix.of(cfg)
+        val fields = currentFields()
+        if (fields != null) {
+            invokeQuietly(loc, "setAccuracy", fields.accuracyMeters)
+            invokeQuietly(loc, "setSpeed", fields.speedMps.toFloat())
+            invokeQuietly(loc, "setBearing", fields.bearingDeg)
+            invokeQuietly(loc, "setAltitude", fields.altitudeMeters)
+        } else {
+            invokeQuietly(loc, "setAccuracy", cfg.accuracyMeters)
+            invokeQuietly(loc, "setAltitude", cfg.altitudeMeters)
+        }
+        invokeQuietly(loc, "setTime", System.currentTimeMillis())
+        // A GPS fix with no satellites is rejected by AMap's own quality check, so the
+        // count has to be present and plausible, not merely absent-and-ignored.
+        val sky = LastSky.current()
+        invokeQuietly(loc, "setSatellites", sky.inView)
+        invokeQuietly(loc, "setGpsAccuracyStatus", 1)
+        invokeQuietly(loc, "setLocationType", 1)
+        loc
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** One tick per second, matching the platform's fastest ordinary fix rate. */
+    private fun startPump() {
+        if (pumpStarted) return
+        synchronized(this) {
+            if (pumpStarted) return
+            pumpStarted = true
+        }
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val tick = object : Runnable {
+            override fun run() {
+                try {
+                    pushSdkTick()
+                } catch (_: Throwable) {
+                } finally {
+                    handler.postDelayed(this, 1000L)
+                }
+            }
+        }
+        handler.post(tick)
+    }
+
+    private fun pushSdkTick() {
+        if (locationSinks.isEmpty()) return
+        val coords = gcjCoords() ?: return
+        val loc = buildAmapLocation(coords) ?: return
+        for (sink in locationSinks.toList()) {
+            try {
+                invokeQuietly(sink, "onLocationChanged", loc)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     fun install(classLoader: ClassLoader) {
+        // Which loaders have already been hooked. The framework's loader does NOT see
+        // every SDK: AMap's location classes and Baidu's secondary dexes live in the
+        // app's own loader, which only exists once Application.attachBaseContext has
+        // run. PacerHook re-invokes this from that callback, and without this guard the
+        // second call would stack a second interceptor on every AMapLocation getter.
+        //
+        // Measured cost of not having the retry at all: `map-sdks=0` in AMap's process
+        // and no effect in its map, which is exactly the symptom this fixes.
+        if (!installedLoaders.add(classLoader)) return
         hookAmap(classLoader)
         hookBaidu(classLoader)
         TencentLocationHooker.install(classLoader)
         PacerLog.i("map sdk hooks installed")
     }
+
+    /** Loaders already hooked; identity comparison on purpose, a loader is a single object. */
+    private val installedLoaders =
+        java.util.Collections.newSetFromMap(java.util.WeakHashMap<ClassLoader, Boolean>())
 
     // ---- AMap (GCJ-02) ----
 
@@ -95,11 +190,18 @@ object MapSdkHooker {
         // GCJ-02 is this SDK's default; an explicit per-app override wins over it.
         val system = PacerRuntimeConfig.snapshot().datumFor(CoordinateSystem.GCJ02)
         val g = CoordinatePolicy.convert(it, system)
-        Coords(g.lat, g.lon)
+        Coords(g.lat, g.lon, amapLoader)
     }
+
+    /** The loader AMapLocation was found in; see buildAmapLocation. */
+    @Volatile private var amapLoader: ClassLoader? = null
+
+    /** The loader BDLocation was found in, for the same reason. */
+    @Volatile private var baiduLoader: ClassLoader? = null
 
     private fun hookAmap(classLoader: ClassLoader) {
         val locClass = HookUtils.findClassIfExists("com.amap.api.location.AMapLocation", classLoader) ?: return
+        amapLoader = classLoader
 
         HookUtils.hookAllMethods(locClass, "getLatitude") { chain ->
             val c = gcjCoords()
@@ -133,6 +235,15 @@ object MapSdkHooker {
             HookUtils.hookAllMethods(clientClass, "setLocationListener") { chain ->
                 val l = chain.args.firstOrNull()
                 if (l != null) {
+                    // Capture AND patch. Patching the argument covers the case where the
+                    // SDK delivers a fix on its own; capturing covers the case where it
+                    // never does, which is the normal one on a device with no GNSS fix -
+                    // and that is the case where a patch-only layer looks installed and
+                    // changes nothing on the map. Capture is guarded by the excluded-type
+                    // rule so a Baidu listener registered on an AMap client is not pushed
+                    // an AMapLocation it cannot read.
+                    locationSinks.addIfAbsent(l)
+                    startPump()
                     hookListenerClass(l.javaClass, "onLocationChanged") { args ->
                         val arg = args.firstOrNull() ?: return@hookListenerClass
                         val c = gcjCoords() ?: return@hookListenerClass
@@ -141,6 +252,20 @@ object MapSdkHooker {
                     }
                 }
                 chain.proceed(chain.args.toTypedArray())
+            }
+
+            HookUtils.hookAllMethods(clientClass, "unRegisterLocationListener") { chain ->
+                val l = chain.args.firstOrNull()
+                if (l != null) locationSinks.removeAll { it === l }
+                chain.proceed(chain.args.toTypedArray())
+            }
+
+            // getLastKnownLocation must answer with the simulated fix even before the
+            // client has ever started; otherwise an app that reads a cached fix first
+            // shows the device's own position and only corrects itself a second later.
+            HookUtils.hookAllMethods(clientClass, "getLastKnownLocation") { chain ->
+                val c = gcjCoords()
+                if (c != null) buildAmapLocation(c) else chain.proceed(chain.args.toTypedArray())
             }
         }
 
@@ -192,7 +317,7 @@ object MapSdkHooker {
                 PacerRuntimeConfig.snapshot().datumFor(CoordinateSystem.BD09),
             )
         }
-        Coords(p.lat, p.lon)
+        Coords(p.lat, p.lon, baiduLoader)
     }
 
     private fun coorTypeOf(obj: Any?): String? =
@@ -204,6 +329,7 @@ object MapSdkHooker {
 
     private fun hookBaidu(classLoader: ClassLoader) {
         val locClass = HookUtils.findClassIfExists("com.baidu.location.BDLocation", classLoader) ?: return
+        baiduLoader = classLoader
 
         HookUtils.hookAllMethods(locClass, "getLatitude") { chain ->
             val c = baiduCoords(coorTypeOf(chain.thisObject))
