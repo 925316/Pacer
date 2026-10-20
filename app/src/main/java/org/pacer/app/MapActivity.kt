@@ -15,6 +15,7 @@ import org.pacer.motion.FixSample
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
+import org.pacer.motion.MotionOwner
 import org.pacer.motion.MotionSamples
 import org.pacer.motion.MotionSeed
 import org.pacer.motion.RealismToggles
@@ -482,12 +483,11 @@ class MapActivity : Activity() {
      * worse than one that says why.
      */
     private fun relocate(point: GeoPoint) {
-        val stored = PacerConfigClient.stored()
-        when {
-            stored != null && stored.active && stored.onRoute ->
+        when (PacerConfigClient.owner()) {
+            MotionOwner.ROUTE ->
                 info.text = "This run follows a route, so it cannot be moved with a long press. " +
                     "Edit its waypoints instead, or stop it and start a straight-line run."
-            PacerConfigClient.canTeleport() -> {
+            MotionOwner.PLAN, MotionOwner.HAND -> {
                 PacerConfigClient.teleport(point.lat, point.lon)
                 info.text = String.format(
                     Locale.US,
@@ -536,13 +536,23 @@ class MapActivity : Activity() {
             info.text = PacerConfigClient.NOT_READY_MESSAGE
             return
         }
-        info.text = String.format(
-            Locale.US,
-            "Simulating %d waypoints at %.1f m/s%s.",
-            draft.size,
-            speed,
-            if (loopCheck.isChecked) ", repeating" else "",
-        )
+        val speedFromPlan = !stored?.plan.isNullOrBlank()
+        info.text = if (speedFromPlan) {
+            String.format(
+                Locale.US,
+                "Simulating %d waypoints with the interval plan as the speed curve%s.",
+                draft.size,
+                if (loopCheck.isChecked) ", repeating" else "",
+            )
+        } else {
+            String.format(
+                Locale.US,
+                "Simulating %d waypoints at %.1f m/s%s.",
+                draft.size,
+                speed,
+                if (loopCheck.isChecked) ", repeating" else "",
+            )
+        }
         updateLivePosition()
     }
 

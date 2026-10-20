@@ -5,6 +5,7 @@ import android.util.Log
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import org.pacer.motion.GeoPoint
+import org.pacer.motion.MotionOwner
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.SpeedPlan
 import org.pacer.motion.StraightLine
@@ -111,7 +112,17 @@ object PacerConfigClient {
         val plan: String,
         /** Whether a route run starts over when it reaches the end. */
         val loopRoute: Boolean,
-    )
+    ) {
+        /**
+         * Which input owns speed and heading, derived from what is stored.
+         *
+         * One place answers this so the two screens and the overlay cannot disagree
+         * about whether a hand control is meaningful. It is also based on `active`:
+         * `onRoute` alone describes a configured route, not a running one, and a
+         * stopped run keeps its `route_json` on purpose.
+         */
+        val owner: MotionOwner get() = MotionOwner.of(active, onRoute, plan)
+    }
 
     /** The stored configuration, or null while the channel is not ready or unused. */
     fun stored(): Stored? {
@@ -204,28 +215,27 @@ object PacerConfigClient {
     /**
      * Live update from the floating joystick.
      *
-     * The position is derived from the start point and the clock, so changing the
-     * motion has to move the anchor first: without that, the whole straight line is
-     * recomputed from where the run began under the new heading and the subject jumps.
+     * Refused unless the hand owns the run ([MotionOwner.acceptsHandSteering]). Both
+     * an automatic route and an interval plan derive distance from the clock, so a
+     * speed written here would not steer anything: the subject would move along its
+     * own track by the difference, and in loop mode the lap length fixed at the first
+     * build would no longer match. The rule lives here rather than only in the overlay
+     * so another caller cannot reintroduce it.
      *
-     * A route run is refused outright. Its position, speed and heading are functions of
-     * the path and the clock, so writing a speed here would not steer anything: it would
-     * rebuild the run and move the subject along the path by the difference, and in loop
-     * mode it would also invalidate the lap length fixed at the first build. The rule
-     * lives here rather than only in the overlay so another caller cannot reintroduce it.
+     * A hand-steered straight line still has to move its anchor first: without that,
+     * the whole line is recomputed from where the run began under the new heading and
+     * the subject jumps.
      */
     fun updateMotion(speed: Double, bearing: Float) {
         val p = prefs ?: return
-        if (isRouteRunActive()) {
-            Log.i(TAG, "motion update ignored: a route run owns speed and heading")
+        if (!owner().acceptsHandSteering) {
+            Log.i(TAG, "motion update ignored: ${owner()} owns the run")
             return
         }
         val edit = p.edit()
             .putLong("speed_mps", java.lang.Double.doubleToRawLongBits(speed))
             .putFloat("bearing", bearing)
-        if (p.getString("route_json", "").isNullOrEmpty()) {
-            anchorHere(p, edit, System.currentTimeMillis())
-        }
+        anchorHere(p, edit, System.currentTimeMillis())
         edit.apply()
     }
 
@@ -245,23 +255,30 @@ object PacerConfigClient {
         Log.i(TAG, "simulation moved to $lat, $lon")
     }
 
-    /** True when a running straight-line simulation is there to be moved. */
+    /**
+     * True when the subject can be moved by a long press.
+     *
+     * This is not the same question as hand steering: a plan run cannot be steered
+     * (its speed belongs to the plan) but it can still be moved, because moving only
+     * re-anchors the clock and the plan continues from the new point. A route run
+     * cannot be moved at all: its position comes from its geometry.
+     */
     fun canTeleport(): Boolean {
-        val state = stored() ?: return false
-        return state.active && !state.onRoute
+        val owner = owner()
+        return owner == MotionOwner.PLAN || owner == MotionOwner.HAND
     }
 
     /**
-     * True when the running simulation follows a route.
+     * Which input owns speed and heading right now.
      *
-     * A route owns its position, speed and heading: it is derived from the path and
-     * the clock. Hand steering has nothing it can change without re-anchoring the
-     * timeline, so the joystick asks this before it writes anything.
+     * [MotionOwner.NONE] when nothing is stored, so a caller that only wants to know
+     * whether hand steering applies does not have to distinguish "no run" from
+     * "a run that owns itself".
      */
-    fun isRouteRunActive(): Boolean {
-        val state = stored() ?: return false
-        return state.active && state.onRoute
-    }
+    fun owner(): MotionOwner = stored()?.owner ?: MotionOwner.NONE
+
+    /** True when hand steering cannot change the run that is active. */
+    fun isAutomaticRun(): Boolean = owner().isAutomatic
 
     /**
      * Writes the current derived position as the new start point, so a motion change

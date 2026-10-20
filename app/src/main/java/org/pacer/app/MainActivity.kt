@@ -19,6 +19,7 @@ import org.pacer.motion.FixSample
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
+import org.pacer.motion.MotionOwner
 import org.pacer.motion.MotionSeed
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
@@ -148,7 +149,9 @@ class MainActivity : Activity() {
             hint(
                 "Interval plan, for example \"3.0@180;1.4@60#5\": speed in m/s, @, seconds, " +
                     "\";\" between steps, \"#N\" repeats (0 = forever). Works on a route and " +
-                    "on the straight line; the reported speed follows it.",
+                    "on the straight line; the reported speed follows it. While a plan is set, " +
+                    "the plan owns the speed and the floating joystick cannot change it, so " +
+                    "clear this field to steer by hand.",
             ),
         )
         loopToggle = option(
@@ -265,12 +268,14 @@ class MainActivity : Activity() {
         accuracyWarmupToggle.isChecked = stored.realism.accuracyWarmup
         satelliteJitterToggle.isChecked = stored.realism.satelliteJitter
         signalDropoutToggle.isChecked = stored.realism.signalDropout
-        output.text = when {
-            stored.onRoute -> "Loaded the stored configuration: a route simulation is configured."
-            stored.active -> "Loaded the stored configuration: a straight-line simulation is running."
-            else -> "Loaded the stored configuration."
-        }
-    }
+        output.text = when (stored.owner) {
+            MotionOwner.ROUTE -> "Loaded the stored configuration: a route simulation is running."
+            MotionOwner.PLAN -> "Loaded the stored configuration: a straight-line run with an " +
+                "interval plan is running."
+            MotionOwner.HAND -> "Loaded the stored configuration: a hand-steered straight-line " +
+                "simulation is running."
+            MotionOwner.NONE -> "Loaded the stored configuration; no simulation is running."
+        }    }
 
     override fun onResume() {
         super.onResume()
@@ -379,9 +384,14 @@ class MainActivity : Activity() {
             output.text = PacerConfigClient.NOT_READY_MESSAGE
             return
         }
-        output.text = String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed) +
-            planSummary(plan)
-    }
+        output.text = if (plan.isBlank()) {
+            String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
+        } else {
+            // The plan overrides the speed field, so quoting only the field would
+            // describe a run that is not happening.
+            String.format(Locale.US, "Straight line pushed: %.5f, %.5f, speed from the plan.", lat, lon) +
+                planSummary(plan)
+        }    }
 
     /**
      * A line about the interval plan that is about to run, using the plan's own
@@ -458,26 +468,40 @@ class MainActivity : Activity() {
             output.text = PacerConfigClient.NOT_READY_MESSAGE
             return
         }
-        output.text = String.format(
-            Locale.US,
-            "Route pushed: %d points, %.0f m, %.2f m/s. The engine humanizes speed along it.",
-            geometry.size,
-            route.totalLengthMeters,
-            speed,
-        ) + planSummary(plan)
+        output.text = if (plan.isBlank()) {
+            String.format(
+                Locale.US,
+                "Route pushed: %d points, %.0f m, %.2f m/s. The engine humanizes speed along it.",
+                geometry.size,
+                route.totalLengthMeters,
+                speed,
+            )
+        } else {
+            String.format(
+                Locale.US,
+                "Route pushed: %d points, %.0f m; speed follows the plan on top of the base %.2f m/s.",
+                geometry.size,
+                route.totalLengthMeters,
+                speed,
+            ) + planSummary(plan)
+        }
     }
 
     private fun showJoystick() {
         if (Settings.canDrawOverlays(this)) {
             startForegroundService(Intent(this, JoystickOverlayService::class.java))
-            // A route run locks the knob; saying so here is cheaper than letting the
-            // user find out by dragging it.
-            output.text = if (PacerConfigClient.isRouteRunActive()) {
-                "Joystick shown. A route run supplies its own speed and heading, so the knob " +
-                    "is locked until the route is stopped. Drag the ring to move it, tap to stop."
-            } else {
-                "Joystick shown. Drag the knob to steer (releasing keeps the last " +
-                    "heading), drag the ring to move it, tap to stop."
+            // Saying which input owns the run here is cheaper than letting the user
+            // find out by dragging the knob.
+            output.text = when (PacerConfigClient.owner()) {
+                MotionOwner.ROUTE ->
+                    "Joystick shown. A route run supplies its own speed and heading, so the knob " +
+                        "is locked until the route is stopped. Drag the ring to move it, tap to stop."
+                MotionOwner.PLAN ->
+                    "Joystick shown. The interval plan supplies the speed, so the knob is locked " +
+                        "until the plan run is stopped. Drag the ring to move it, tap to stop."
+                else ->
+                    "Joystick shown. Drag the knob to steer (releasing keeps the last " +
+                        "heading), drag the ring to move it, tap to stop."
             }
         } else {
             startActivity(

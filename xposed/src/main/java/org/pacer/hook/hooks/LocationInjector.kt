@@ -238,23 +238,29 @@ object LocationInjector {
     ): Location {
         val dtSec = if (lastNanos == 0L) 1.0 else ((nowNanos - lastNanos).coerceAtLeast(0L)) / 1e9
         lastNanos = nowNanos
+        val nowMs = System.currentTimeMillis()
         val elapsedSec = if (cfg.startTimestamp > 0L) {
-            (System.currentTimeMillis() - cfg.startTimestamp).coerceAtLeast(0L) / 1000.0
+            (nowMs - cfg.startTimestamp).coerceAtLeast(0L) / 1000.0
         } else 0.0
         val engines = noiseFor(cfg)
+        // One route sample for the whole fix. Asking twice - once through
+        // CurrentFix.speedAt and once here - reads the clock twice, and a boundary
+        // crossed between the reads pairs sample n's speed with sample n+1's
+        // position, which is exactly the kind of disagreement an audit looks for.
+        val sample = RouteEngine.sampleAt(nowMs)
         // The speed this moment aims for, from the one place that derives it: the route
         // sample, the interval plan's current step, or the flat configured speed. The
         // realism engine (which holds a bearing while the subject stands still) and the
         // reported speed both use it, so the number the fix carries is the one that
         // produced the displacement.
-        val motionSpeed = CurrentFix.speedAt(cfg)
+        val motionSpeed = sample?.speedMps ?: CurrentFix.linearSpeedAt(cfg, nowMs)
         val fx = engines.realism.next(elapsedSec, motionSpeed, dtSec, cfg.bearingDeg)
 
         // The nominal position for this moment, from the one source every layer uses.
         // Route mode replaces it with the route sample below, which carries the rest of
         // the reported state; the straight-line case is the reason to ask here at all,
         // because it is now derived from the clock instead of accumulated by a timer.
-        val nominal = CurrentFix.of(cfg)
+        val nominal = CurrentFix.of(cfg, nowMs)
         var lat = nominal.lat
         var lon = nominal.lon
         var accuracy = fx.accuracyMeters
@@ -264,7 +270,6 @@ object LocationInjector {
         var speed = motionSpeed
 
         // Route mode: route + humanized speed curve take precedence.
-        val sample = RouteEngine.sampleAt()
         if (sample != null) {
             lat = sample.point.lat
             lon = sample.point.lon

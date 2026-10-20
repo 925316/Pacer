@@ -17,6 +17,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import org.pacer.motion.JoystickMath
+import org.pacer.motion.MotionOwner
 
 /**
  * Floating joystick overlay.
@@ -117,12 +118,15 @@ class JoystickOverlayService : Service() {
         private var steering = false
 
         /**
-         * True when the run follows a route. The route supplies position, speed and
-         * heading from its own timeline; writing either from here would move the
-         * subject along the path instead of steering it, so the knob refuses to leave
-         * the centre and says why.
+         * The owner of the running simulation, sampled when the touch starts.
+         *
+         * A route or an interval plan derives speed and heading from its own clock;
+         * writing either from here would move the subject along its track instead of
+         * steering it, so the knob refuses to leave the centre and says why. Sampled
+         * per gesture rather than per frame because a run can start or stop between
+         * two touches.
          */
-        private var routeLocked = false
+        private var lockedOwner = MotionOwner.NONE
 
         /** True once the touch has travelled: a gesture that never moves is a tap. */
         private var travelled = false
@@ -138,7 +142,7 @@ class JoystickOverlayService : Service() {
                         dragDy = event.rawY
                         travelled = false
                         lockNotified = false
-                        routeLocked = PacerConfigClient.isRouteRunActive()
+                        lockedOwner = PacerConfigClient.owner()
                         steering = isOnKnob(event.x, event.y)
                         invalidate()
                         true
@@ -150,22 +154,22 @@ class JoystickOverlayService : Service() {
                         dragDy = event.rawY
                         if (dx != 0f || dy != 0f) travelled = true
                         if (steering) {
-                            // A route run derives speed and heading from its own
-                            // timeline; writing either would move the subject along the
-                            // path instead of steering it. The ring still drags.
-                            if (routeLocked) {
+                            // An automatic run derives speed and heading from its own
+                            // clock; writing either would move the subject along its
+                            // track instead of steering it. The ring still drags.
+                            if (lockedOwner.acceptsHandSteering) {
+                                steer(dx, dy)
+                            } else {
                                 // Explain it on the first movement rather than on touch
                                 // down, so a tap that stops the run says nothing.
                                 if (!lockNotified) {
                                     lockNotified = true
                                     Toast.makeText(
                                         this@JoystickOverlayService,
-                                        "Route run: speed and heading come from the route.",
+                                        lockMessage(lockedOwner),
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }
-                            } else {
-                                steer(dx, dy)
                             }
                         } else {
                             moveOverlay(dx, dy)
@@ -186,13 +190,20 @@ class JoystickOverlayService : Service() {
                             // the view is not removed mid-gesture.
                             post { stopSelf() }
                         }
-                        routeLocked = false
+                        lockedOwner = MotionOwner.NONE
                         invalidate()
                         true
                     }
                     else -> false
                 }
             }
+        }
+
+        /** Why the knob refused, in terms of what the user actually started. */
+        private fun lockMessage(owner: MotionOwner): String = when (owner) {
+            MotionOwner.ROUTE -> "Route run: speed and heading come from the route."
+            MotionOwner.PLAN -> "Interval plan running: speed comes from the plan, not the knob."
+            else -> "No run to steer."
         }
 
         /** The knob is drawn at its current offset, so the hit test uses that offset too. */
