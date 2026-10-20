@@ -25,6 +25,7 @@ import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
+import org.pacer.motion.RouteRecorder
 import org.pacer.motion.RouteSimulator
 import org.pacer.motion.SpeedPlan
 import org.pacer.motion.TrackAudit
@@ -85,6 +86,35 @@ class MainActivity : Activity() {
     /** Pauses or resumes a route run; hidden whenever neither action applies. */
     private lateinit var pauseBtn: Button
 
+    /** Starts and stops the joystick recording; its label shows which way the next tap goes. */
+    private lateinit var recordBtn: Button
+
+    /**
+     * The recording in progress, or null when nothing is being recorded.
+     *
+     * Held here rather than in the overlay service: this page is the only thing that
+     * writes the draft, and a recording that survived the page going away would keep
+     * collecting points nobody could stop except by returning to it.
+     */
+    private var recorder: RouteRecorder? = null
+    private var recordStartedAtMs = 0L
+
+    /**
+     * The sampling tick.
+     *
+     * Main thread on purpose: it reads the stored config and writes the draft, and both
+     * are cheap. A background thread would have to marshal every point back to this one
+     * anyway, since the draft is a view model of the list on screen.
+     */
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val subject = LiveSubject()
+    private val recordTick = object : Runnable {
+        override fun run() {
+            sampleRecording()
+            if (recorder != null) handler.postDelayed(this, RECORD_POLL_MS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -137,6 +167,8 @@ class MainActivity : Activity() {
 
         root.addView(action("Load sample route (Urumqi)") { loadSampleRoute() })
         root.addView(action("Clear route") { draft.clear(); persistAndRender() })
+        recordBtn = action("Start recording from the joystick") { toggleRecording() }
+        root.addView(recordBtn)
 
         // --- simulation ------------------------------------------------------
         root.addView(section("Simulation"))
@@ -381,6 +413,14 @@ class MainActivity : Activity() {
         persistAndRender()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // A recording cannot outlive the page that owns the draft: the tick would keep
+        // collecting points nobody can see or stop. Ending it here keeps the promise the
+        // button makes - what was walked is what gets saved.
+        recorder?.let { finishRecording(it) }
+    }
+
     private fun persistAndRender() {
         store.save(draft)
         renderRoute()
@@ -505,6 +545,85 @@ class MainActivity : Activity() {
         satelliteJitter = satelliteJitterToggle.isChecked,
         signalDropout = signalDropoutToggle.isChecked,
     )
+
+    /**
+     * Starts or stops a joystick recording.
+     *
+     * Recording reads the subject's position from the stored run, so it needs a run that
+     * the joystick can steer: a hand-driven straight line. A route or an interval plan
+     * owns its own motion, and recording one would just re-record the route it is
+     * following, which is what the map already has.
+     */
+    private fun toggleRecording() {
+        val active = recorder
+        if (active == null) {
+            val owner = PacerConfigClient.owner()
+            if (!owner.acceptsHandSteering) {
+                output.text = when (owner) {
+                    MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED ->
+                        "Recording follows the joystick, and a route run owns its own motion. " +
+                            "Stop the route and start a hand-steered straight line to record one."
+                    MotionOwner.PLAN ->
+                        "Recording follows the joystick, but the interval plan owns the speed. " +
+                            "Clear the plan and start a straight line to record."
+                    else -> "Start a hand-steered simulation first, then record it."
+                }
+                return
+            }
+            recorder = RouteRecorder()
+            recordStartedAtMs = System.currentTimeMillis()
+            recordBtn.text = "Stop recording"
+            output.text = "Recording. Steer with the floating joystick; the route is saved " +
+                "to the editor when you stop."
+            sampleRecording()
+            handler.removeCallbacks(recordTick)
+            handler.postDelayed(recordTick, RECORD_POLL_MS)
+        } else {
+            finishRecording(active)
+        }
+    }
+
+    /** One sample of the running subject, offered to the recorder's decimation rule. */
+    private fun sampleRecording() {
+        val recording = recorder ?: return
+        val stored = PacerConfigClient.stored() ?: return
+        if (!stored.active) return
+        subject.point(stored)?.let { recording.offer(it) }
+        recordBtn.text = String.format(
+            Locale.US,
+            "Stop recording (%d points, %.0f m)",
+            recording.size,
+            recording.distanceMeters,
+        )
+    }
+
+    /**
+     * Ends the recording and replaces the draft with what was walked.
+     *
+     * The last position is forced in, so the route ends where the subject stopped rather
+     * than where it last crossed a threshold. An empty recording leaves the draft alone:
+     * a stray tap on the button must not erase a route the user already had.
+     */
+    private fun finishRecording(recording: RouteRecorder) {
+        handler.removeCallbacks(recordTick)
+        recorder = null
+        recordBtn.text = "Start recording from the joystick"
+        val stored = PacerConfigClient.stored()
+        val last = stored?.takeIf { it.active }?.let { subject.point(it) }
+        if (!recording.finish(last)) {
+            output.text = "Nothing was recorded: the subject did not move far enough."
+            return
+        }
+        draft = recording.toDraft()
+        persistAndRender()
+        output.text = String.format(
+            Locale.US,
+            "Recorded %d waypoints over %.0f m in %d s. It is in the editor now.",
+            recording.size,
+            recording.distanceMeters,
+            ((System.currentTimeMillis() - recordStartedAtMs) / 1000L).toInt(),
+        )
+    }
 
     /** A numeric field's value, or [fallback] when it is empty or unreadable. */
     private fun numberOr(field: EditText, fallback: Float): Float =
@@ -825,6 +944,15 @@ class MainActivity : Activity() {
         const val WALK_SPEED = 1.4
         const val RUN_SPEED = 3.0
         const val RIDE_SPEED = 6.0
+
+        /**
+         * How often a recording samples the subject.
+         *
+         * One second matches the run's own resolution and the decimation rule's 5 m
+         * spacing at any walking pace, so a faster poll would only produce points the
+         * rule discards.
+         */
+        const val RECORD_POLL_MS = 1000L
 
         /**
          * A sample loop in Urumqi.

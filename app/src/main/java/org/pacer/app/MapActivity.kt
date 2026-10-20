@@ -11,20 +11,13 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import org.pacer.motion.FixSample
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
-import org.pacer.motion.MotionConfig
 import org.pacer.motion.MotionOwner
-import org.pacer.motion.MotionSamples
-import org.pacer.motion.MotionSeed
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
-import org.pacer.motion.RouteSimulator
-import org.pacer.motion.SpeedPlan
-import org.pacer.motion.StraightLine
 import java.util.Locale
 
 /**
@@ -104,16 +97,11 @@ class MapActivity : Activity() {
         }
     }
 
-    /** One lap of the stored run, rebuilt only when the stored run changes. */
-    private class LiveLap(val key: String, val samples: List<FixSample>)
-
-    private var liveLap: LiveLap? = null
-    private var liveLapRunStartedAt: Long = 0L
-    private var liveLapSeconds: Double = 0.0
-
-    /** The stored route as a [RoutePath], cached because the poll asks once a second. */
-    private var parsedRouteJson: String? = null
-    private var parsedRoute: RoutePath? = null
+    /**
+     * The stored run's position, shared with anything else that has to know where the
+     * subject is. One instance per poller: it caches the lap it last built.
+     */
+    private val subject = LiveSubject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -638,92 +626,7 @@ class MapActivity : Activity() {
     }
 
     /** Where the subject is, from the stored run: route passes, or the straight line. */
-    private fun livePoint(stored: PacerConfigClient.Stored): GeoPoint? {
-        // The stored run's own clock, so a paused route shows the point it stopped at
-        // instead of advancing while frozen. Sample: see PacerConfigClient.Stored.
-        val elapsed = stored.routeSeconds()
-        val routePath = storedRoute(stored)
-        if (routePath != null) {
-            // The SAME arithmetic the module runs (RouteEngine), including the seed: the
-            // module rebuilds each lap from MotionSeed.forRun(start, lap), so a marker that
-            // used any other seed would show a position the target app was never given.
-            // The lap length is fixed on the first build of a run, exactly as there.
-            if (stored.startedAtMs != liveLapRunStartedAt) {
-                liveLapRunStartedAt = stored.startedAtMs
-                liveLapSeconds = 0.0
-                liveLap = null
-            }
-            val lap = MotionSamples.lapAt(elapsed, if (stored.loopRoute) liveLapSeconds else 0.0)
-            val key = liveKey(stored) + "|lap=" + lap.index
-            val samples = liveLap?.takeIf { it.key == key }?.samples
-                ?: buildLap(stored, routePath, key, lap.index)
-            if (samples.isEmpty()) return null
-            val base = MotionSamples.at(samples, lap.offsetSec) ?: return null
-            return MotionSamples.afterLaps(
-                base,
-                lap.index,
-                samples.last().distanceMeters,
-                samples.last().cumulativeSteps,
-                elapsed,
-            ).point
-        }
-        val meters = SpeedPlan.parse(stored.plan)?.metersAt(elapsed) ?: (stored.speed * elapsed)
-        return StraightLine.byDistance(GeoPoint(stored.lat, stored.lon), stored.bearing.toDouble(), meters)
-    }
-
-    /**
-     * Builds one lap of the stored run, seeded exactly as the module seeds it.
-     *
-     * The lap length is learned from the first build and then kept for the run, matching
-     * RouteEngine: a later lap is humanized separately and would otherwise move its own
-     * ending.
-     */
-    private fun buildLap(
-        stored: PacerConfigClient.Stored,
-        routePath: RoutePath,
-        key: String,
-        lapIndex: Long,
-    ): List<FixSample> {
-        val samples = RouteSimulator(
-            routePath,
-            MotionConfig(
-                baseSpeedMps = if (stored.speed > 0.0) stored.speed else 3.0,
-                plan = SpeedPlan.parse(stored.plan),
-            ),
-            toggles = stored.realism,
-            steadyAccuracyMeters = stored.accuracy,
-        ).simulate(dtSec = 1.0, seed = MotionSeed.forRun(stored.startedAtMs, lapIndex))
-        if (stored.loopRoute && liveLapSeconds <= 0.0) {
-            liveLapSeconds = samples.lastOrNull()?.tSec ?: 0.0
-        }
-        liveLap = LiveLap(key, samples)
-        return samples
-    }
-
-    private fun storedRoute(stored: PacerConfigClient.Stored): RoutePath? {
-        if (stored.routeJson.isBlank()) return null
-        if (stored.routeJson === parsedRouteJson) return parsedRoute
-        val parsed = try {
-            val points = RouteJson.decode(stored.routeJson)
-            if (points.size >= 2) RoutePath(points) else null
-        } catch (_: Throwable) {
-            null
-        }
-        parsedRouteJson = stored.routeJson
-        parsedRoute = parsed
-        return parsed
-    }
-
-    /**
-     * Everything that changes the samples, so one lap is rebuilt only when it must be.
-     *
-     * The route is named by its length and hash rather than its text: this runs once a
-     * second on the poll, and a long route is a long string.
-     */
-    private fun liveKey(stored: PacerConfigClient.Stored): String =
-        stored.startedAtMs.toString() + "|" + stored.routeJson.length + ":" +
-            stored.routeJson.hashCode() + "|" + stored.speed + "|" +
-            stored.plan + "|" + stored.loopRoute + "|" + stored.realism + "|" + stored.accuracy
+    private fun livePoint(stored: PacerConfigClient.Stored): GeoPoint? = subject.point(stored)
 
     private fun updateInfo() {
         info.text = String.format(
