@@ -161,9 +161,7 @@ class MainActivity : Activity() {
         settings = AppSettings(this)
         strings = stringsFor(settings.language)
 
-        val root = LinearLayout(this)
-        root.orientation = LinearLayout.VERTICAL
-        root.setPadding(40, 40, 40, 40)
+        val root = pageBody()
 
         root.addView(titleView("Pacer"))
         root.addView(hint(strings.appTagline))
@@ -336,20 +334,6 @@ class MainActivity : Activity() {
             strings.signalDropoutHint,
         )
 
-        root.addView(action(strings.startStraight) { startStraight() })
-        root.addView(action(strings.startRoute) { startRoute() })
-        pauseBtn = action(strings.pauseRoute) { toggleRoutePause() }
-        root.addView(pauseBtn)
-        root.addView(action(strings.stopSimulation) {
-            if (PacerConfigClient.stop()) {
-                setNotice(strings.statusConfigIdle)
-            } else {
-                setNotice(PacerConfigClient.NOT_READY_MESSAGE)
-            }
-            updatePauseButton()
-        })
-        root.addView(action(strings.showJoystick) { showJoystick() })
-
         previewBtn = action(strings.preview) { previewLocally() }
         root.addView(previewBtn)
 
@@ -401,7 +385,27 @@ class MainActivity : Activity() {
         }
         root.addView(output)
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        // The controls that start and stop a run, pinned below the scroll area.
+        //
+        // They used to sit in the middle of the column: pressing Start left the screen
+        // looking exactly the same, and reaching them at all meant scrolling past twenty
+        // controls. Both problems disappear when the row is always visible.
+        setContentView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(
+                    ScrollView(this@MainActivity).apply {
+                        addView(root)
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            0,
+                            1f,
+                        )
+                    },
+                )
+                addView(runBar())
+            },
+        )
 
         PacerConfigClient.init()
         renderRoute()
@@ -482,16 +486,14 @@ class MainActivity : Activity() {
         updatePauseButton()
     }
 
-    /** Shows the pause control only when it would do something. */
+    /** Enables the pause control only while it would do something. */
     private fun updatePauseButton() {
         if (!::pauseBtn.isInitialized) return
         val owner = PacerConfigClient.owner()
-        pauseBtn.visibility = if (owner.canPauseRoute || owner.canResumeRoute) {
-            android.view.View.VISIBLE
-        } else {
-            android.view.View.GONE
-        }
-        pauseBtn.text = if (owner.canResumeRoute) "Resume route" else "Pause route"
+        // Disabled, not hidden: hiding it reflows the bar, so Stop moves under the user's
+        // finger at the moment the run state changes.
+        pauseBtn.isEnabled = owner.canPauseRoute || owner.canResumeRoute
+        pauseBtn.text = if (owner.canResumeRoute) strings.resumeRoute else strings.pauseRoute
     }
 
     private fun updateStatus() {
@@ -1246,6 +1248,58 @@ class MainActivity : Activity() {
 
     // The view builders live in Ui.kt: three screens share them, and a per-screen copy is
     // how one page ends up with a 12 sp hint and another with 13 sp.
+
+    /**
+     * The always-visible run controls.
+     *
+     * One row rather than a button per action: Start and Stop are mutually exclusive in
+     * effect, and showing only the ones that apply removes the "button that does nothing"
+     * case. Route and straight line stay separate because they produce different runs, and
+     * a single Start would have to guess which one the user meant.
+     */
+    private fun runBar(): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 12, 32, 24)
+        }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        top.addView(
+            weightedButton(strings.startRoute) { startRoute() },
+        )
+        top.addView(
+            weightedButton(strings.startStraight) { startStraight() },
+        )
+        bar.addView(top)
+
+        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        pauseBtn = weightedButton(strings.pauseRoute) { toggleRoutePause() }
+        bottom.addView(pauseBtn)
+        bottom.addView(
+            weightedButton(strings.stopSimulation) {
+                if (PacerConfigClient.stop()) {
+                    setNotice(strings.statusConfigIdle)
+                } else {
+                    setNotice(PacerConfigClient.NOT_READY_MESSAGE)
+                }
+                updatePauseButton()
+            },
+        )
+        bottom.addView(weightedButton(strings.showJoystick) { showJoystick() })
+        bar.addView(bottom)
+        return bar
+    }
+
+    /** A button that shares its row evenly, so three actions fit one line on a phone. */
+    private fun weightedButton(label: String, onClick: () -> Unit): Button =
+        Button(this).apply {
+            text = label
+            textSize = 13f
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(8, 0, 8, 0)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { onClick() }
+        }
 
     private companion object {
         /** Speed presets, also used to recognise the stored value when the screen opens. */
