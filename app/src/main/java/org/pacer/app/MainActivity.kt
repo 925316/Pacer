@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
-import android.view.Gravity
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -1252,72 +1251,8 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Small view builders
-    // ---------------------------------------------------------------------
-
-    private fun titleView(text: String): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 24f
-        gravity = Gravity.CENTER
-    }
-
-    private fun hint(text: String): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 12f
-        setPadding(0, 4, 0, 16)
-    }
-
-    /** A switch that is added to [into], with a one-line explanation underneath. The
-     * explanation is part of the control on purpose: every one of these changes what the
-     * simulated track looks like, and none is obvious from its label.
-     *
-     * [checked] is the initial state; the realism switches default to on (a device whose
-     * track looks machine-made is the thing this project exists to avoid), while the
-     * ones that change what a run IS default to off.
-     */
-    private fun option(into: LinearLayout, label: String, explanation: String, checked: Boolean = true): CheckBox {
-        val box = CheckBox(this).apply {
-            text = label
-            isChecked = checked
-        }
-        into.addView(box)
-        into.addView(hint(explanation))
-        return box
-    }
-
-    private fun section(text: String): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 17f
-        setPadding(0, 24, 0, 4)
-    }
-
-    private fun radio(label: String): RadioButton = RadioButton(this).apply { text = label }
-
-    private fun numberField(hint: String, initial: String): EditText = EditText(this).apply {
-        this.hint = hint
-        inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or
-            InputType.TYPE_NUMBER_FLAG_SIGNED
-        setText(initial)
-    }
-
-    private fun action(label: String, onClick: () -> Unit): Button = Button(this).apply {
-        text = label
-        setOnClickListener { onClick() }
-    }
-
-    private fun smallAction(label: String, onClick: () -> Unit): Button = Button(this).apply {
-        text = label
-        textSize = 12f
-        minWidth = 0
-        minimumWidth = 0
-        setPadding(12, 0, 12, 0)
-        layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-        )
-        setOnClickListener { onClick() }
-    }
+    // The view builders live in Ui.kt: three screens share them, and a per-screen copy is
+    // how one page ends up with a 12 sp hint and another with 13 sp.
 
     private companion object {
         /** Speed presets, also used to recognise the stored value when the screen opens. */
