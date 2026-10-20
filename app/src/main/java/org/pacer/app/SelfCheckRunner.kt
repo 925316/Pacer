@@ -181,23 +181,6 @@ class SelfCheckRunner(
         }
     }
 
-    private fun position(name: String, expected: Expected, lat: Double, lon: Double): CheckItem {
-        val meters = EnvGeo.metersBetween(expected.lat, expected.lon, lat, lon)
-        return if (meters <= SelfCheck.POSITION_TOLERANCE_METERS) {
-            SelfCheck.pass(name, String.format(java.util.Locale.US, "%.5f,%.5f (%.2f m off)", lat, lon, meters))
-        } else {
-            CheckItem(
-                name,
-                CheckItem.Verdict.FAIL,
-                String.format(
-                    java.util.Locale.US,
-                    "expected %.5f,%.5f but got %.5f,%.5f - %.0f m off",
-                    expected.lat, expected.lon, lat, lon, meters,
-                ),
-            )
-        }
-    }
-
     // ------------------------------------------------------------------- radio
 
     /**
