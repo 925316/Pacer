@@ -31,12 +31,12 @@ class RouteClockTest {
     }
 
     @Test
-    fun `pausing twice does not compound the offset`() {
-        // The second pause must use the clock as it stands, not add elapsed time to an
-        // offset that was already frozen.
-        val first = RouteClock.offsetAtPause(0.0, 0L, 10_000L)
-        val second = RouteClock.offsetAtPause(first, 10_000L, 10_500L)
-        assertEquals(10.0, second, 1e-9)
+    fun `a later pause adds only the time since the last resume`() {
+        // Paused at 10 s, resumed much later, paused again half a second after that.
+        // The answer is 10.5 s, not 70.5 s: the paused stretch is already excluded by
+        // the offset, and counting the wall clock from the run's start again would
+        // silently add every earlier pause to the route time.
+        assertEquals(10.5, RouteClock.offsetAtPause(10.0, 70_000L, 70_500L), 1e-9)
     }
 
     @Test

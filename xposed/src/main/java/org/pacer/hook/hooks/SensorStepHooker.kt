@@ -250,6 +250,22 @@ object SensorStepHooker {
     /** Cleared for good the first time an event cannot be built. */
     @Volatile private var deliveryPossible = true
 
+    /**
+     * The step count a paused route keeps reporting, or null when this is not one.
+     *
+     * A paused route reports zero speed, so it would fall into the "no simulation"
+     * branch below: the device's own counter would then be passed through to the target
+     * app and also captured as [realStepBase]. Both are wrong. The app would see the user's
+     * real walking while the simulated subject stands on the route, and the captured
+     * base would shift the whole later series. The run still owns the count while it is
+     * paused, so the frozen count is what gets reported.
+     */
+    private fun pausedRouteSteps(cfg: PacerRuntimeConfig.Snapshot): Long? {
+        if (!cfg.active || !cfg.enableStepSimulation || !cfg.routePaused) return null
+        if (cfg.routeJson.isBlank()) return null
+        return currentSteps(cfg.startTimestamp, 0.0)
+    }
+
     private fun deliver(target: CapturedListener) {
         val cfg = PacerRuntimeConfig.snapshot()
         val speed = if (cfg.active && cfg.enableStepSimulation) CurrentFix.speedAt(cfg) else 0.0
@@ -385,9 +401,17 @@ object SensorStepHooker {
             } else if (handle != null && values != null && values.isNotEmpty() &&
                 handleToType[handle] == Sensor.TYPE_STEP_COUNTER
             ) {
-                // Not simulating yet: this is the device's own count, and it is the
-                // base a later run has to continue from. See [realStepBase].
-                realStepBase = values[0]
+                // A paused route still owns the counter: report the frozen count rather
+                // than the device's, which would include the user's real walking and
+                // make the series drop when the route resumes.
+                val frozen = pausedRouteSteps(cfg)
+                if (frozen != null) {
+                    values[0] = frozen.toFloat()
+                } else {
+                    // Not simulating: this is the device's own count, and it is the
+                    // base a later run has to continue from. See [realStepBase].
+                    realStepBase = values[0]
+                }
             }
             chain.proceed(chain.args.toTypedArray())
         }
@@ -424,9 +448,16 @@ object SensorStepHooker {
                             }
                         }
                     } else if (sensor.type == Sensor.TYPE_STEP_COUNTER && event.values.isNotEmpty()) {
-                        // The device's own count, seen before the run started: the
-                        // series a run reports has to continue from it. See [realStepBase].
-                        realStepBase = event.values[0]
+                        // Same rule as the queue hook: a paused route keeps its own
+                        // frozen count instead of exposing the device's.
+                        val frozen = pausedRouteSteps(cfg)
+                        if (frozen != null) {
+                            event.values[0] = frozen.toFloat()
+                        } else {
+                            // The device's own count, seen before the run started: the
+                            // series a run reports has to continue from it. See [realStepBase].
+                            realStepBase = event.values[0]
+                        }
                     }
                 }
                 chain.proceed(chain.args.toTypedArray())
