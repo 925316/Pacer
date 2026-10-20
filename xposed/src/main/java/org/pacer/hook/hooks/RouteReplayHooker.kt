@@ -1,3 +1,10 @@
+// Route replay: answers requestLocationUpdates / registerLocationListener /
+// getCurrentLocation with fabricated positions.
+//
+// WHY ACTIVE PUSH: the platform only reports a location when a provider produces one. On
+// a device with no usable GNSS fix - indoors, or on an emulator - none is ever produced,
+// so rewriting a report means waiting forever. The registration is captured instead and
+// a fix is pushed on a timer.
 package org.pacer.hook.hooks
 
 import android.location.Location
@@ -16,22 +23,14 @@ object RouteReplayHooker {
     /**
      * One registration.
      *
-     * [sink] is whatever object the caller handed to requestLocationUpdates. It is not
-     * typed as LocationListener because a Consumer overload takes the same slot, and the
-     * delivery has to match: calling onLocationChanged on a Consumer (or accept on a
-     * listener) silently does nothing and looks exactly like spoofing that is not working.
+     * [sink] is whatever object the caller handed over. It is not typed as
+     * LocationListener because the Consumer overloads take the same slot, and calling
+     * onLocationChanged on a Consumer silently does nothing.
      */
     private class Sink(
         val sink: Any,
         val handler: Handler?,
-        /**
-         * The executor the caller asked deliveries to arrive on, when it supplied one.
-         *
-         * `registerLocationListener` takes an Executor instead of a Handler, and a caller
-         * that chose one has stated where its callback must run. Ignoring it and answering
-         * on the main thread is a thread-affinity violation the caller cannot detect
-         * except as a race in its own code.
-         */
+        /** Where the caller asked its callback to run; null if it did not say. */
         val executor: java.util.concurrent.Executor?,
         val provider: String,
     )
@@ -68,21 +67,14 @@ object RouteReplayHooker {
             }
             if (captured != null || pendingIntent != null) {
                 if (captured != null) {
-                    // Captured unconditionally, NOT only while a run is active. A target
-                    // app registers its listener once, usually long before the user taps
-                    // start, so a capture guarded by `active` records nothing and the
-                    // timer then has no sink to push to - which looks exactly like
-                    // spoofing that does not work. The active check belongs in the
-                    // delivery path (fakeIfActive), where it is evaluated per tick.
+                    // Captured unconditionally, not only while a run is active: a target
+                    // app registers once, usually before the user taps start.
                     //
-                    // No synchronous first fix and no onProviderEnabled() here. The real
-                    // manager delivers nothing inside the registration call, and it only
-                    // reports a provider-state change when the state changes. A caller
-                    // that registers and immediately removes again must receive nothing -
-                    // otherwise one deliberately minimal pair of calls proves the caller
-                    // is not talking to the platform.
-                    // Re-registering the same listener must not produce two sinks, or the
-                    // app receives each fix twice.
+                    // Nothing is delivered inside the registration itself. A caller that
+                    // registers and immediately removes again must receive nothing, or one
+                    // minimal pair of calls proves it is not talking to the platform.
+                    //
+                    // Re-registering replaces the sink, so a fix is not delivered twice.
                     sinks.removeAll { it.sink === captured }
                     sinks.add(Sink(captured, handler, null, provider))
                 }
@@ -90,9 +82,8 @@ object RouteReplayHooker {
                     piSinks.add(PiSink(pendingIntent, provider))
                 }
                 startTimerIfNeeded()
-                // Skip the real registration for this caller. Without this the platform
-                // also delivers real fixes, and the app sees two contradictory streams:
-                // the timer's simulated one and the device's own.
+                // Skip the real registration, or the app receives our fixes and the
+                // device's at once.
                 return@hookAllMethods null
             }
             chain.proceed(chain.args.toTypedArray())
@@ -107,12 +98,9 @@ object RouteReplayHooker {
             chain.proceed(chain.args.toTypedArray())
         }
 
-        // registerLocationListener is the registration API an app on Android 11+ is most
-        // likely to use, and it is a DIFFERENT method from requestLocationUpdates. Missing
-        // it was the widest hole in this layer: an app that registered here reached the
-        // real provider, and no amount of correct work in requestLocationUpdates could
-        // affect it. The listener, the executor and the provider are read from the same
-        // argument list, so the delivery below matches what the caller asked for.
+        // The registration API an app on Android 11+ is most likely to use, and a different
+        // method from requestLocationUpdates. The listener, executor and provider are read
+        // from the same argument list so delivery matches what the caller asked for.
         HookUtils.hookAllMethods(lm, "registerLocationListener") { chain ->
             val provider = chain.args.firstOrNull { it is String } as? String
                 ?: LocationManager.GPS_PROVIDER
@@ -125,8 +113,7 @@ object RouteReplayHooker {
                 sinks.removeAll { it.sink === listener }
                 sinks.add(Sink(listener, null, executor, provider))
                 startTimerIfNeeded()
-                // Same reason as requestLocationUpdates: the real provider must not also
-                // answer, or the app receives our track and the device's at once.
+                // Same reason as above: the real provider must not also answer.
                 null
             }
         }
@@ -138,9 +125,8 @@ object RouteReplayHooker {
             chain.proceed(chain.args.toTypedArray())
         }
 
-        // The PendingIntent form of the same registration. An app that wants fixes while
-        // its own process is asleep uses this, and it was uncovered: the intent reached
-        // the real provider unfiltered.
+        // The PendingIntent form, used by an app that wants fixes while its own process
+        // is asleep.
         HookUtils.hookAllMethods(lm, "registerLocationPendingIntent") { chain ->
             val provider = chain.args.firstOrNull { it is String } as? String
                 ?: LocationManager.GPS_PROVIDER
@@ -163,11 +149,8 @@ object RouteReplayHooker {
             chain.proceed(chain.args.toTypedArray())
         }
 
-        // getLastKnownLocation is a cache read, and an app that asks for a cached fix
-        // before starting a stream would otherwise get either the device's own position or
-        // null. Answering it with the simulated fix makes the first frame consistent with
-        // everything that follows, instead of showing the real place and jumping a second
-        // later.
+        // Answered directly so the first frame agrees with the stream that follows,
+        // instead of showing the real place and jumping a second later.
         HookUtils.hookAllMethods(lm, "getLastKnownLocation") { chain ->
             val cfg = PacerRuntimeConfig.snapshot()
             val provider = chain.args.firstOrNull { it is String } as? String
@@ -182,9 +165,7 @@ object RouteReplayHooker {
             }
         }
 
-        // getCurrentLocation is a one-shot: the platform will answer with a cached or
-        // freshly computed fix, or never answer at all. Answering it directly is both
-        // more reliable and more consistent with what the timer pushes.
+        // One-shot: answer directly rather than waiting for a fix that may never come.
         HookUtils.hookAllMethods(lm, "getCurrentLocation") { chain ->
             val cfg = PacerRuntimeConfig.snapshot()
             val consumer = chain.args.firstOrNull { it != null && isConsumer(it) }
@@ -199,9 +180,7 @@ object RouteReplayHooker {
                 val executor = chain.args.firstOrNull { it is java.util.concurrent.Executor }
                     as? java.util.concurrent.Executor
                 val deliver = Runnable { invokeAccept(consumer, loc) }
-                // Delivered on the caller's executor when it supplied one, because a
-                // caller that asked for its own executor is entitled to have the answer
-                // arrive there; otherwise the registration's thread is the honest one.
+                // The caller's own executor, when it named one.
                 if (executor != null) executor.execute(deliver) else deliver.run()
                 return@hookAllMethods null
             }
@@ -214,9 +193,7 @@ object RouteReplayHooker {
     /**
      * True when [arg] is a plain platform location sink, not an SDK's own listener.
      *
-     * Matching by TYPE NAME rather than `is` because the interfaces crossed into this
-     * process through a different class loader than the one the argument class was
-     * resolved against, and a cross-loader `is` check fails silently.
+     * Matched by type name because a cross-loader `is` check fails silently.
      */
     private fun isLocationSink(arg: Any): Boolean {
         val name = arg.javaClass.name
@@ -269,25 +246,19 @@ object RouteReplayHooker {
     private fun pushTick() {
         val cfg = PacerRuntimeConfig.snapshot()
         if (!cfg.active) return
-        // No position bookkeeping here: the current position is derived from the clock
-        // by CurrentFix, which is the same value the injected location and every
-        // environment layer read, so a tick only has to deliver what that says now.
-        // Advancing a stored position here is what used to fight the config channel's
-        // re-read and pull a straight-line run back to its start every few seconds.
+        // No position bookkeeping: the position is derived from the clock by CurrentFix,
+        // the same value every other layer reads. Storing it here fought the config
+        // channel's re-read and pulled straight-line runs back to their start.
         val loc = fakeIfActive(LocationManager.GPS_PROVIDER) ?: return
         for (sink in sinks.toList()) {
             try {
                 val deliver = Runnable {
                     try {
-                        // The registration may have been removed between the snapshot and
-                        // this post; delivering then would be a callback after
-                        // unregisterLocationListener.
+                        // The registration may have been removed since the snapshot.
                         if (sinks.contains(sink)) invokeAccept(sink.sink, Location(loc))
                     } catch (_: Throwable) {
                     }
                 }
-                // The caller's executor wins, then its handler, then the main thread: the
-                // delivery has to land where the caller asked, in that order.
                 when {
                     sink.executor != null -> sink.executor.execute(deliver)
                     else -> (sink.handler ?: Handler(Looper.getMainLooper())).post(deliver)
