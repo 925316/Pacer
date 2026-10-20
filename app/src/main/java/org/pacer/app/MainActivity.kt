@@ -52,10 +52,25 @@ class MainActivity : Activity() {
     private lateinit var store: RouteStore
     private lateinit var draft: RouteDraft
 
+    private lateinit var settings: AppSettings
+    private lateinit var strings: Strings
+
     /** startedAtMs of the run whose settings this page last adopted. */
     private var lastRestoreStartedAt = Long.MIN_VALUE
 
     private lateinit var output: TextView
+
+    /** The run's state, at the top of the page; see the call site. */
+    private lateinit var statusView: TextView
+
+    /**
+     * The last failure or consequence, shown above the status line.
+     *
+     * A failure used to be written to [output] at the bottom of a long scroll view with
+     * nothing scrolling to it, so "Start did nothing" was indistinguishable from "Start
+     * rejected this route". Held here so the status tick cannot overwrite it.
+     */
+    private var notice: String? = null
 
     private lateinit var walkBtn: RadioButton
     private lateinit var runBtn: RadioButton
@@ -136,47 +151,105 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Refreshes the status line once a second.
+     *
+     * A run can be stopped, paused or replaced from the map page, and a status written
+     * only at the moment of a tap would then describe a run that no longer exists. One
+     * second is the resolution of the run's own clock, so nothing here can lag behind
+     * something the user can see elsewhere.
+     */
+    private val statusTick = object : Runnable {
+        override fun run() {
+            updateStatus()
+            handler.postDelayed(this, STATUS_POLL_MS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         store = RouteStore(this)
         draft = store.load()
+        settings = AppSettings(this)
+        strings = stringsFor(settings.language)
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
         root.setPadding(40, 40, 40, 40)
 
         root.addView(titleView("Pacer"))
-        root.addView(hint("Simulate movement for testing. Requires the Pacer LSPosed module in scope."))
+        root.addView(hint(strings.appTagline))
+
+        // The run's state, permanently at the top of the page.
+        //
+        // WHY HERE AND NOT AT THE BOTTOM: the Start buttons sit in the middle of a long
+        // column, and the only feedback used to be a line at the very bottom, past the
+        // self-check. A user who pressed Start stayed exactly where they were and the
+        // screen did not change at all - which reads as "the button did nothing". This
+        // line is refreshed on a timer, so it also reports a run stopped from the other
+        // page, and it is where every failure message goes.
+        statusView = TextView(this).apply {
+            textSize = 15f
+            setPadding(0, 8, 0, 16)
+        }
+        root.addView(statusView)
 
         // --- speed preset ----------------------------------------------------
-        root.addView(section("Speed"))
+        root.addView(section(strings.speed))
         val speedGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        walkBtn = radio("Walk 1.4")
-        runBtn = radio("Run 3.0")
-        rideBtn = radio("Ride 6.0")
-        customBtn = radio("Custom")
+        walkBtn = radio(strings.walk)
+        runBtn = radio(strings.run)
+        rideBtn = radio(strings.ride)
+        customBtn = radio(strings.custom)
         speedGroup.addView(walkBtn)
         speedGroup.addView(runBtn)
         speedGroup.addView(rideBtn)
         speedGroup.addView(customBtn)
         runBtn.isChecked = true
         root.addView(speedGroup)
-        speedInput = numberField("Custom speed m/s", "3.0")
+        speedInput = numberField(strings.customSpeed, "3.0")
+        // Typing a speed IS choosing Custom. Without this the field accepted text that
+        // nothing read: the radio group stayed on Run, and Start used 3.0 m/s while the
+        // screen showed the number the user had just typed. A value that is visible and
+        // ignored is worse than a field that is hidden.
+        //
+        // The guard matters: the radio listener below writes the preset into this field,
+        // and an unguarded watcher would read that write back as "the user is typing" and
+        // flip the group to Custom - so choosing Walk would silently end up as Custom.
+        var writingSpeed = false
+        speedInput.addTextChangedListener(
+            object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    if (!writingSpeed && !customBtn.isChecked) customBtn.isChecked = true
+                }
+            },
+        )
+        speedGroup.setOnCheckedChangeListener { _, checkedId ->
+            // The field mirrors the chosen preset, so what it shows is what will run.
+            val preset = when (checkedId) {
+                walkBtn.id -> WALK_SPEED
+                rideBtn.id -> RIDE_SPEED
+                runBtn.id -> RUN_SPEED
+                else -> null
+            }
+            if (preset != null) {
+                writingSpeed = true
+                speedInput.setText(String.format(Locale.US, "%.1f", preset))
+                writingSpeed = false
+            }
+        }
         root.addView(speedInput)
 
         // --- route ----------------------------------------------------------
         // The route is drawn on the map; this screen only shows what was drawn. There is
         // deliberately no coordinate field and no search box: neither needs a key, but both
         // are a way of choosing a place other than by looking at it.
-        root.addView(section("Route"))
-        root.addView(
-            hint(
-                "Waypoints are placed on the map: pan to a place, tap to append one, drag a " +
-                    "handle to move it. This list is what the map has drawn.",
-            ),
-        )
-        root.addView(action("Open the map and controls") {
+        root.addView(section(strings.route))
+        root.addView(hint(strings.routeHint))
+        root.addView(action(strings.openMap) {
             startActivity(Intent(this, MapActivity::class.java))
         })
 
@@ -186,153 +259,135 @@ class MainActivity : Activity() {
         waypointBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(waypointBox)
 
-        root.addView(action("Load sample route (Urumqi)") { loadSampleRoute() })
-        root.addView(action("Clear route") {
-            draft.clear()
-            persistAndRender()
-            renderSavedRoutes()
+        root.addView(action(strings.loadSample) { loadSampleRoute() })
+        root.addView(action(strings.clearRoute) {
+            if (draft.size < 2) {
+                draft.clear()
+                persistAndRender()
+                renderSavedRoutes()
+            } else {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle(strings.clearRouteTitle)
+                    .setMessage(String.format(Locale.US, strings.clearRouteMessage, draft.size))
+                    .setPositiveButton(strings.clear) { _, _ ->
+                        draft.clear()
+                        persistAndRender()
+                        renderSavedRoutes()
+                    }
+                    .setNegativeButton(strings.cancel, null)
+                    .show()
+            }
         })
-        recordBtn = action("Start recording from the joystick") { toggleRecording() }
+        recordBtn = action(strings.startRecording) { toggleRecording() }
         root.addView(recordBtn)
 
         // --- named routes -----------------------------------------------------
         // Plain buttons and plain rows. The list is the only structure a saved route
         // needs; anything more would be decoration.
-        root.addView(section("Saved routes"))
-        root.addView(action("Save current route as...") { saveCurrentRoute() })
+        root.addView(section(strings.savedRoutes))
+        root.addView(action(strings.saveRoute) { saveCurrentRoute() })
         savedRouteBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(savedRouteBox)
 
         // --- simulation ------------------------------------------------------
-        root.addView(section("Simulation"))
-        accuracyInput = numberField("Steady accuracy (m)", "5.0")
+        root.addView(section(strings.simulation))
+        accuracyInput = numberField(strings.accuracy, "5.0")
         root.addView(accuracyInput)
-        altitudeInput = numberField("Start altitude (m)", "0.0")
+        altitudeInput = numberField(strings.altitude, "0.0")
         root.addView(altitudeInput)
-        bearingInput = numberField("Straight-line bearing (deg, 0 = north)", "45.0")
+        bearingInput = numberField(strings.bearing, "45.0")
         root.addView(bearingInput)
         planInput = EditText(this).apply {
-            hint = "Interval plan (blank = steady speed)"
+            hint = strings.intervalPlan
             setText("")
         }
         root.addView(planInput)
-        root.addView(
-            hint(
-                "Interval plan, for example \"3.0@180;1.4@60#5\": speed in m/s, @, seconds, " +
-                    "\";\" between steps, \"#N\" repeats (0 = forever). Works on a route and " +
-                    "on the straight line; the reported speed follows it. While a plan is set, " +
-                    "the plan owns the speed and the floating joystick cannot change it, so " +
-                    "clear this field to steer by hand.",
-            ),
-        )
+        root.addView(hint(strings.intervalPlanHint))
         loopToggle = option(
             root,
-            "Repeat the route (laps)",
-            "A route run starts over at the first waypoint instead of stopping at the end. " +
-                "Distance and steps keep growing across laps, and the whole track is humanized " +
-                "again each lap, so no two laps are identical.",
+            strings.loopRoute,
+            strings.loopRouteHint,
             checked = false,
         )
         stepToggle = option(
             root,
-            "Step and sensor simulation",
-            "The step counter, the step detector and the accelerometer follow the route.",
+            strings.stepSimulation,
+            strings.stepSimulationHint,
         )
         bluetoothToggle = option(
             root,
-            "Simulate the Bluetooth surroundings",
-            "Without this, Bluetooth scans still report the real surroundings while WiFi and cells " +
-                "are simulated. It also hides paired devices for the apps in scope, so switch it off " +
-                "while pairing hardware.",
+            strings.bluetooth,
+            strings.bluetoothHint,
         )
 
         // --- per-app coordinate systems --------------------------------------
         // One plain text field. The table is a preference that applies to whatever
         // package it names, and it is saved on its own rather than only at Start.
-        root.addView(section("Per-app coordinate system"))
+        root.addView(section(strings.coordinateSystem))
         coordinateInput = EditText(this).apply {
             hint = "com.example.app=GCJ02;com.other.app=WGS84"
             setInputType(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
         }
         root.addView(coordinateInput)
-        root.addView(
-            hint(
-                "A fix carries no datum, so an app that draws it on a Chinese base map " +
-                    "assumes GCJ-02 while one that draws it on a Google base map assumes " +
-                    "WGS-84; the two differ by about half a kilometre. AUTO follows the " +
-                    "API being hooked. This table overrides that per package; semicolons " +
-                    "separate entries.",
-            ),
-        )
-        root.addView(action("Save coordinate overrides") { saveCoordinateOverrides() })
+        root.addView(hint(strings.coordinateSystemHint))
+        root.addView(action(strings.saveOverrides) { saveCoordinateOverrides() })
 
         // --- signal realism --------------------------------------------------
-        root.addView(section("Signal realism"))
-        root.addView(
-            hint(
-                "Each of these makes the track look less machine-made. Switch one off to keep that " +
-                    "part of the signal steady.",
-            ),
-        )
+        root.addView(section(strings.signalRealism))
+        root.addView(hint(strings.signalRealismHint))
         bearingHoldToggle = option(
             root,
-            "Hold the heading while standing still",
-            "A stationary receiver keeps reporting its last course instead of snapping to north.",
+            strings.bearingHold,
+            strings.bearingHoldHint,
         )
         altitudeDriftToggle = option(
             root,
-            "Drift the altitude",
-            "A slow random walk of a few centimetres per second.",
+            strings.altitudeDrift,
+            strings.altitudeDriftHint,
         )
         accuracyWarmupToggle = option(
             root,
-            "Warm up the accuracy",
-            "30 m converging to 5 m over the first half minute, as a cold fix does.",
+            strings.accuracyWarmup,
+            strings.accuracyWarmupHint,
         )
         satelliteJitterToggle = option(
             root,
-            "Vary the satellite count",
-            "A plausible 7 to 14 instead of one fixed number.",
+            strings.satelliteJitter,
+            strings.satelliteJitterHint,
         )
         signalDropoutToggle = option(
             root,
-            "Lose the signal occasionally",
-            "A few seconds of dropout now and then, which is the one a strict receiver may reject.",
+            strings.signalDropout,
+            strings.signalDropoutHint,
         )
 
-        root.addView(action("Start straight line from the first waypoint") { startStraight() })
-        root.addView(action("Start humanized route simulation") { startRoute() })
-        pauseBtn = action("Pause route") { toggleRoutePause() }
+        root.addView(action(strings.startStraight) { startStraight() })
+        root.addView(action(strings.startRoute) { startRoute() })
+        pauseBtn = action(strings.pauseRoute) { toggleRoutePause() }
         root.addView(pauseBtn)
-        root.addView(action("Stop simulation") {
-            PacerConfigClient.stop()
-            output.text = "Config: active=false."
+        root.addView(action(strings.stopSimulation) {
+            if (PacerConfigClient.stop()) {
+                setNotice(strings.statusConfigIdle)
+            } else {
+                setNotice(PacerConfigClient.NOT_READY_MESSAGE)
+            }
             updatePauseButton()
         })
-        root.addView(action("Show floating joystick") { showJoystick() })
+        root.addView(action(strings.showJoystick) { showJoystick() })
 
-        previewBtn = action("Preview engine locally (no hooks)") { previewLocally() }
+        previewBtn = action(strings.preview) { previewLocally() }
         root.addView(previewBtn)
 
-        auditBtn = action("Audit this track (server-side heuristics)") { auditRoute() }
+        auditBtn = action(strings.audit) { auditRoute() }
         root.addView(auditBtn)
 
         // --- diagnostics ------------------------------------------------------
         // Plain text in a plain box. The sheet is for reading and for pasting into a
         // chat, not for looking at, so there is no styling to keep in step with the
         // rest of the page.
-        root.addView(section("Self-check"))
-        root.addView(action("Run self-check") { runSelfCheck() })
-        root.addView(
-            hint(
-                "Reads this app's own location, WiFi, cell, Bluetooth and step counter back " +
-                    "through the public APIs and compares them with what the engine says they " +
-                    "must be. This app is deliberately outside the module's scope, so what it " +
-                    "sees is the system-wide result, not a private copy. To check a target app, " +
-                    "open that app and look at its map. Run this while a simulation is active. " +
-                    "Copy puts the whole report on the clipboard.",
-            ),
-        )
+        root.addView(section(strings.selfCheck))
+        root.addView(action(strings.runSelfCheck) { runSelfCheck() })
+        root.addView(hint(strings.selfCheckHint))
         selfCheckOutput = TextView(this).apply {
             textSize = 13f
             setTextIsSelectable(true)
@@ -340,8 +395,33 @@ class MainActivity : Activity() {
         }
         root.addView(selfCheckOutput)
 
+        // --- language ---------------------------------------------------------
+        // The startup screen is the primary place this is chosen; this is the second,
+        // for a user who already skipped that screen.
+        root.addView(section(strings.language))
+        val languageGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        for (language in Language.entries) {
+            languageGroup.addView(
+                RadioButton(this).apply {
+                    text = language.label
+                    id = language.ordinal + 1
+                    isChecked = language == settings.language
+                },
+            )
+        }
+        languageGroup.setOnCheckedChangeListener { _, checkedId ->
+            val chosen = Language.entries.getOrNull(checkedId - 1) ?: return@setOnCheckedChangeListener
+            if (chosen == settings.language) return@setOnCheckedChangeListener
+            settings.language = chosen
+            // A full rebuild: every label on the page changes, and several of them are
+            // produced by methods that take their text inline. Recreating the activity is
+            // the only way to guarantee no label is left in the previous language.
+            recreate()
+        }
+        root.addView(languageGroup)
+
         output = TextView(this).apply {
-            text = "Tip: add the target app to the module scope in LSPosed."
+            text = strings.statusIdle
             textSize = 14f
             setPadding(0, 32, 0, 0)
         }
@@ -400,6 +480,7 @@ class MainActivity : Activity() {
         }
         updatePauseButton()
     }
+
     /**
      * Freezes a running route where it stands, or lets it continue.
      *
@@ -411,19 +492,21 @@ class MainActivity : Activity() {
         val owner = PacerConfigClient.owner()
         val pause = owner.canPauseRoute
         if (!pause && !owner.canResumeRoute) {
-            output.text = "Only a running route can be paused."
+            setNotice(strings.onlyRunningRouteCanPause)
             updatePauseButton()
             return
         }
         if (!PacerConfigClient.setRoutePaused(pause)) {
-            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
             return
         }
-        output.text = if (pause) {
-            "Route paused where it stands; the subject reports no speed until it resumes."
-        } else {
-            "Route resumed from the point it stopped at."
-        }
+        setNotice(
+            if (pause) {
+                strings.routePausedWhereItStands
+            } else {
+                strings.routeResumedFromPoint
+            },
+        )
         updatePauseButton()
     }
 
@@ -437,6 +520,51 @@ class MainActivity : Activity() {
             android.view.View.GONE
         }
         pauseBtn.text = if (owner.canResumeRoute) "Resume route" else "Pause route"
+    }
+
+    private fun updateStatus() {
+        val stored = PacerConfigClient.stored()
+        val state = when {
+            stored == null -> strings.statusIdle
+            !stored.active -> strings.statusConfigIdle
+            stored.routePaused -> strings.statusPaused
+            stored.onRoute -> strings.statusRunning
+            else -> strings.statusRunning
+        }
+        val detail = when {
+            stored == null || !stored.active -> ""
+            else -> {
+                val seconds = stored.routeSeconds(System.currentTimeMillis()).toLong()
+                val point = subject.point(stored)
+                val where = point?.let { String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon) }
+                    ?: String.format(Locale.US, "%.5f, %.5f", stored.lat, stored.lon)
+                String.format(
+                    Locale.US,
+                    "%d:%02d   %s   %.1f m/s",
+                    seconds / 60,
+                    seconds % 60,
+                    where,
+                    stored.speed,
+                )
+            }
+        }
+        statusView.text = buildString {
+            val n = notice
+            if (n != null) {
+                appendLine(n)
+            }
+            append(state)
+            if (detail.isNotEmpty()) {
+                append('\n')
+                append(detail)
+            }
+        }
+    }
+
+    /** Writes a consequence where the user is looking, not at the bottom of the page. */
+    private fun setNotice(text: String?) {
+        notice = text
+        updateStatus()
     }
 
     override fun onResume() {
@@ -453,6 +581,18 @@ class MainActivity : Activity() {
         // A pause toggled on the other screen changes nothing this page adopts, so the
         // control has to be refreshed on its own.
         updatePauseButton()
+        updateStatus()
+        handler.removeCallbacks(statusTick)
+        handler.post(statusTick)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(statusTick)
+        // A recording cannot outlive the page that owns the draft: the tick would keep
+        // collecting points nobody can see or stop. Ending it here keeps the promise the
+        // button makes - what was walked is what gets saved.
+        recorder?.let { finishRecording(it) }
     }
 
     // ---------------------------------------------------------------------
@@ -472,13 +612,6 @@ class MainActivity : Activity() {
         renderSavedRoutes()
     }
 
-    override fun onPause() {
-        super.onPause()
-        // A recording cannot outlive the page that owns the draft: the tick would keep
-        // collecting points nobody can see or stop. Ending it here keeps the promise the
-        // button makes - what was walked is what gets saved.
-        recorder?.let { finishRecording(it) }
-    }
 
     /**
      * Saves the per-app datum table.
@@ -518,13 +651,13 @@ class MainActivity : Activity() {
     /** Asks for a name, then stores the current draft under it. */
     private fun saveCurrentRoute() {
         if (!draft.isValid) {
-            output.text = "A named route needs two distinct waypoints; this draft is not one yet."
+            setNotice(strings.routeNeedsTwoPoints)
             return
         }
         val stored = store.savedRoutes()
         val existing = currentSavedRouteId(stored)?.let { stored.find(it) }
         val field = EditText(this).apply {
-            hint = "Route name"
+            hint = strings.routeName
             setText(existing?.name ?: "")
             setSelection(text.length)
         }
@@ -564,7 +697,7 @@ class MainActivity : Activity() {
         savedRouteBox.removeAllViews()
         val routes = store.savedRoutes()
         if (routes.size == 0) {
-            savedRouteBox.addView(hint("No saved routes yet."))
+            savedRouteBox.addView(hint(strings.noSavedRoutes))
             return
         }
         val currentId = currentSavedRouteId(routes)
@@ -605,12 +738,13 @@ class MainActivity : Activity() {
         val apply = {
             val loaded = routes.draftOf(id)
             if (loaded == null) {
-                output.text = "That route is no longer in the store."
+                setNotice(strings.routeGone)
             } else {
                 draft = loaded
                 persistAndRender()
                 renderSavedRoutes()
-                output.text = "Loaded \"${route.name}\" (${route.points.size} waypoints)."
+                output.text =
+                    "\"${route.name}\" (${route.points.size} ${strings.waypointCountSuffix})"
             }
         }
         if (!replacesWork) {
@@ -642,9 +776,10 @@ class MainActivity : Activity() {
                 if (routes.rename(id, field.text.toString())) {
                     store.saveNamedRoutes(routes)
                     renderSavedRoutes()
-                    output.text = "Renamed."
+                    setNotice(strings.renamed)
                 } else {
-                    output.text = "A name is required, under ${SavedRoutes.MAX_NAME_LENGTH} characters."
+                    output.text =
+                        "${strings.nameRequired} (${SavedRoutes.MAX_NAME_LENGTH})"
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -663,7 +798,7 @@ class MainActivity : Activity() {
                 // The draft stays as it is: deleting the saved copy of a route is not a
                 // request to make the map forget what is drawn on it.
                 renderSavedRoutes()
-                output.text = "Deleted \"${route.name}\"."
+                setNotice(strings.deleted)
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -712,17 +847,37 @@ class MainActivity : Activity() {
      * the first waypoint is the one the user placed first, and a run that ignored it would
      * be a run from nowhere in particular.
      */
-    private fun startStraight() {
+    /**
+     * Asks before replacing a run that is already going.
+     *
+     * Pressing Start during a run used to restart it silently: the clock reset to zero and
+     * a twenty-minute track became a fresh one, with the old one gone. A run in progress is
+     * the most expensive thing on this screen, so replacing it is worth one question.
+     */
+    private fun confirmReplace(onConfirm: () -> Unit) {
+        android.app.AlertDialog.Builder(this)
+            .setTitle(strings.replaceRunTitle)
+            .setMessage(strings.replaceRunMessage)
+            .setPositiveButton(strings.replaceRunConfirm) { _, _ -> onConfirm() }
+            .setNegativeButton(strings.cancel, null)
+            .show()
+    }
+
+    private fun startStraight(confirmed: Boolean = false) {
+        if (!confirmed && PacerConfigClient.owner() != MotionOwner.NONE) {
+            confirmReplace { startStraight(true) }
+            return
+        }
         val start = draft.points.firstOrNull()
         if (start == null) {
-            output.text = "Place a waypoint on the map first; a straight line needs a start."
+            setNotice(strings.placeWaypointFirst)
             return
         }
         val lat = start.lat
         val lon = start.lon
         val speed = speedMps()
         val plan = planTextOrNull() ?: run {
-            output.text = "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
+            setNotice(strings.badPlan)
             return
         }
         val started = PacerConfigClient.start(
@@ -740,17 +895,19 @@ class MainActivity : Activity() {
         // Nothing was stored when the channel is not bound, so claiming a run here would
         // send the user looking for the wrong problem on the target side.
         if (!started) {
-            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
             return
         }
-        output.text = if (plan.isBlank()) {
-            String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
-        } else {
-            // The plan overrides the speed field, so quoting only the field would
-            // describe a run that is not happening.
-            String.format(Locale.US, "Straight line pushed: %.5f, %.5f, speed from the plan.", lat, lon) +
-                planSummary(plan)
-        }
+        setNotice(
+            if (plan.isBlank()) {
+                String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
+            } else {
+                // The plan overrides the speed field, so quoting only the field would
+                // describe a run that is not happening.
+                String.format(Locale.US, "Straight line pushed: %.5f, %.5f, speed from the plan.", lat, lon) +
+                    planSummary(plan)
+            },
+        )
         updatePauseButton()
     }
 
@@ -815,9 +972,8 @@ class MainActivity : Activity() {
             }
             recorder = RouteRecorder()
             recordStartedAtMs = System.currentTimeMillis()
-            recordBtn.text = "Stop recording"
-            output.text = "Recording. Steer with the floating joystick; the route is saved " +
-                "to the editor when you stop."
+            recordBtn.text = strings.stopRecording
+            setNotice(strings.recording)
             sampleRecording()
             handler.removeCallbacks(recordTick)
             handler.postDelayed(recordTick, RECORD_POLL_MS)
@@ -834,7 +990,8 @@ class MainActivity : Activity() {
         subject.point(stored)?.let { recording.offer(it) }
         recordBtn.text = String.format(
             Locale.US,
-            "Stop recording (%d points, %.0f m)",
+            "%s (%d pts, %.0f m)",
+            strings.stopRecording,
             recording.size,
             recording.distanceMeters,
         )
@@ -850,11 +1007,11 @@ class MainActivity : Activity() {
     private fun finishRecording(recording: RouteRecorder) {
         handler.removeCallbacks(recordTick)
         recorder = null
-        recordBtn.text = "Start recording from the joystick"
+        recordBtn.text = strings.startRecording
         val stored = PacerConfigClient.stored()
         val last = stored?.takeIf { it.active }?.let { subject.point(it) }
         if (!recording.finish(last)) {
-            output.text = "Nothing was recorded: the subject did not move far enough."
+            setNotice(strings.nothingRecorded)
             return
         }
         draft = recording.toDraft()
@@ -876,9 +1033,13 @@ class MainActivity : Activity() {
     private fun doubleOr(field: EditText, fallback: Double): Double =
         field.text.toString().toDoubleOrNull() ?: fallback
 
-    private fun startRoute() {
+    private fun startRoute(confirmed: Boolean = false) {
+        if (!confirmed && PacerConfigClient.owner() != MotionOwner.NONE) {
+            confirmReplace { startRoute(true) }
+            return
+        }
         if (!draft.isValid) {
-            output.text = "Add at least two waypoints that are not the same place before starting a route."
+            setNotice(strings.needTwoWaypoints)
             return
         }
         // The road path when one was planned on the map screen, the plain polyline
@@ -888,7 +1049,7 @@ class MainActivity : Activity() {
         val first = route.points.first()
         val speed = speedMps()
         val plan = planTextOrNull() ?: run {
-            output.text = "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
+            setNotice(strings.badPlan)
             return
         }
         val started = PacerConfigClient.start(
@@ -906,26 +1067,28 @@ class MainActivity : Activity() {
             realism = realismToggles(),
         )
         if (!started) {
-            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
             return
         }
-        output.text = if (plan.isBlank()) {
-            String.format(
-                Locale.US,
-                "Route pushed: %d points, %.0f m, %.2f m/s. The engine humanizes speed along it.",
-                geometry.size,
-                route.totalLengthMeters,
-                speed,
-            )
-        } else {
-            String.format(
-                Locale.US,
-                "Route pushed: %d points, %.0f m; speed follows the plan on top of the base %.2f m/s.",
-                geometry.size,
-                route.totalLengthMeters,
-                speed,
-            ) + planSummary(plan)
-        }
+        setNotice(
+            if (plan.isBlank()) {
+                String.format(
+                    Locale.US,
+                    "Route pushed: %d points, %.0f m, %.2f m/s. The engine humanizes speed along it.",
+                    geometry.size,
+                    route.totalLengthMeters,
+                    speed,
+                )
+            } else {
+                String.format(
+                    Locale.US,
+                    "Route pushed: %d points, %.0f m; speed follows the plan on top of the base %.2f m/s.",
+                    geometry.size,
+                    route.totalLengthMeters,
+                    speed,
+                ) + planSummary(plan)
+            },
+        )
         updatePauseButton()
     }
 
@@ -955,7 +1118,7 @@ class MainActivity : Activity() {
                     Uri.parse("package:$packageName"),
                 ),
             )
-            output.text = "Grant overlay permission, then tap again."
+            setNotice(strings.grantOverlay)
         }
     }
 
@@ -971,7 +1134,16 @@ class MainActivity : Activity() {
      */
     private fun auditRoute() {
         // The geometry that would actually be simulated, road path included.
-        val route = routeForPreview() ?: RoutePath(SAMPLE_ROUTE)
+        //
+        // No fallback to the sample route: an audit that quietly judged a route in Urumqi
+        // while the user was looking at their own three points produced a confident report
+        // about a track they never drew. Refusing is the only honest answer when there is
+        // nothing to audit.
+        val route = routeForPreview()
+        if (route == null) {
+            setNotice(strings.needTwoWaypoints)
+            return
+        }
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
@@ -985,7 +1157,7 @@ class MainActivity : Activity() {
         // from the two numbers it names.
         val seedBase = System.currentTimeMillis()
         auditBtn.isEnabled = false
-        output.text = "Auditing the track..."
+        setNotice(strings.auditing)
         thread {
             fun runOnce(seed: Long) = RouteSimulator(
                 route,
@@ -1022,6 +1194,13 @@ class MainActivity : Activity() {
                 output.text = text
                 auditBtn.isEnabled = true
             }
+        }.also { worker ->
+            worker.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, t ->
+                runOnUiThread {
+                    auditBtn.isEnabled = true
+                    setNotice("${t.javaClass.simpleName}: ${t.message}")
+                }
+            }
         }
     }
 
@@ -1034,7 +1213,7 @@ class MainActivity : Activity() {
      * be summarised away here.
      */
     private fun runSelfCheck() {
-        selfCheckOutput.text = "Checking..."
+        selfCheckOutput.text = strings.checkingEnvironment
         val stored = PacerConfigClient.stored()
         thread {
             val report = try {
@@ -1057,7 +1236,8 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Mean distance between two runs' positions at the same sample index. */    private fun meanDisplacementMeters(a: List<FixSample>, b: List<FixSample>): Double {
+    /** Mean distance between two runs' positions at the same sample index. */
+    private fun meanDisplacementMeters(a: List<FixSample>, b: List<FixSample>): Double {
         val n = minOf(a.size, b.size)
         if (n == 0) return 0.0
         var total = 0.0
@@ -1079,15 +1259,22 @@ class MainActivity : Activity() {
     }
 
     private fun previewLocally() {
+        // Same rule as the audit: a preview of a route the user did not draw is a report
+        // about nothing. The sample route stays behind its own explicit button.
+        val previewRoute = routeForPreview()
+        if (previewRoute == null) {
+            setNotice(strings.needTwoWaypoints)
+            return
+        }
         previewBtn.isEnabled = false
-        output.text = "Simulating..."
+        setNotice(strings.simulating)
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
         val plan = SpeedPlan.parse(planInput.text.toString())
         val speed = speedMps()
         thread {
-            val route = routeForPreview() ?: RoutePath(SAMPLE_ROUTE)
+            val route = previewRoute
             val fixes = RouteSimulator(
                 route,
                 MotionConfig(baseSpeedMps = speed).copy(plan = plan),
@@ -1112,6 +1299,16 @@ class MainActivity : Activity() {
                 output.text = text
                 previewBtn.isEnabled = true
             }
+        }.also { worker ->
+            // A throw here used to leave the button greyed out for the rest of the
+            // session and the screen frozen on "Simulating...", which is
+            // indistinguishable from a run that is still working.
+            worker.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, t ->
+                runOnUiThread {
+                    previewBtn.isEnabled = true
+                    setNotice("${t.javaClass.simpleName}: ${t.message}")
+                }
+            }
         }
     }
 
@@ -1131,8 +1328,7 @@ class MainActivity : Activity() {
         setPadding(0, 4, 0, 16)
     }
 
-    /**
-     * A switch that is added to [into], with a one-line explanation underneath. The
+    /** A switch that is added to [into], with a one-line explanation underneath. The
      * explanation is part of the control on purpose: every one of these changes what the
      * simulated track looks like, and none is obvious from its label.
      *
@@ -1197,6 +1393,9 @@ class MainActivity : Activity() {
          * rule discards.
          */
         const val RECORD_POLL_MS = 1000L
+
+        /** How often the status line re-reads the stored run. */
+        const val STATUS_POLL_MS = 1000L
 
         /**
          * A sample loop in Urumqi.

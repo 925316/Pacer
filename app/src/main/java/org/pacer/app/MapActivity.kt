@@ -42,6 +42,8 @@ class MapActivity : Activity() {
 
     private lateinit var store: RouteStore
     private lateinit var draft: RouteDraft
+    private lateinit var settings: AppSettings
+    private lateinit var strings: Strings
 
     private lateinit var info: TextView
     private lateinit var speedField: EditText
@@ -73,6 +75,20 @@ class MapActivity : Activity() {
      */
     private var selectedWaypoint = -1
 
+    /**
+     * A transient line above the state line, cleared when the selection changes.
+     *
+     * Kept separate from [updateInfo] because that method runs once a second from the
+     * poll, and a message written into the same TextView would disappear before it was
+     * read. This is the one place on the page that reports a consequence of a tap.
+     */
+    private var notice: String? = null
+
+    private fun setNotice(text: String?) {
+        notice = text
+        updateInfo()
+    }
+
     /** Drives the live marker, and only while this page is visible. */
     private val handler = Handler(Looper.getMainLooper())
 
@@ -87,6 +103,10 @@ class MapActivity : Activity() {
         override fun run() {
             try {
                 updateLivePosition()
+                // The state line follows the stored run, not the last tap: a run can be
+                // stopped from the other page, and a line that kept saying "Running"
+                // would be the very kind of stale status this page exists to avoid.
+                updateInfo()
                 // A pause can be toggled from this page or from the other one; the
                 // control has to follow the state rather than the last tap.
                 updatePauseControl()
@@ -107,6 +127,8 @@ class MapActivity : Activity() {
         super.onCreate(savedInstanceState)
         store = RouteStore(this)
         draft = store.load()
+        settings = AppSettings(this)
+        strings = stringsFor(settings.language)
         style = store.mapStyle() ?: MapStyle.DEFAULT
         // A stored layer that the stored source cannot draw (satellite on Baidu) falls back
         // to roads rather than putting the page on a layer it will never show.
@@ -132,18 +154,32 @@ class MapActivity : Activity() {
         column.addView(layerRow)
 
         val editRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        editRow.addView(button("Undo") {
+        editRow.addView(button(strings.undo) {
             editDraft { if (draft.size > 0) draft.removeAt(draft.size - 1) }
         })
-        editRow.addView(button("Clear") { editDraft { draft.clear() } })
-        removeButton = button("Remove") { removeSelectedWaypoint() }
+        editRow.addView(button(strings.clear) {
+            // Clearing is the one action here that cannot be undone point by point, and
+            // the button sits next to Undo. Asking once costs a tap; not asking costs a
+            // route the user has to redraw from memory.
+            if (draft.size < 2) {
+                editDraft { draft.clear() }
+            } else {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle(strings.clearRouteTitle)
+                    .setMessage(String.format(Locale.US, strings.clearRouteMessage, draft.size))
+                    .setPositiveButton(strings.clear) { _, _ -> editDraft { draft.clear() } }
+                    .setNegativeButton(strings.cancel, null)
+                    .show()
+            }
+        })
+        removeButton = button(strings.remove) { removeSelectedWaypoint() }
         removeButton.isEnabled = false
         editRow.addView(removeButton)
         column.addView(editRow)
 
         val viewRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        viewRow.addView(button("Fit") { fitRoute() })
-        viewRow.addView(button("Centre") { centreOnSubject() })
+        viewRow.addView(button(strings.fit) { fitRoute() })
+        viewRow.addView(button(strings.centre) { centreOnSubject() })
         column.addView(viewRow)
 
         // The map gets the remaining height. It is the point of the page, and a map that
@@ -159,28 +195,31 @@ class MapActivity : Activity() {
         column.addView(mapHolder)
 
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        controls.addView(button("Start") { startSimulation() })
-        controls.addView(button("Stop") {
-            PacerConfigClient.stop()
-            info.text = "Simulation stopped."
+        controls.addView(button(strings.start) { startSimulation() })
+        controls.addView(button(strings.stop) {
+            if (PacerConfigClient.stop()) {
+                setNotice(strings.statusConfigIdle)
+            } else {
+                setNotice(PacerConfigClient.NOT_READY_MESSAGE)
+            }
             updatePauseControl()
             updateLivePosition()
         })
-        controls.addView(TextView(this).apply { text = " Speed m/s "; textSize = 13f })
+        controls.addView(TextView(this).apply { text = " ${strings.speedMpsLabel} "; textSize = 13f })
         speedField = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText("3.0")
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         controls.addView(speedField)
-        loopCheck = CheckBox(this).apply { text = "Loop" }
+        loopCheck = CheckBox(this).apply { text = strings.loopShort }
         controls.addView(loopCheck)
         column.addView(controls)
 
         // Pause is a second row because it is a different kind of action: it holds the run
         // where it is, while Start replaces it and Stop ends it.
         pauseRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        pauseButton = button("Pause route") { toggleRoutePause() }
+        pauseButton = button(strings.pauseRoute) { toggleRoutePause() }
         pauseRow.addView(pauseButton)
         column.addView(pauseRow)
 
@@ -290,8 +329,14 @@ class MapActivity : Activity() {
                 installMap()
                 render()
                 if (dropped != null) {
-                    info.text = "${style.label} has no ${dropped.label.lowercase()} tiles on " +
-                        "this build; showing ${layer.label.lowercase()}."
+                    setNotice(
+                        String.format(
+                            Locale.US,
+                            strings.noTilesForLayer,
+                            style.label,
+                            dropped.label.lowercase(),
+                        ),
+                    )
                 }
             })
         }
@@ -425,11 +470,13 @@ class MapActivity : Activity() {
         selectedWaypoint = index
         removeButton.isEnabled = true
         map?.setSelectedWaypoint(index)
-        info.text = String.format(
-            Locale.US,
-            "Waypoint %d of %d selected. Remove deletes it; tap it again to deselect.",
-            index + 1,
-            draft.size,
+        setNotice(
+            String.format(
+                Locale.US,
+                strings.waypointSelected,
+                index + 1,
+                draft.size,
+            ),
         )
     }
 
@@ -458,19 +505,21 @@ class MapActivity : Activity() {
         val owner = PacerConfigClient.owner()
         val pause = owner.canPauseRoute
         if (!pause && !owner.canResumeRoute) {
-            info.text = "Only a running route can be paused."
+            setNotice(strings.onlyRunningRouteCanPause)
             updatePauseControl()
             return
         }
         if (!PacerConfigClient.setRoutePaused(pause)) {
-            info.text = PacerConfigClient.NOT_READY_MESSAGE
+            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
             return
         }
-        info.text = if (pause) {
-            "Route paused where it stands; the subject reports no speed until it resumes."
-        } else {
-            "Route resumed from the point it stopped at."
-        }
+        setNotice(
+            if (pause) {
+                strings.routePausedWhereItStands
+            } else {
+                strings.routeResumedFromPoint
+            },
+        )
         updatePauseControl()
         updateLivePosition()
     }
@@ -490,7 +539,7 @@ class MapActivity : Activity() {
         } else {
             android.view.View.GONE
         }
-        pauseButton.text = if (owner.canResumeRoute) "Resume route" else "Pause route"
+        pauseButton.text = if (owner.canResumeRoute) strings.resumeRoute else strings.pauseRoute
     }
 
     // ---------------------------------------------------------------------
@@ -500,7 +549,7 @@ class MapActivity : Activity() {
     private fun fitRoute() {
         val points = draft.points.toList()
         if (points.isEmpty()) {
-            info.text = "Place a waypoint on the map first."
+            setNotice(strings.placeWaypointFirst)
             return
         }
         map?.fitRoute(points)
@@ -518,15 +567,17 @@ class MapActivity : Activity() {
         val subject = if (stored != null && stored.active) livePoint(stored) else null
         val target = subject ?: draft.points.lastOrNull()
         if (target == null) {
-            info.text = "Nothing to centre on yet."
+            setNotice(strings.nothingToCentre)
             return
         }
         map.centerOn(target)
-        info.text = if (subject != null) {
-            String.format(Locale.US, "Centred on the subject at %.5f, %.5f.", target.lat, target.lon)
-        } else {
-            "Centred on the last waypoint."
-        }
+        setNotice(
+            if (subject != null) {
+                String.format(Locale.US, strings.centredOnSubject, target.lat, target.lon)
+            } else {
+                strings.centredOnLast
+            },
+        )
     }
 
     /**
@@ -538,21 +589,20 @@ class MapActivity : Activity() {
      */
     private fun relocate(point: GeoPoint) {
         when (PacerConfigClient.owner()) {
-            MotionOwner.ROUTE ->
-                info.text = "This run follows a route, so it cannot be moved with a long press. " +
-                    "Edit its waypoints instead, or stop it and start a straight-line run."
+            MotionOwner.ROUTE -> setNotice(strings.routeCannotMove)
             MotionOwner.PLAN, MotionOwner.HAND -> {
                 PacerConfigClient.teleport(point.lat, point.lon)
-                info.text = String.format(
-                    Locale.US,
-                    "Simulation moved to %.5f, %.5f.",
-                    point.lat,
-                    point.lon,
+                setNotice(
+                    String.format(
+                        Locale.US,
+                        strings.movedTo,
+                        point.lat,
+                        point.lon,
+                    ),
                 )
                 updateLivePosition()
             }
-            else -> info.text =
-                "Long press moves a running straight-line simulation here; none is running."
+            else -> setNotice(strings.longPressIdle)
         }
     }
 
@@ -560,9 +610,18 @@ class MapActivity : Activity() {
     // Simulation
     // ---------------------------------------------------------------------
 
-    private fun startSimulation() {
+    private fun startSimulation(confirmed: Boolean = false) {
+        if (!confirmed && PacerConfigClient.owner() != MotionOwner.NONE) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle(strings.replaceRunTitle)
+                .setMessage(strings.replaceRunMessage)
+                .setPositiveButton(strings.replaceRunConfirm) { _, _ -> startSimulation(true) }
+                .setNegativeButton(strings.cancel, null)
+                .show()
+            return
+        }
         if (!draft.isValid) {
-            info.text = "Place at least two waypoints that are not the same place before starting."
+            setNotice(strings.needTwoWaypoints)
             return
         }
         val geometry = store.geometry(draft)
@@ -587,26 +646,28 @@ class MapActivity : Activity() {
             realism = stored?.realism ?: RealismToggles(),
         )
         if (!started) {
-            info.text = PacerConfigClient.NOT_READY_MESSAGE
+            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
             return
         }
         val speedFromPlan = !stored?.plan.isNullOrBlank()
-        info.text = if (speedFromPlan) {
-            String.format(
-                Locale.US,
-                "Simulating %d waypoints with the interval plan as the speed curve%s.",
-                draft.size,
-                if (loopCheck.isChecked) ", repeating" else "",
-            )
-        } else {
-            String.format(
-                Locale.US,
-                "Simulating %d waypoints at %.1f m/s%s.",
-                draft.size,
-                speed,
-                if (loopCheck.isChecked) ", repeating" else "",
-            )
-        }
+        setNotice(
+            if (speedFromPlan) {
+                String.format(
+                    Locale.US,
+                    strings.simulatingWithPlan,
+                    draft.size,
+                    if (loopCheck.isChecked) strings.repeatingSuffix else "",
+                )
+            } else {
+                String.format(
+                    Locale.US,
+                    strings.simulatingAtSpeed,
+                    draft.size,
+                    speed,
+                    if (loopCheck.isChecked) strings.repeatingSuffix else "",
+                )
+            },
+        )
         updateLivePosition()
     }
 
@@ -624,19 +685,36 @@ class MapActivity : Activity() {
         }
         map.setLive(livePoint(stored))
     }
-
     /** Where the subject is, from the stored run: route passes, or the straight line. */
     private fun livePoint(stored: PacerConfigClient.Stored): GeoPoint? = subject.point(stored)
 
     private fun updateInfo() {
-        info.text = String.format(
-            Locale.US,
-            "Drag to pan, pinch to zoom, tap to append a waypoint, drag a handle to move it.\n" +
-                "Waypoints: %d   Length: %s   Map: %s",
-            draft.size,
-            if (draft.size < 2) "-" else String.format(Locale.US, "%.0f m", lengthOf(draft.points)),
-            style.label + " " + layer.label.lowercase(),
-        )
+        val stored = PacerConfigClient.stored()
+        val state = when {
+            stored == null -> strings.statusIdle
+            !stored.active -> strings.statusConfigIdle
+            stored.routePaused -> "${strings.statusPaused}  ${stored.lat}, ${stored.lon}"
+            else -> "${strings.statusRunning}  ${String.format(Locale.US, "%.5f", stored.lat)}, " +
+                String.format(Locale.US, "%.5f", stored.lon)
+        }
+        info.text = buildString {
+            val n = notice
+            if (n != null) {
+                appendLine(n)
+            }
+            append(state)
+            append('\n')
+            appendLine(strings.mapGestureHint)
+            append(
+                String.format(
+                    Locale.US,
+                    "Waypoints: %d   Length: %s   Map: %s",
+                    draft.size,
+                    if (draft.size < 2) "-" else String.format(Locale.US, "%.0f m", lengthOf(draft.points)),
+                    style.label + " " + layer.label.lowercase(),
+                ),
+            )
+        }
     }
 
     /** Total length of the waypoints, for the info line. */
