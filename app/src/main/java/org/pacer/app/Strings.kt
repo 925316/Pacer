@@ -172,6 +172,9 @@ interface Strings {
     val planNone: String
     val planSummary: String
     val planInvalidShort: String
+
+    /** Button labels for the presets, keyed by [PlanDraft.Preset.id]. */
+    val planPresetNames: Map<String, String>
     val planTotals: String
     val planTotalsForever: String
 }
@@ -351,6 +354,13 @@ object EnglishStrings : Strings {
     override val planNone = "steady speed"
     override val planSummary = "%d steps x%s"
     override val planInvalidShort = "not runnable"
+    override val planPresetNames = mapOf(
+        "human" to "Human run",
+        "official" to "Official",
+        "reps" to "400m reps",
+        "fartlek" to "Fartlek",
+        "negative" to "Negative",
+    )
     override val planTotals = "One pass %.0f s / %.0f m, total %.0f min / %.2f km"
     override val planTotalsForever = "One pass %.0f s / %.0f m, repeating for the whole route"
 }
@@ -503,6 +513,13 @@ object ChineseStrings : Strings {
     override val planNone = "匀速"
     override val planSummary = "%d 步 x%s"
     override val planInvalidShort = "跑不了"
+    override val planPresetNames = mapOf(
+        "human" to "拟人跑法",
+        "official" to "官方示例",
+        "reps" to "400 米间歇",
+        "fartlek" to "法特莱克",
+        "negative" to "负分割",
+    )
     override val planTotals = "单轮 %.0f 秒 / %.0f 米，合计 %.0f 分钟 / %.2f 公里"
     override val planTotalsForever = "单轮 %.0f 秒 / %.0f 米，之后按整条路线无限重复"
 }

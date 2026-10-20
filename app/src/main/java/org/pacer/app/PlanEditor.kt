@@ -282,7 +282,7 @@ class PlanEditor(
             for (preset in group) {
                 row.addView(
                     Button(activity).apply {
-                        text = preset.name
+                        text = strings.planPresetNames[preset.id] ?: preset.name
                         textSize = 12f
                         isAllCaps = false
                         minWidth = 0

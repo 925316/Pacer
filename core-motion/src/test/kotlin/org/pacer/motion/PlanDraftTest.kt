@@ -156,7 +156,7 @@ class PlanDraftTest {
     fun `the human run preset fades instead of holding one speed`() {
         // The whole point of shipping it: a flat pace with jitter on top is what the engine
         // already does on its own, so a preset that repeats one speed would be redundant.
-        val human = PlanDraft.PRESETS.firstOrNull { it.name == "Human run" }
+        val human = PlanDraft.PRESETS.firstOrNull { it.id == "human" }
         assertNotNull("no human run preset", human)
         val speeds = human!!.steps.map { it.speedMps }
         assertTrue("needs several steps", speeds.size >= 4)
@@ -166,9 +166,17 @@ class PlanDraftTest {
 
     @Test
     fun `the official example is the documented syntax`() {
-        val official = PlanDraft.PRESETS.firstOrNull { it.name == "Official" }
+        val official = PlanDraft.PRESETS.firstOrNull { it.id == "official" }
         assertNotNull("no official example preset", official)
         // `3.0@180;1.4@60#5`, the string the documentation uses.
         assertEquals("3.0@180.0;1.4@60.0#5", official!!.intoDraft().toWireFormat())
+    }
+
+    @Test
+    fun `every preset has a distinct id`() {
+        // The ids key the translated button labels, so a duplicate would silently show one
+        // preset's name on another's plan.
+        val ids = PlanDraft.PRESETS.map { it.id }
+        assertEquals(ids.size, ids.distinct().size)
     }
 }

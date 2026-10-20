@@ -127,14 +127,16 @@ class PlanDraft(
          * approximation of the fatigue curve, which the planner cannot yet model itself.
          */
         val PRESETS: List<Preset> = listOf(
-            Preset("Human run", HUMAN_RUN, repeats = 1),
-            Preset("Official", OFFICIAL_EXAMPLE, repeats = 5),
+            Preset("human", "Human run", HUMAN_RUN, repeats = 1),
+            Preset("official", "Official", OFFICIAL_EXAMPLE, repeats = 5),
             Preset(
+                "reps",
                 "400m reps",
                 listOf(SpeedPlan.Step(4.5, 90.0), SpeedPlan.Step(1.6, 120.0)),
                 repeats = 8,
             ),
             Preset(
+                "fartlek",
                 "Fartlek",
                 listOf(
                     SpeedPlan.Step(3.0, 240.0),
@@ -144,6 +146,7 @@ class PlanDraft(
                 repeats = 6,
             ),
             Preset(
+                "negative",
                 "Negative",
                 listOf(
                     SpeedPlan.Step(3.0, 600.0),
@@ -155,8 +158,19 @@ class PlanDraft(
         )
     }
 
-    /** A named starting point for the editor. */
-    data class Preset(val name: String, val steps: List<SpeedPlan.Step>, val repeats: Int) {
+    /**
+     * A named starting point for the editor.
+     *
+     * [id] is a stable key rather than the label: the button text is translated, so a
+     * preset cannot be recognised by the words it happens to show. [name] is the fallback
+     * when a translation is missing, which is what a preset added later would use.
+     */
+    data class Preset(
+        val id: String,
+        val name: String,
+        val steps: List<SpeedPlan.Step>,
+        val repeats: Int,
+    ) {
         fun intoDraft(): PlanDraft = PlanDraft(steps, repeats)
     }
 }
