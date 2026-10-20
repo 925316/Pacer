@@ -207,10 +207,9 @@ object SystemLocationServiceHooker {
             null
         }
         if (after == null || kotlin.math.abs(after - fake.latitude) > 1e-6) {
-            PacerLog.w(
-                "system-location",
-                "rewrite did not stick: wanted ${fake.latitude}, read back $after " +
-                    "(provider=$provider, class=${location.javaClass.name})",
+            PacerLog.i(
+                "system-location: rewrite did not stick - wanted ${fake.latitude}, " +
+                    "read back $after (provider=$provider, class=${location.javaClass.name})",
             )
         }
         try {
