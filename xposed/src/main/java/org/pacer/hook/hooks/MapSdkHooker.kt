@@ -271,6 +271,36 @@ object MapSdkHooker {
 
         // Quality report: the SDK flags "a high-danger mock app is installed".
         hookQualityReport(classLoader)
+        hookMockTolerance(classLoader)
+    }
+
+    /**
+     * Makes the SDK accept the fix even when its own check calls it mocked.
+     *
+     * `AMapLocationClientOption.isMockEnable()` is the single switch the SDK consults
+     * before discarding a fix it considers spoofed: with it false, the first four such
+     * fixes are dropped silently and every later one is returned with error 15 and all
+     * fields zeroed. The app sets it false on all four of its main location paths, and
+     * in the Hight_Accuracy mode it uses, an error-15 result is not delivered to the app
+     * at all - so the user sees "location never arrives" rather than an error.
+     *
+     * Answering true cannot be observed as a lie: the getter is only read by the SDK's
+     * own internal check, which is exactly the branch that must not discard the fix. The
+     * app never displays it, and its own logic reads only the resulting AMapLocation.
+     *
+     * This is the one place where beating the check is the correct answer rather than
+     * satisfying it: the checks that CAN be satisfied honestly (mock flag, satellite
+     * count, the all-zero triple) are satisfied at the source by LocationInjector, and
+     * this covers the case where the SDK's GNSS cross-check still disagrees.
+     */
+    private fun hookMockTolerance(classLoader: ClassLoader) {
+        val optionClass =
+            HookUtils.findClassIfExists("com.amap.api.location.AMapLocationClientOption", classLoader)
+                ?: return
+        HookUtils.hookAllMethods(optionClass, "isMockEnable") { chain ->
+            if (PacerRuntimeConfig.snapshot().active) true
+            else chain.proceed(chain.args.toTypedArray())
+        }
     }
 
     /** AMap's non-coordinate fields; its getTime is milliseconds. */
