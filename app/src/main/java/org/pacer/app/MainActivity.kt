@@ -201,6 +201,9 @@ class MainActivity : Activity() {
         setContentView(
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
+                // The window is edge to edge on API 35, so without this the status bar sits
+                // on top of the status line and the gesture bar on top of the tab strip.
+                fitsSystemWindows = true
                 addView(header)
                 addView(
                     FrameLayout(this@MainActivity).apply {
@@ -407,7 +410,7 @@ class MainActivity : Activity() {
         root.addView(section(strings.selfCheck))
         root.addView(action(strings.runSelfCheck) { runSelfCheck() })
         root.addView(hint(strings.selfCheckHint))
-        selfCheckOutput = TextView(this).apply {
+        selfCheckOutput = MessageView(this).apply {
             textSize = 13f
             setTextIsSelectable(true)
             setPadding(0, 8, 0, 0)
@@ -903,10 +906,10 @@ class MainActivity : Activity() {
     private fun renderRoute() {
         routeSummary.text = String.format(
             Locale.US,
-            "Waypoints: %d   Length: %.0f m%s",
+            strings.routeSummary,
             draft.size,
             draft.totalLengthMeters(),
-            if (draft.isValid) "" else "   (need two distinct points to run a route)",
+            if (draft.isValid) "" else strings.routeSummaryIncomplete,
         )
     }
 
@@ -1374,22 +1377,22 @@ class MainActivity : Activity() {
     private fun runBar(): LinearLayout {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 24)
+            setPadding(32, 12, 32, 12)
         }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         top.addView(
-            weightedButton(strings.startRoute) { startRoute() },
+            weightedButton(strings.startRouteShort, strings.startRoute) { startRoute() },
         )
         top.addView(
-            weightedButton(strings.startStraight) { startStraight() },
+            weightedButton(strings.startStraightShort, strings.startStraight) { startStraight() },
         )
         bar.addView(top)
 
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        pauseBtn = weightedButton(strings.pauseRoute) { toggleRoutePause() }
+        pauseBtn = weightedButton(strings.pauseRoute, strings.pauseRoute) { toggleRoutePause() }
         bottom.addView(pauseBtn)
         bottom.addView(
-            weightedButton(strings.stopSimulation) {
+            weightedButton(strings.stopShort, strings.stopSimulation) {
                 if (PacerConfigClient.stop()) {
                     setNotice(strings.statusConfigIdle)
                 } else {
@@ -1398,22 +1401,32 @@ class MainActivity : Activity() {
                 updatePauseButton()
             },
         )
-        bottom.addView(weightedButton(strings.showJoystick) { showJoystick() })
+        bottom.addView(weightedButton(strings.joystickShort, strings.showJoystick) { showJoystick() })
         bar.addView(bottom)
         return bar
     }
 
-    /** A button that shares its row evenly, so three actions fit one line on a phone. */
-    private fun weightedButton(label: String, onClick: () -> Unit): Button =
-        Button(this).apply {
-            text = label
-            textSize = 13f
-            minWidth = 0
-            minimumWidth = 0
-            setPadding(8, 0, 8, 0)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            setOnClickListener { onClick() }
-        }
+    /**
+     * A button that shares its row evenly, so three actions fit one line on a phone.
+     *
+     * The short label is what is drawn; [description] is what a screen reader reads and what
+     * a long press explains, because "Stop" alone does not say what stops.
+     */
+    private fun weightedButton(
+        label: String,
+        description: String,
+        onClick: () -> Unit,
+    ): Button = Button(this).apply {
+        text = label
+        contentDescription = description
+        textSize = 13f
+        minWidth = 0
+        minimumWidth = 0
+        isAllCaps = false
+        setPadding(8, 0, 8, 0)
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        setOnClickListener { onClick() }
+    }
 
     /** Takes no room while empty; the message area is otherwise a permanent blank line. */
     private class MessageView(context: android.content.Context) : TextView(context) {

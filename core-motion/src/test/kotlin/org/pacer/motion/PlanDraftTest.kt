@@ -17,6 +17,16 @@ import org.junit.Test
 class PlanDraftTest {
 
     @Test
+    fun `an empty draft is the no-plan state and is not an error`() {
+        // The editor opens empty, meaning "steady speed". Only a plan that exists and would
+        // not run is invalid; an absent plan is a choice the run supports.
+        val draft = PlanDraft(steps = emptyList())
+        assertNull(draft.toPlan())
+        assertEquals("", draft.toWireFormat())
+        assertTrue(draft.steps.isEmpty())
+    }
+
+    @Test
     fun `a default draft is a valid steady run`() {
         val draft = PlanDraft()
         val plan = draft.toPlan()

@@ -110,6 +110,8 @@ class MapActivity : Activity() {
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 16, 24, 16)
+            // Edge-to-edge on API 35: the map would otherwise run under the status bar.
+            fitsSystemWindows = true
         }
 
         info = TextView(this).apply { textSize = 14f }

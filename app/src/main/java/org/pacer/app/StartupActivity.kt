@@ -112,7 +112,12 @@ class StartupActivity : Activity() {
             },
         )
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        setContentView(
+            ScrollView(this).apply {
+                fitsSystemWindows = true
+                addView(root)
+            },
+        )
     }
 
     /** Root and module state in one paragraph, in whichever language is selected. */

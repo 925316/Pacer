@@ -42,6 +42,8 @@ interface Strings {
     val customSpeed: String
     val route: String
     val routeHint: String
+    val routeSummary: String
+    val routeSummaryIncomplete: String
     val openMap: String
     val loadSample: String
     val clearRoute: String
@@ -81,6 +83,12 @@ interface Strings {
     val resumeRoute: String
     val stopSimulation: String
     val showJoystick: String
+
+    /** Short forms for the pinned control bar, where the full label wraps to three lines. */
+    val startRouteShort: String
+    val startStraightShort: String
+    val stopShort: String
+    val joystickShort: String
     val preview: String
     val audit: String
     val selfCheck: String
@@ -182,6 +190,8 @@ object EnglishStrings : Strings {
     override val routeHint =
         "Waypoints are placed on the map: pan to a place, tap to append one, drag a " +
             "handle to move it. This list is what the map has drawn."
+    override val routeSummary = "Waypoints: %d   Length: %.0f m%s"
+    override val routeSummaryIncomplete = "   (need two distinct points to run a route)"
     override val openMap = "Open the map and controls"
     override val loadSample = "Load sample route (Urumqi)"
     override val clearRoute = "Clear route"
@@ -234,6 +244,10 @@ object EnglishStrings : Strings {
     override val resumeRoute = "Resume route"
     override val stopSimulation = "Stop simulation"
     override val showJoystick = "Show floating joystick"
+    override val startRouteShort = "Route"
+    override val startStraightShort = "Straight"
+    override val stopShort = "Stop"
+    override val joystickShort = "Joystick"
     override val preview = "Preview engine locally (no hooks)"
     override val audit = "Audit this track (server-side heuristics)"
     override val selfCheck = "Self-check"
@@ -352,6 +366,8 @@ object ChineseStrings : Strings {
     override val route = "路线"
     override val routeHint =
         "路径点在地图上放置：拖动到目标位置，点击追加一个点，拖动圆点可以移动它。这里只是列出地图上已画好的点。"
+    override val routeSummary = "路径点：%d   长度：%.0f 米%s"
+    override val routeSummaryIncomplete = "   （需要两个不同的点才能跑路线）"
     override val openMap = "打开地图与控制器"
     override val loadSample = "载入示例路线（乌鲁木齐）"
     override val clearRoute = "清空路线"
@@ -393,6 +409,10 @@ object ChineseStrings : Strings {
     override val resumeRoute = "继续路线"
     override val stopSimulation = "停止模拟"
     override val showJoystick = "显示悬浮摇杆"
+    override val startRouteShort = "路线"
+    override val startStraightShort = "直线"
+    override val stopShort = "停止"
+    override val joystickShort = "摇杆"
     override val preview = "本地预览引擎（不经过 hook）"
     override val audit = "审查这条轨迹（服务端启发式）"
     override val selfCheck = "自检"

@@ -19,7 +19,7 @@ class PlanEditor(
     private val onChange: (String) -> Unit,
 ) {
 
-    private val draft = PlanDraft()
+    private val draft = PlanDraft(steps = emptyList())
 
     /** The rows, rebuilt whole on every change: there are at most a handful of steps. */
     private val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -36,6 +36,14 @@ class PlanEditor(
     /** False while the draft would not run; the screen shows that instead of starting. */
     var isValid: Boolean = true
         private set
+
+    init {
+        // Drawn here, not only from load(): the editor has a valid state of its own (no
+        // steps, steady speed), and waiting for a stored plan left the block blank whenever
+        // the config channel was not bound - which is most of the time, since it only binds
+        // under the module.
+        refresh()
+    }
 
     /** The wire format to store, or "" when there is no usable plan. */
     fun wireFormat(): String = draft.toWireFormat()
@@ -56,7 +64,9 @@ class PlanEditor(
     }
 
     private fun publish() {
-        isValid = draft.toPlan() != null
+        // An empty list means "no plan, steady speed", which is a state the run supports;
+        // it is not a broken plan. Only a list that exists and would not run is invalid.
+        isValid = draft.steps.isEmpty() || draft.toPlan() != null
         onChange(if (isValid) draft.toWireFormat() else "")
         renderFooter()
     }
@@ -80,8 +90,7 @@ class PlanEditor(
                 textSize = 13f
                 setOnClickListener {
                     draft.add()
-                    rebuild()
-                    publish()
+                    refresh()
                 }
             },
         )
