@@ -7,6 +7,7 @@ import io.github.libxposed.service.XposedServiceHelper
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionOwner
 import org.pacer.motion.RealismToggles
+import org.pacer.motion.RouteClock
 import org.pacer.motion.SpeedPlan
 import org.pacer.motion.StraightLine
 
@@ -112,6 +113,12 @@ object PacerConfigClient {
         val plan: String,
         /** Whether a route run starts over when it reaches the end. */
         val loopRoute: Boolean,
+        /** True while the route run is frozen. */
+        val routePaused: Boolean,
+        /** Route time reached at the last pause, in milliseconds. */
+        val routeOffsetMs: Long,
+        /** Wall clock of the last resume; 0 for a run that was never resumed. */
+        val routeResumedAtMs: Long,
     ) {
         /**
          * Which input owns speed and heading, derived from what is stored.
@@ -121,7 +128,21 @@ object PacerConfigClient {
          * `onRoute` alone describes a configured route, not a running one, and a
          * stopped run keeps its `route_json` on purpose.
          */
-        val owner: MotionOwner get() = MotionOwner.of(active, onRoute, plan)
+        val owner: MotionOwner get() = MotionOwner.of(active, onRoute, routePaused, plan)
+
+        /**
+         * Seconds into the route run, with any pause taken into account.
+         *
+         * The single clock both this app and the module use. Everything derived from a
+         * route - position, speed, steps, lap - is looked up at this time, so a paused
+         * run is frozen rather than tracked with a second stored position.
+         */
+        fun routeSeconds(nowMs: Long = System.currentTimeMillis()): Double = RouteClock.secondsAt(
+            offsetSec = routeOffsetMs / 1000.0,
+            resumedAtMs = if (routeResumedAtMs > 0L) routeResumedAtMs else startedAtMs,
+            nowMs = nowMs,
+            paused = routePaused,
+        )
     }
 
     /** The stored configuration, or null while the channel is not ready or unused. */
@@ -152,6 +173,9 @@ object PacerConfigClient {
             ),
             plan = p.getString("plan", "") ?: "",
             loopRoute = p.getBoolean("loop_route", false),
+            routePaused = p.getBoolean("route_paused", false),
+            routeOffsetMs = p.getLong("route_offset_ms", 0L),
+            routeResumedAtMs = p.getLong("route_resumed_ts", 0L),
         )
     }
 
@@ -198,6 +222,12 @@ object PacerConfigClient {
             .putString("plan", plan)
             .putBoolean("loop_route", loopRoute)
             .putString("route_json", routeJson)
+            // A new run starts unpaused, and no earlier pause applies to it. Writing
+            // these explicitly means a restart cannot inherit a frozen clock by
+            // accident, which would look like a run that refuses to move.
+            .putBoolean("route_paused", false)
+            .putLong("route_offset_ms", 0L)
+            .putLong("route_resumed_ts", 0L)
             .apply()
         Log.i(TAG, "simulation started lat=$lat lon=$lon speed=$speed route=${routeJson.isNotEmpty()}")
         return true
@@ -208,8 +238,52 @@ object PacerConfigClient {
         p.edit()
             .putBoolean("active", false)
             .putLong("speed_mps", java.lang.Double.doubleToRawLongBits(0.0))
+            .putBoolean("route_paused", false)
             .apply()
         Log.i(TAG, "simulation stopped")
+    }
+
+    /**
+     * Freezes a route run where it stands, or lets it go again.
+     *
+     * Pausing does not store a position. A route run is a pure function of the route
+     * second, so the only thing a pause has to do is stop that second from advancing:
+     * [routeOffsetMs] is the route time reached, and the clock restarts from it on
+     * resume. Position, speed, steps and the lap therefore all stay consistent with
+     * each other, because they still come from one sample of one run - a separate
+     * "paused position" would be a second source of truth for the same fact.
+     *
+     * `start_ts` is deliberately left alone. It is the seed of the humanized track and
+     * the base the step counter is anchored to; changing it would rebuild the run with
+     * different noise and move the subject.
+     *
+     * @return false when no route run is running, in which case nothing was written.
+     */
+    fun setRoutePaused(paused: Boolean): Boolean {
+        val p = prefs ?: return false
+        val state = stored() ?: return false
+        if (paused) {
+            if (!state.owner.canPauseRoute) return false
+            val now = System.currentTimeMillis()
+            // Ask the stored run for its own clock rather than re-deriving it here: a
+            // run that was never resumed has no resume timestamp, and reading 0 as one
+            // would put the pause offset at the epoch and fling the subject to the end
+            // of the route. Stored.routeSeconds already falls back to the run's start.
+            val offsetMs = (state.routeSeconds(now) * 1000.0).toLong()
+            p.edit()
+                .putBoolean("route_paused", true)
+                .putLong("route_offset_ms", offsetMs)
+                .apply()
+            Log.i(TAG, "route paused at ${offsetMs}ms into the run")
+        } else {
+            if (!state.owner.canResumeRoute) return false
+            p.edit()
+                .putBoolean("route_paused", false)
+                .putLong("route_resumed_ts", System.currentTimeMillis())
+                .apply()
+            Log.i(TAG, "route resumed from ${state.routeOffsetMs}ms into the run")
+        }
+        return true
     }
 
     /**

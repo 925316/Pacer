@@ -23,6 +23,17 @@ enum class MotionOwner {
     /** A route run: position, speed and heading come from the route and its clock. */
     ROUTE,
 
+    /**
+     * A route run whose clock is frozen at a chosen point.
+     *
+     * The run still owns the position: it is the route's own sample at the frozen
+     * time, with the reported speed zero. Hand steering is refused here for the same
+     * reason it is refused on a running route, and for one more: the step counter is
+     * anchored to the run's start, so a manual detour would either freeze the count
+     * while the subject moves or jump it when the route resumes.
+     */
+    ROUTE_PAUSED,
+
     /** A straight-line run whose speed comes from an interval plan. */
     PLAN,
 
@@ -33,14 +44,20 @@ enum class MotionOwner {
     /**
      * True when the floating joystick may write speed and heading.
      *
-     * Only [HAND] qualifies. Writing a speed during a [ROUTE] or [PLAN] run does
-     * not steer anything: both derive distance from the clock, so the subject
-     * would move along its own track by the difference instead.
+     * Only [HAND] qualifies. A route derives distance from the clock, so writing a
+     * speed there would move the subject along its own track instead of steering it;
+     * a paused route is frozen on purpose and a plan derives speed from its steps.
      */
     val acceptsHandSteering: Boolean get() = this == HAND
 
-    /** True when the run derives its own motion and the hand controls are inert. */
-    val isAutomatic: Boolean get() = this == ROUTE || this == PLAN
+    /** True when the run derives its own motion (or is deliberately held still). */
+    val isAutomatic: Boolean get() = this == ROUTE || this == ROUTE_PAUSED || this == PLAN
+
+    /** True when pausing this run is a meaningful action. */
+    val canPauseRoute: Boolean get() = this == ROUTE
+
+    /** True when a frozen route can be let go again. */
+    val canResumeRoute: Boolean get() = this == ROUTE_PAUSED
 
     companion object {
         /**
@@ -50,8 +67,9 @@ enum class MotionOwner {
          * back to the flat speed when [SpeedPlan.parse] returns null, so a malformed
          * plan must not leave the app believing the plan is in charge.
          */
-        fun of(active: Boolean, onRoute: Boolean, plan: String): MotionOwner = when {
+        fun of(active: Boolean, onRoute: Boolean, paused: Boolean, plan: String): MotionOwner = when {
             !active -> NONE
+            onRoute && paused -> ROUTE_PAUSED
             onRoute -> ROUTE
             SpeedPlan.parse(plan) != null -> PLAN
             else -> HAND

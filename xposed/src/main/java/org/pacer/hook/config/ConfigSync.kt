@@ -93,6 +93,9 @@ object ConfigSync {
         // invented intervals.
         PacerRuntimeConfig.plan = SpeedPlan.parse(prefs.getString("plan", "") ?: "")
         PacerRuntimeConfig.loopRoute = prefs.getBoolean("loop_route", false)
+        PacerRuntimeConfig.routePaused = prefs.getBoolean("route_paused", false)
+        PacerRuntimeConfig.routeOffsetMs = prefs.getLong("route_offset_ms", 0L)
+        PacerRuntimeConfig.routeResumedAtMs = prefs.getLong("route_resumed_ts", 0L)
     }
 
     private fun doubleOf(p: SharedPreferences, key: String, def: Double): Double =

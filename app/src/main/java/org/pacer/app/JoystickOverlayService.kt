@@ -202,6 +202,8 @@ class JoystickOverlayService : Service() {
         /** Why the knob refused, in terms of what the user actually started. */
         private fun lockMessage(owner: MotionOwner): String = when (owner) {
             MotionOwner.ROUTE -> "Route run: speed and heading come from the route."
+            MotionOwner.ROUTE_PAUSED ->
+                "Route paused: the subject stands still until the route resumes."
             MotionOwner.PLAN -> "Interval plan running: speed comes from the plan, not the knob."
             else -> "No run to steer."
         }

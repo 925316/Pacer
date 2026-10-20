@@ -79,6 +79,9 @@ class MainActivity : Activity() {
     private lateinit var previewBtn: Button
     private lateinit var auditBtn: Button
 
+    /** Pauses or resumes a route run; hidden whenever neither action applies. */
+    private lateinit var pauseBtn: Button
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -211,9 +214,12 @@ class MainActivity : Activity() {
 
         root.addView(action("Start straight line from the first waypoint") { startStraight() })
         root.addView(action("Start humanized route simulation") { startRoute() })
+        pauseBtn = action("Pause route") { toggleRoutePause() }
+        root.addView(pauseBtn)
         root.addView(action("Stop simulation") {
             PacerConfigClient.stop()
             output.text = "Config: active=false."
+            updatePauseButton()
         })
         root.addView(action("Show floating joystick") { showJoystick() })
 
@@ -234,6 +240,7 @@ class MainActivity : Activity() {
 
         PacerConfigClient.init()
         renderRoute()
+        updatePauseButton()
         // Opens on the stored configuration rather than on this screen's defaults.
         // Every start writes ALL of these keys, so opening on defaults meant that
         // touching one switch silently restored the others - a user who had switched
@@ -270,12 +277,54 @@ class MainActivity : Activity() {
         signalDropoutToggle.isChecked = stored.realism.signalDropout
         output.text = when (stored.owner) {
             MotionOwner.ROUTE -> "Loaded the stored configuration: a route simulation is running."
+            MotionOwner.ROUTE_PAUSED -> "Loaded the stored configuration: a route simulation is " +
+                "running, paused where it stands."
             MotionOwner.PLAN -> "Loaded the stored configuration: a straight-line run with an " +
                 "interval plan is running."
             MotionOwner.HAND -> "Loaded the stored configuration: a hand-steered straight-line " +
                 "simulation is running."
             MotionOwner.NONE -> "Loaded the stored configuration; no simulation is running."
-        }    }
+        }
+        updatePauseButton()
+    }
+    /**
+     * Freezes a running route where it stands, or lets it continue.
+     *
+     * The clock is what stops: the module keeps reading the same run, so the position,
+     * the step count, the distance and the lap stay consistent with each other instead
+     * of being re-derived from a separately stored point.
+     */
+    private fun toggleRoutePause() {
+        val owner = PacerConfigClient.owner()
+        val pause = owner.canPauseRoute
+        if (!pause && !owner.canResumeRoute) {
+            output.text = "Only a running route can be paused."
+            updatePauseButton()
+            return
+        }
+        if (!PacerConfigClient.setRoutePaused(pause)) {
+            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            return
+        }
+        output.text = if (pause) {
+            "Route paused where it stands; the subject reports no speed until it resumes."
+        } else {
+            "Route resumed from the point it stopped at."
+        }
+        updatePauseButton()
+    }
+
+    /** Shows the pause control only when it would do something. */
+    private fun updatePauseButton() {
+        if (!::pauseBtn.isInitialized) return
+        val owner = PacerConfigClient.owner()
+        pauseBtn.visibility = if (owner.canPauseRoute || owner.canResumeRoute) {
+            android.view.View.VISIBLE
+        } else {
+            android.view.View.GONE
+        }
+        pauseBtn.text = if (owner.canResumeRoute) "Resume route" else "Pause route"
+    }
 
     override fun onResume() {
         super.onResume()
@@ -287,6 +336,9 @@ class MainActivity : Activity() {
         // permission dialog.
         val stored = PacerConfigClient.stored()
         if (stored != null && stored.startedAtMs != lastRestoreStartedAt) restoreFromStore()
+        // A pause toggled on the other screen changes nothing this page adopts, so the
+        // control has to be refreshed on its own.
+        updatePauseButton()
     }
 
     // ---------------------------------------------------------------------
@@ -391,7 +443,9 @@ class MainActivity : Activity() {
             // describe a run that is not happening.
             String.format(Locale.US, "Straight line pushed: %.5f, %.5f, speed from the plan.", lat, lon) +
                 planSummary(plan)
-        }    }
+        }
+        updatePauseButton()
+    }
 
     /**
      * A line about the interval plan that is about to run, using the plan's own
@@ -485,6 +539,7 @@ class MainActivity : Activity() {
                 speed,
             ) + planSummary(plan)
         }
+        updatePauseButton()
     }
 
     private fun showJoystick() {
@@ -496,6 +551,9 @@ class MainActivity : Activity() {
                 MotionOwner.ROUTE ->
                     "Joystick shown. A route run supplies its own speed and heading, so the knob " +
                         "is locked until the route is stopped. Drag the ring to move it, tap to stop."
+                MotionOwner.ROUTE_PAUSED ->
+                    "Joystick shown. The route is paused, so the subject stands still; the knob " +
+                        "unlocks only if you stop the route. Drag the ring to move it, tap to stop."
                 MotionOwner.PLAN ->
                     "Joystick shown. The interval plan supplies the speed, so the knob is locked " +
                         "until the plan run is stopped. Drag the ring to move it, tap to stop."

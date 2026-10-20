@@ -67,6 +67,10 @@ class MapActivity : Activity() {
     /** Enabled only while a waypoint is selected. */
     private lateinit var removeButton: Button
 
+    /** Pauses or resumes a route run; its label follows the stored state. */
+    private lateinit var pauseButton: Button
+    private lateinit var pauseRow: LinearLayout
+
     /**
      * The waypoint last tapped on the map, or -1.
      *
@@ -90,6 +94,9 @@ class MapActivity : Activity() {
         override fun run() {
             try {
                 updateLivePosition()
+                // A pause can be toggled from this page or from the other one; the
+                // control has to follow the state rather than the last tap.
+                updatePauseControl()
             } catch (_: Throwable) {
             } finally {
                 if (polling) handler.postDelayed(this, LIVE_POLL_MS)
@@ -168,6 +175,7 @@ class MapActivity : Activity() {
         controls.addView(button("Stop") {
             PacerConfigClient.stop()
             info.text = "Simulation stopped."
+            updatePauseControl()
             updateLivePosition()
         })
         controls.addView(TextView(this).apply { text = " Speed m/s "; textSize = 13f })
@@ -180,6 +188,13 @@ class MapActivity : Activity() {
         loopCheck = CheckBox(this).apply { text = "Loop" }
         controls.addView(loopCheck)
         column.addView(controls)
+
+        // Pause is a second row because it is a different kind of action: it holds the run
+        // where it is, while Start replaces it and Stop ends it.
+        pauseRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        pauseButton = button("Pause route") { toggleRoutePause() }
+        pauseRow.addView(pauseButton)
+        column.addView(pauseRow)
 
         // The map keeps its weight because the page is a column, not a scroll view: controls
         // that scrolled away would leave a map whose height changed while it was being used.
@@ -199,7 +214,10 @@ class MapActivity : Activity() {
         // screen that opens on its own defaults silently rewrites the user's settings the
         // next time it starts something.
         PacerConfigClient.onReady {
-            runOnUiThread { syncRunFields() }
+            runOnUiThread {
+                syncRunFields()
+                updatePauseControl()
+            }
         }
     }
 
@@ -354,6 +372,7 @@ class MapActivity : Activity() {
         // dialog pausing and resuming the page.
         val stored = PacerConfigClient.stored()
         if (stored != null && stored.startedAtMs != lastSyncedStartedAt) syncRunFields()
+        updatePauseControl()
         render()
         // The marker is only worth computing while this page is in front of the user; a
         // tick left running behind another screen burns a full run's rebuild for nothing.
@@ -437,6 +456,53 @@ class MapActivity : Activity() {
         if (index < 0 || index >= draft.size) return
         clearSelection()
         editDraft { draft.removeAt(index) }
+    }
+
+    /**
+     * Freezes the running route where it stands, or lets it continue.
+     *
+     * Pausing is a clock operation, not a position write: the module keeps reading the
+     * same run and stops advancing it, so the coordinates, the step count, the distance
+     * and the lap all remain what that one run says. Nothing is teleported and nothing
+     * restarts when it is resumed.
+     */
+    private fun toggleRoutePause() {
+        val owner = PacerConfigClient.owner()
+        val pause = owner.canPauseRoute
+        if (!pause && !owner.canResumeRoute) {
+            info.text = "Only a running route can be paused."
+            updatePauseControl()
+            return
+        }
+        if (!PacerConfigClient.setRoutePaused(pause)) {
+            info.text = PacerConfigClient.NOT_READY_MESSAGE
+            return
+        }
+        info.text = if (pause) {
+            "Route paused where it stands; the subject reports no speed until it resumes."
+        } else {
+            "Route resumed from the point it stopped at."
+        }
+        updatePauseControl()
+        updateLivePosition()
+    }
+
+    /**
+     * Shows the pause control only when it can do something.
+     *
+     * A button that is always present but usually inert is the same class of lie as a
+     * button that does nothing: it makes the user check whether the run is a route by
+     * tapping it. The label states which way the next tap goes.
+     */
+    private fun updatePauseControl() {
+        if (!::pauseButton.isInitialized) return
+        val owner = PacerConfigClient.owner()
+        pauseRow.visibility = if (owner.canPauseRoute || owner.canResumeRoute) {
+            android.view.View.VISIBLE
+        } else {
+            android.view.View.GONE
+        }
+        pauseButton.text = if (owner.canResumeRoute) "Resume route" else "Pause route"
     }
 
     // ---------------------------------------------------------------------
@@ -573,7 +639,9 @@ class MapActivity : Activity() {
 
     /** Where the subject is, from the stored run: route passes, or the straight line. */
     private fun livePoint(stored: PacerConfigClient.Stored): GeoPoint? {
-        val elapsed = ((System.currentTimeMillis() - stored.startedAtMs).coerceAtLeast(0L)) / 1000.0
+        // The stored run's own clock, so a paused route shows the point it stopped at
+        // instead of advancing while frozen. Sample: see PacerConfigClient.Stored.
+        val elapsed = stored.routeSeconds()
         val routePath = storedRoute(stored)
         if (routePath != null) {
             // The SAME arithmetic the module runs (RouteEngine), including the seed: the

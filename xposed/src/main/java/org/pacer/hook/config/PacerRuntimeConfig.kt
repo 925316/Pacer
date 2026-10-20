@@ -59,6 +59,21 @@ object PacerRuntimeConfig {
      */
     @Volatile var loopRoute: Boolean = false
 
+    /**
+     * Whether the route run is frozen at [routeOffsetMs].
+     *
+     * A paused run still owns the position - it is the route's own sample at the frozen
+     * second - but reports no speed and no cadence: standing still with a running
+     * cadence is the contradiction a pause exists to avoid.
+     */
+    @Volatile var routePaused: Boolean = false
+
+    /** Route time reached at the last pause, in milliseconds. */
+    @Volatile var routeOffsetMs: Long = 0L
+
+    /** Wall clock of the last resume; 0 for a run that was never resumed. */
+    @Volatile var routeResumedAtMs: Long = 0L
+
     fun snapshot(): Snapshot = Snapshot(
         active = active,
         speedMps = speedMps,
@@ -74,6 +89,9 @@ object PacerRuntimeConfig {
         routeJson = routeJson,
         plan = plan,
         loopRoute = loopRoute,
+        routePaused = routePaused,
+        routeOffsetMs = routeOffsetMs,
+        routeResumedAtMs = routeResumedAtMs,
     )
 
     data class Snapshot(
@@ -91,5 +109,8 @@ object PacerRuntimeConfig {
         val routeJson: String,
         val plan: SpeedPlan?,
         val loopRoute: Boolean,
+        val routePaused: Boolean,
+        val routeOffsetMs: Long,
+        val routeResumedAtMs: Long,
     )
 }

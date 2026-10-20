@@ -12,6 +12,7 @@ import org.pacer.motion.MotionConfig
 import org.pacer.motion.MotionSamples
 import org.pacer.motion.MotionSeed
 import org.pacer.motion.RealismToggles
+import org.pacer.motion.RouteClock
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
@@ -37,7 +38,15 @@ object RouteEngine {
             lapRunStartedAt = cfg.startTimestamp
             lapSeconds = 0.0
         }
-        val elapsed = ((nowMs - cfg.startTimestamp).coerceAtLeast(0L)) / 1000.0
+        // The route clock, not the wall clock: a paused run has to answer with one
+        // frozen second for as long as it stays paused, and a resumed run has to
+        // continue from the second it stopped at. See RouteClock.
+        val elapsed = RouteClock.secondsAt(
+            offsetSec = cfg.routeOffsetMs / 1000.0,
+            resumedAtMs = if (cfg.routeResumedAtMs > 0L) cfg.routeResumedAtMs else cfg.startTimestamp,
+            nowMs = nowMs,
+            paused = cfg.routePaused,
+        )
         // A repeating run: which lap this moment is in, and how far into it. The lap length
         // comes from the first build of the run and then stays fixed, because every lap is
         // built with its own noise and would otherwise move its own ending.
@@ -81,13 +90,18 @@ object RouteEngine {
         // Binary search, not a scan: the sensor callbacks ask this question tens of times a
         // second and a run holds one sample per second for minutes.
         val base = MotionSamples.at(list, lap.offsetSec) ?: return null
-        return MotionSamples.afterLaps(
+        val sample = MotionSamples.afterLaps(
             sample = base,
             laps = lap.index,
             lapMeters = list.last().distanceMeters,
             lapSteps = list.last().cumulativeSteps,
             tSec = elapsed,
         )
+        // A paused run keeps its position but not its motion: the sample it reports is
+        // the one it stopped at, with speed and cadence zeroed. Reporting the stopped
+        // second's cruising speed while the coordinates do not move is the same
+        // contradiction as a runner standing still with a running cadence.
+        return if (cfg.routePaused) sample.copy(speedMps = 0.0, cadenceSpm = 0.0) else sample
     }
 
     private fun build(
