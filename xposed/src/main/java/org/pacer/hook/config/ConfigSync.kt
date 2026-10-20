@@ -5,6 +5,7 @@
 package org.pacer.hook.config
 
 import android.content.SharedPreferences
+import org.pacer.hook.hooks.system.vendor.ProcessIdentity
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.CoordinatePolicy
@@ -99,11 +100,15 @@ object ConfigSync {
         PacerRuntimeConfig.routeOffsetMs = prefs.getLong("route_offset_ms", 0L)
         PacerRuntimeConfig.routeResumedAtMs = prefs.getLong("route_resumed_ts", 0L)
         // Parsed once per config change rather than per fix: the table is a string, and a
-        // fix is produced tens of times a second. The datum itself is resolved at the
-        // call site, because the default depends on which API is being hooked.
+        // fix is produced tens of times a second. Resolved for THIS process here, because
+        // an override names a package and only the matching process may apply it.
         val overrides = CoordinatePolicy.parse(prefs.getString("coord_overrides", "") ?: "")
         PacerRuntimeConfig.coordinateOverrides = overrides
-        PacerRuntimeConfig.coordinateSystem = CoordinateSystem.AUTO
+        PacerRuntimeConfig.coordinateSystem = CoordinatePolicy.resolve(
+            processName = ProcessIdentity.processName(),
+            overrides = overrides,
+            apiDefault = CoordinateSystem.AUTO,
+        )
     }
 
     private fun doubleOf(p: SharedPreferences, key: String, def: Double): Double =

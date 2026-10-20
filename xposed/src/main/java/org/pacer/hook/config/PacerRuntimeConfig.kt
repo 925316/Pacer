@@ -87,21 +87,6 @@ object PacerRuntimeConfig {
     /** The datum this process's fixes should carry, resolved once per config change. */
     @Volatile var coordinateSystem: CoordinateSystem = CoordinateSystem.AUTO
 
-    /**
-     * The datum to use for [apiDefault], honouring any override for this process.
-     *
-     * Resolved at the call site rather than cached once, because "the default" is a
-     * property of the API being hooked, not of the process: the same app asked through
-     * `LocationManager` expects WGS-84 while the AMap SDK inside it expects GCJ-02. An
-     * explicit override still wins for both.
-     */
-    fun datumFor(apiDefault: CoordinateSystem): CoordinateSystem =
-        CoordinatePolicy.resolve(
-            processName = ProcessIdentity.processName(),
-            overrides = coordinateOverrides,
-            apiDefault = apiDefault,
-        )
-
     fun snapshot(): Snapshot = Snapshot(
         active = active,
         speedMps = speedMps,
@@ -145,6 +130,7 @@ object PacerRuntimeConfig {
         val coordinateOverrides: List<CoordinateOverride>,
         /** The datum this process should report, resolved from the overrides above. */
         val coordinateSystem: CoordinateSystem,
+    ) {
 
         /**
          * The datum for a fix delivered through an API whose default is [apiDefault].
@@ -155,10 +141,6 @@ object PacerRuntimeConfig {
          * An explicit override wins for both.
          */
         fun datumFor(apiDefault: CoordinateSystem): CoordinateSystem =
-            if (coordinateSystem == CoordinateSystem.AUTO) {
-                apiDefault
-            } else {
-                coordinateSystem
-            }
-    )
+            if (coordinateSystem == CoordinateSystem.AUTO) apiDefault else coordinateSystem
+    }
 }
