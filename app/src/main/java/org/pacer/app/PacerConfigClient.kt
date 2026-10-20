@@ -207,11 +207,19 @@ object PacerConfigClient {
      * The position is derived from the start point and the clock, so changing the
      * motion has to move the anchor first: without that, the whole straight line is
      * recomputed from where the run began under the new heading and the subject jumps.
-     * Route mode is left alone - it derives its own sample from the route, and
-     * re-anchoring would restart the route from its first waypoint.
+     *
+     * A route run is refused outright. Its position, speed and heading are functions of
+     * the path and the clock, so writing a speed here would not steer anything: it would
+     * rebuild the run and move the subject along the path by the difference, and in loop
+     * mode it would also invalidate the lap length fixed at the first build. The rule
+     * lives here rather than only in the overlay so another caller cannot reintroduce it.
      */
     fun updateMotion(speed: Double, bearing: Float) {
         val p = prefs ?: return
+        if (isRouteRunActive()) {
+            Log.i(TAG, "motion update ignored: a route run owns speed and heading")
+            return
+        }
         val edit = p.edit()
             .putLong("speed_mps", java.lang.Double.doubleToRawLongBits(speed))
             .putFloat("bearing", bearing)
@@ -241,6 +249,18 @@ object PacerConfigClient {
     fun canTeleport(): Boolean {
         val state = stored() ?: return false
         return state.active && !state.onRoute
+    }
+
+    /**
+     * True when the running simulation follows a route.
+     *
+     * A route owns its position, speed and heading: it is derived from the path and
+     * the clock. Hand steering has nothing it can change without re-anchoring the
+     * timeline, so the joystick asks this before it writes anything.
+     */
+    fun isRouteRunActive(): Boolean {
+        val state = stored() ?: return false
+        return state.active && state.onRoute
     }
 
     /**

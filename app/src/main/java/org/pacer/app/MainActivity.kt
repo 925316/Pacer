@@ -470,8 +470,15 @@ class MainActivity : Activity() {
     private fun showJoystick() {
         if (Settings.canDrawOverlays(this)) {
             startForegroundService(Intent(this, JoystickOverlayService::class.java))
-            output.text = "Joystick shown. Drag the knob to steer (releasing keeps the last " +
-                "heading), drag the ring to move it, tap to stop."
+            // A route run locks the knob; saying so here is cheaper than letting the
+            // user find out by dragging it.
+            output.text = if (PacerConfigClient.isRouteRunActive()) {
+                "Joystick shown. A route run supplies its own speed and heading, so the knob " +
+                    "is locked until the route is stopped. Drag the ring to move it, tap to stop."
+            } else {
+                "Joystick shown. Drag the knob to steer (releasing keeps the last " +
+                    "heading), drag the ring to move it, tap to stop."
+            }
         } else {
             startActivity(
                 Intent(

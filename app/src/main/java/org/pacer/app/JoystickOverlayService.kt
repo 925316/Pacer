@@ -15,6 +15,7 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.Toast
 import org.pacer.motion.JoystickMath
 
 /**
@@ -115,8 +116,19 @@ class JoystickOverlayService : Service() {
         /** True while this gesture steers rather than moving the overlay. */
         private var steering = false
 
+        /**
+         * True when the run follows a route. The route supplies position, speed and
+         * heading from its own timeline; writing either from here would move the
+         * subject along the path instead of steering it, so the knob refuses to leave
+         * the centre and says why.
+         */
+        private var routeLocked = false
+
         /** True once the touch has travelled: a gesture that never moves is a tap. */
         private var travelled = false
+
+        /** True once this gesture has explained why the knob will not move. */
+        private var lockNotified = false
 
         init {
             setOnTouchListener { _, event ->
@@ -125,7 +137,10 @@ class JoystickOverlayService : Service() {
                         dragDx = event.rawX
                         dragDy = event.rawY
                         travelled = false
+                        lockNotified = false
+                        routeLocked = PacerConfigClient.isRouteRunActive()
                         steering = isOnKnob(event.x, event.y)
+                        invalidate()
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
@@ -134,17 +149,36 @@ class JoystickOverlayService : Service() {
                         dragDx = event.rawX
                         dragDy = event.rawY
                         if (dx != 0f || dy != 0f) travelled = true
-                        if (steering) steer(dx, dy) else moveOverlay(dx, dy)
+                        if (steering) {
+                            // A route run derives speed and heading from its own
+                            // timeline; writing either would move the subject along the
+                            // path instead of steering it. The ring still drags.
+                            if (routeLocked) {
+                                // Explain it on the first movement rather than on touch
+                                // down, so a tap that stops the run says nothing.
+                                if (!lockNotified) {
+                                    lockNotified = true
+                                    Toast.makeText(
+                                        this@JoystickOverlayService,
+                                        "Route run: speed and heading come from the route.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            } else {
+                                steer(dx, dy)
+                            }
+                        } else {
+                            moveOverlay(dx, dy)
+                        }
                         true
                     }
-                    MotionEvent.ACTION_UP -> {
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         // Only a tap stops the simulation, not every release: steering
                         // ends when the finger comes off the knob, and stopping on that
                         // release would end the run the moment the user let go.
-                        if (!travelled) {
+                        if (!travelled && event.actionMasked == MotionEvent.ACTION_UP) {
                             knobX = 0f
                             knobY = 0f
-                            invalidate()
                             PacerConfigClient.stop()
                             // With the run gone there is nothing left to steer, and an
                             // overlay that outlives it can only be removed by stopping
@@ -152,6 +186,8 @@ class JoystickOverlayService : Service() {
                             // the view is not removed mid-gesture.
                             post { stopSelf() }
                         }
+                        routeLocked = false
+                        invalidate()
                         true
                     }
                     else -> false
