@@ -3,6 +3,7 @@ package org.pacer.app
 import android.content.Context
 import org.pacer.motion.GeoPoint
 import org.pacer.motion.RouteDraft
+import org.pacer.motion.SavedRoutes
 
 /**
  * Keeps the in-progress route across launches, and which basemap is being drawn.
@@ -50,9 +51,25 @@ class RouteStore(context: Context) {
      */
     fun geometry(draft: RouteDraft): List<GeoPoint> = draft.points.toList()
 
+    /**
+     * The named routes, loaded on demand.
+     *
+     * Kept separate from the draft: the draft is what is being edited and the named list
+     * is what has been kept. Reading is cheap (one preference, a few dozen entries), so
+     * there is no cache to invalidate when the other screen saves something.
+     */
+    fun savedRoutes(): SavedRoutes = SavedRoutes.parse(prefs.getString(KEY_SAVED, "") ?: "")
+
+    fun saveNamedRoutes(routes: SavedRoutes) {
+        prefs.edit().putString(KEY_SAVED, routes.toJson()).apply()
+    }
+
     private companion object {
         const val KEY_DRAFT = "draft"
         const val KEY_MAP = "map_style"
         const val KEY_LAYER = "map_layer"
+
+        /** The named-route list; separate from the draft on purpose. */
+        const val KEY_SAVED = "saved_routes"
     }
 }

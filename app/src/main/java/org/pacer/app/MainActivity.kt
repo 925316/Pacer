@@ -77,6 +77,22 @@ class MainActivity : Activity() {
     private lateinit var routeSummary: TextView
     private lateinit var waypointBox: LinearLayout
 
+    /** One row per saved route: name, length, and the three actions on it. */
+    private lateinit var savedRouteBox: LinearLayout
+
+    /** The saved route currently loaded, so saving again replaces it instead of forking. */
+    /**
+     * The saved route whose geometry matches the draft exactly, if any.
+     *
+     * Derived from the content rather than from a "loaded this id" flag. Every edit path
+     * - tapping the map, undoing, recording, clearing, reloading a draft from the store -
+     * would otherwise have to remember to reset that flag, and one missed reset makes the
+     * next save silently overwrite an unrelated route. Comparing the points has no such
+     * failure mode: the draft is the saved route exactly when it is the same geometry.
+     */
+    private fun currentSavedRouteId(routes: SavedRoutes = store.savedRoutes()): Long? =
+        routes.routes.firstOrNull { it.points == draft.points }?.id
+
     private lateinit var previewBtn: Button
     private lateinit var auditBtn: Button
 
@@ -166,9 +182,21 @@ class MainActivity : Activity() {
         root.addView(waypointBox)
 
         root.addView(action("Load sample route (Urumqi)") { loadSampleRoute() })
-        root.addView(action("Clear route") { draft.clear(); persistAndRender() })
+        root.addView(action("Clear route") {
+            draft.clear()
+            persistAndRender()
+            renderSavedRoutes()
+        })
         recordBtn = action("Start recording from the joystick") { toggleRecording() }
         root.addView(recordBtn)
+
+        // --- named routes -----------------------------------------------------
+        // Plain buttons and plain rows. The list is the only structure a saved route
+        // needs; anything more would be decoration.
+        root.addView(section("Saved routes"))
+        root.addView(action("Save current route as...") { saveCurrentRoute() })
+        savedRouteBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(savedRouteBox)
 
         // --- simulation ------------------------------------------------------
         root.addView(section("Simulation"))
@@ -296,6 +324,7 @@ class MainActivity : Activity() {
 
         PacerConfigClient.init()
         renderRoute()
+        renderSavedRoutes()
         updatePauseButton()
         // Opens on the stored configuration rather than on this screen's defaults.
         // Every start writes ALL of these keys, so opening on defaults meant that
@@ -387,6 +416,7 @@ class MainActivity : Activity() {
         // The map screen edits the same persisted draft, so re-read it here.
         draft = store.load()
         renderRoute()
+        renderSavedRoutes()
         // A run started from the other screen carries settings this page shows; adopt them
         // only when the stored run actually changed, so a half-typed value survives a
         // permission dialog.
@@ -411,6 +441,7 @@ class MainActivity : Activity() {
         draft.clear()
         SAMPLE_ROUTE.forEach { draft.add(it) }
         persistAndRender()
+        renderSavedRoutes()
     }
 
     override fun onPause() {
@@ -424,6 +455,164 @@ class MainActivity : Activity() {
     private fun persistAndRender() {
         store.save(draft)
         renderRoute()
+    }
+
+    // ---------------------------------------------------------------------
+    // Saved routes
+    // ---------------------------------------------------------------------
+
+    /** Asks for a name, then stores the current draft under it. */
+    private fun saveCurrentRoute() {
+        if (!draft.isValid) {
+            output.text = "A named route needs two distinct waypoints; this draft is not one yet."
+            return
+        }
+        val stored = store.savedRoutes()
+        val existing = currentSavedRouteId(stored)?.let { stored.find(it) }
+        val field = EditText(this).apply {
+            hint = "Route name"
+            setText(existing?.name ?: "")
+            setSelection(text.length)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(if (existing != null) "Save over \"${existing.name}\"?" else "Save route as")
+            .setView(field)
+            .setPositiveButton("Save") { _, _ -> commitSave(field.text.toString(), existing?.id) }
+            .setNegativeButton("Cancel", null)
+            // "Save as new" exists because the only other way to avoid overwriting a
+            // loaded route would be to edit it first, which is not an answer.
+            .setNeutralButton("Save as new") { _, _ -> commitSave(field.text.toString(), null) }
+            .show()
+    }
+
+    /** One place for the two save buttons, so they cannot diverge in what they report. */
+    private fun commitSave(name: String, replaceId: Long?) {
+        val routes = store.savedRoutes()
+        when (val result = routes.save(draft, name, replaceId)) {
+            is SavedRoutes.SaveResult.Saved -> {
+                store.saveNamedRoutes(routes)
+                output.text = if (result.replaced) {
+                    "Replaced \"${result.route.name}\"."
+                } else {
+                    "Saved \"${result.route.name}\" (${result.route.points.size} waypoints, " +
+                        String.format(Locale.US, "%.0f m", result.route.lengthMeters) + ")."
+                }
+                renderSavedRoutes()
+            }
+            is SavedRoutes.SaveResult.InvalidName -> output.text = result.reason
+            is SavedRoutes.SaveResult.InvalidRoute -> output.text = result.reason
+        }
+    }
+
+    /** Rebuilds the saved-route rows. */
+    private fun renderSavedRoutes() {
+        if (!::savedRouteBox.isInitialized) return
+        savedRouteBox.removeAllViews()
+        val routes = store.savedRoutes()
+        if (routes.size == 0) {
+            savedRouteBox.addView(hint("No saved routes yet."))
+            return
+        }
+        val currentId = currentSavedRouteId(routes)
+        for (route in routes.sortedByName()) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val label = TextView(this).apply {
+                text = String.format(
+                    Locale.US,
+                    "%s  (%d points, %.0f m)%s",
+                    route.name,
+                    route.points.size,
+                    route.lengthMeters,
+                    if (route.id == currentId) "  *" else "",
+                )
+                textSize = 14f
+                setPadding(0, 8, 0, 8)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            row.addView(label)
+            row.addView(smallAction("Load") { loadSavedRoute(route.id) })
+            row.addView(smallAction("Rename") { renameSavedRoute(route.id) })
+            row.addView(smallAction("x") { deleteSavedRoute(route.id) })
+            savedRouteBox.addView(row)
+        }
+    }
+
+    /**
+     * Replaces the draft with a saved route.
+     *
+     * Asks first when the draft holds something that is not already that saved route: a
+     * Load tap must not destroy work the user cannot get back. Loading the route that is
+     * already in the editor, or loading over an empty draft, does not need a question.
+     */
+    private fun loadSavedRoute(id: Long) {
+        val routes = store.savedRoutes()
+        val route = routes.find(id) ?: return
+        val replacesWork = draft.isValid && id != currentSavedRouteId(routes)
+        val apply = {
+            val loaded = routes.draftOf(id)
+            if (loaded == null) {
+                output.text = "That route is no longer in the store."
+            } else {
+                draft = loaded
+                persistAndRender()
+                renderSavedRoutes()
+                output.text = "Loaded \"${route.name}\" (${route.points.size} waypoints)."
+            }
+        }
+        if (!replacesWork) {
+            apply()
+            return
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Replace the current draft?")
+            .setMessage(
+                "Loading \"${route.name}\" discards the current ${draft.size} waypoints. " +
+                    "Save them first if they are worth keeping.",
+            )
+            .setPositiveButton("Load") { _, _ -> apply() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun renameSavedRoute(id: Long) {
+        val routes = store.savedRoutes()
+        val route = routes.find(id) ?: return
+        val field = EditText(this).apply {
+            setText(route.name)
+            setSelection(text.length)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Rename route")
+            .setView(field)
+            .setPositiveButton("Rename") { _, _ ->
+                if (routes.rename(id, field.text.toString())) {
+                    store.saveNamedRoutes(routes)
+                    renderSavedRoutes()
+                    output.text = "Renamed."
+                } else {
+                    output.text = "A name is required, under ${SavedRoutes.MAX_NAME_LENGTH} characters."
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun deleteSavedRoute(id: Long) {
+        val route = store.savedRoutes().find(id) ?: return
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Delete \"${route.name}\"?")
+            .setMessage("The route is removed from the list. The map draft is not affected.")
+            .setPositiveButton("Delete") { _, _ ->
+                val routes = store.savedRoutes()
+                routes.remove(id)
+                store.saveNamedRoutes(routes)
+                // The draft stays as it is: deleting the saved copy of a route is not a
+                // request to make the map forget what is drawn on it.
+                renderSavedRoutes()
+                output.text = "Deleted \"${route.name}\"."
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun renderRoute() {
@@ -616,6 +805,7 @@ class MainActivity : Activity() {
         }
         draft = recording.toDraft()
         persistAndRender()
+        renderSavedRoutes()
         output.text = String.format(
             Locale.US,
             "Recorded %d waypoints over %.0f m in %d s. It is in the editor now.",
