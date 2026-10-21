@@ -91,6 +91,13 @@ class SelfCheckRunner(
         }
         val items = ArrayList<CheckItem>()
 
+        // Before the run check, deliberately: a datum conversion is arithmetic, not a
+        // measurement of the device, so it is answerable whether or not a run exists.
+        // Placing it after this early return would hide the one answer a user cannot verify
+        // by opening a map - a run needs the module bound, and the module is exactly what
+        // the user is trying to diagnose.
+        items += coordinateProbes()
+
         if (cfg == null || !cfg.active) {
             items += SelfCheck.skip(
                 "simulation",
@@ -106,7 +113,6 @@ class SelfCheckRunner(
         }
 
         val expected = runCatching { expectedFix() }.getOrNull()
-        items += coordinateProbes()
         items += locationProbes(expected)
         items += radioProbes()
         // Sensors last and only when a step run is on: the probe waits several seconds
