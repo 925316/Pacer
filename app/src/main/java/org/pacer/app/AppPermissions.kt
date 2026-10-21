@@ -56,7 +56,11 @@ object AppPermissions {
      *
      * `pm grant` through `su` is the only way to satisfy a runtime permission without the
      * user's tap, so a rooted device becomes silent. Root being absent is the normal case,
-     * not an error, so it only decides whether a dialog follows.
+     * not an error: it only decides whether a dialog follows.
+     *
+     * A device where `adb root` works but no `su` binary is exposed to apps (an emulator,
+     * typically) cannot take this path. That is why the dialog is the fallback rather than
+     * an error path.
      *
      * [onDone] receives the permissions that are still missing; empty means nothing was
      * asked of the user.
