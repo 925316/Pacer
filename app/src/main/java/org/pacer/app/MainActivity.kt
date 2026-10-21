@@ -901,7 +901,7 @@ class MainActivity : Activity() {
     /** Asks for a name, then stores the current draft under it. */
     private fun saveCurrentRoute() {
         if (!draft.isValid) {
-            setNotice(strings.routeNeedsTwoPoints, NoticeKind.FAILURE)
+            setNotice(strings.routeNeedsTwoPoints)
             return
         }
         val stored = store.savedRoutes()
@@ -1139,7 +1139,7 @@ class MainActivity : Activity() {
         }
         val start = draft.points.firstOrNull()
         if (start == null) {
-            setNotice(strings.placeWaypointFirst, NoticeKind.FAILURE)
+            setNotice(strings.placeWaypointFirst)
             return false
         }
         val lat = start.lat
@@ -1316,7 +1316,7 @@ class MainActivity : Activity() {
      */
     private fun planForStart(): String? {
         if (!planEditor.isValid) {
-            setNotice(strings.planInvalid, NoticeKind.FAILURE)
+            setNotice(strings.planInvalid)
             planEditor.open()
             return null
         }
@@ -1354,7 +1354,7 @@ class MainActivity : Activity() {
             return
         }
         if (!draft.isValid) {
-            setNotice(strings.needTwoWaypoints, NoticeKind.FAILURE)
+            setNotice(strings.needTwoWaypoints)
             return
         }
         // The road path when one was planned on the map screen, the plain polyline otherwise.
@@ -1445,12 +1445,12 @@ class MainActivity : Activity() {
         // a confident report about nothing.
         val route = routeForPreview()
         if (route == null) {
-            setNotice(strings.needTwoWaypoints, NoticeKind.FAILURE)
+            setNotice(strings.needTwoWaypoints)
             return
         }
         // A plan the editor rejects would silently audit a steady-speed run instead.
         if (!planEditor.isValid) {
-            setNotice(strings.planInvalid, NoticeKind.FAILURE)
+            setNotice(strings.planInvalid)
             planEditor.open()
             return
         }
@@ -1614,12 +1614,12 @@ class MainActivity : Activity() {
         // about nothing. The sample route stays behind its own explicit button.
         val previewRoute = routeForPreview()
         if (previewRoute == null) {
-            setNotice(strings.needTwoWaypoints, NoticeKind.FAILURE)
+            setNotice(strings.needTwoWaypoints)
             return
         }
         // Same rule as Start: a plan the editor rejects must not be previewed as a steady run.
         if (!planEditor.isValid) {
-            setNotice(strings.planInvalid, NoticeKind.FAILURE)
+            setNotice(strings.planInvalid)
             planEditor.open()
             return
         }
