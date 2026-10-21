@@ -89,7 +89,7 @@ interface Strings {
     val signalDropout: String
     val signalDropoutHint: String
 
-    /** The straight-line run the joystick drives; the name says how it is controlled. */
+    /** The straight-line run the joystick drives, named for how it is controlled. */
     val startJoystickMode: String
     val startRoute: String
     val pauseRoute: String
@@ -266,11 +266,10 @@ object EnglishStrings : Strings {
     override val altitudeHint =
         "The elevation the fix reports, as if the ground were that high. 0 is sea level. " +
             "It does not affect the track on the map; switch on the drift below to make it wander."
-    override val bearing = "Heading of a straight run"
+    override val bearing = "Heading joystick mode starts on"
     override val bearingHint =
-        "0 is north and the number grows clockwise: 90 east, 180 south, 270 west. Only the " +
-            "straight run started from the route page uses it; a route or the joystick sets " +
-            "its own heading."
+        "0 is north and the number grows clockwise: 90 east, 180 south, 270 west. This is the " +
+            "heading the run starts on; the knob changes it afterwards, and a route sets its own."
     override val intervalPlanSection = "Interval plan"
     override val loopRoute = "Repeat the route (laps)"
     override val loopRouteHint =
@@ -511,10 +510,10 @@ object ChineseStrings : Strings {
     override val altitudeHint =
         "定位结果里报告的海拔高度，相当于说脚下地面有这么高。0 表示海平面。它不影响地图上" +
             "的轨迹；想让海拔自己浮动，打开下面的「海拔缓慢漂移」。"
-    override val bearing = "直线运动的起始方向"
+    override val bearing = "摇杆模式的起始方向"
     override val bearingHint =
-        "0 是正北，数字顺时针增加：90 正东、180 正南、270 正西。只有路线页的「从第一个路径点" +
-            "开始直线运动」会用它；跑路线或者用摇杆时，方向由它们自己决定。"
+        "0 是正北，数字顺时针增加：90 正东、180 正南、270 正西。这是运行开始时的方向；" +
+            "之后由摇杆改变，跑路线时方向由路线自己决定。"
     override val intervalPlanSection = "变速计划"
     override val loopRoute = "循环跑这条路线"
     override val loopRouteHint = "跑完最后一站后回到第一个路径点继续，而不是停下。距离和步数会继续累加。"
