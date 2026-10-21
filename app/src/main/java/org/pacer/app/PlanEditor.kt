@@ -117,38 +117,6 @@ class PlanEditor(
 
     /** Static parts once; the dynamic ones are the only things a change has to redraw. */
     private fun buildBody() {
-        // Column headings, because the numbers no longer carry a unit of their own: two
-        // decimal columns side by side are otherwise unreadable.
-        body.addView(
-            LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 0, 0, dp(2))
-                addView(label("", dp(16)))
-                addView(label("", dp(58)))
-                addView(
-                    TextView(activity).apply {
-                        text = strings.planSpeed
-                        textSize = 11f
-                        gravity = Gravity.CENTER
-                        layoutParams = LinearLayout.LayoutParams(
-                            dp(124),
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                        )
-                    },
-                )
-                addView(
-                    TextView(activity).apply {
-                        text = strings.planDuration
-                        textSize = 11f
-                        gravity = Gravity.CENTER
-                        layoutParams = LinearLayout.LayoutParams(
-                            dp(118),
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                        )
-                    },
-                )
-            },
-        )
         body.addView(stepsColumn)
         body.addView(
             Button(activity).apply {
@@ -310,6 +278,10 @@ class PlanEditor(
                     textSize = 13f
                 },
             )
+        } else {
+            // Column headings belong to the rows, so they appear only when there are rows.
+            // A heading over "no steps yet" labels a table that is not there.
+            stepsColumn.addView(columnHeadings())
         }
         draft.steps.forEachIndexed { index, step ->
             stepsColumn.addView(stepRow(index, step.speedMps, step.durationSec))
@@ -330,6 +302,20 @@ class PlanEditor(
             }
         }
         totals.visibility = if (hasPlan || !isValid) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * The two column headings, sized to sit over the steppers they label.
+     *
+     * The numbers carry no unit of their own any more (that was what made the row too wide),
+     * so the headings are the only thing saying which column is speed and which is seconds.
+     */
+    private fun columnHeadings(): LinearLayout = LinearLayout(activity).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(0, 0, 0, dp(2))
+        addView(label("", dp(16)))
+        addView(label(strings.planSpeed, dp(124), 11f))
+        addView(label(strings.planDuration, dp(118), 11f))
     }
 
     /** The per-kilometre rows, one line each: mark, pace, and the two steppers. */
@@ -499,9 +485,9 @@ class PlanEditor(
             contentDescription = label
         }
 
-    private fun label(text: String, width: Int): TextView = TextView(activity).apply {
+    private fun label(text: String, width: Int, size: Float = 13f): TextView = TextView(activity).apply {
         this.text = text
-        textSize = 13f
+        textSize = size
         minWidth = width
         gravity = Gravity.CENTER
     }
