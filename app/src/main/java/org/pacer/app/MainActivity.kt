@@ -294,7 +294,6 @@ class MainActivity : Activity() {
                 writingSpeed = false
             }
         }
-        root.addView(speedInput)
 
         // The editor draws its own heading: it is folded, and the heading doubles as the
         // tap target that opens it.
