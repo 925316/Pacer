@@ -110,6 +110,12 @@ interface Strings {
     /** The one failure a user is most likely to meet: no module behind the config channel. */
     val configNotReady: String
 
+    /** Why the app asks for location and radio permissions at startup, and the two answers. */
+    val permissionTitle: String
+    val permissionBody: String
+    val permissionGrant: String
+    val permissionLater: String
+
     /** What a successful start says: the run that is now happening, in one line. */
     val startedJoystickMode: String
     val startedJoystickModeWithPlan: String
@@ -332,6 +338,13 @@ object EnglishStrings : Strings {
         "The simulation was not started: the module's config channel is not bound yet. " +
             "Try again in a moment; if it keeps happening, check that Pacer is enabled and " +
             "that this app (or the target app) is in its scope."
+    override val permissionTitle = "Permissions Pacer needs"
+    override val permissionBody =
+        "Pacer reads the simulated location and radio state back through the same public " +
+            "APIs a target app uses, so it cannot show or verify anything without these. " +
+            "Location is also what puts the marker on the map. Nothing is sent anywhere."
+    override val permissionGrant = "Grant"
+    override val permissionLater = "Not now"
     override val startedJoystickMode = "Joystick mode started at %.5f, %.5f, heading %.0f deg, %.2f m/s."
     override val startedJoystickModeWithPlan =
         "Joystick mode started at %.5f, %.5f, heading %.0f deg; the speed comes from the plan.%s"
@@ -562,6 +575,12 @@ object ChineseStrings : Strings {
     override val configNotReady =
         "模拟没能开始：模块的配置通道还没连上。稍等再试；如果一直这样，请确认 Pacer 已在 " +
             "LSPosed 里启用，并且这个应用（或目标应用）在它的作用域里。"
+    override val permissionTitle = "Pacer 需要的权限"
+    override val permissionBody =
+        "Pacer 要通过与目标应用相同的公开接口读回模拟出来的定位和无线状态，没有这些权限就没法" +
+            "显示或核对任何东西；地图上的位置标记也需要定位权限。所有数据都不会上传到任何地方。"
+    override val permissionGrant = "授予"
+    override val permissionLater = "以后再说"
     override val startedJoystickMode = "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度，%.2f m/s。"
     override val startedJoystickModeWithPlan =
         "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度；速度由变速计划提供。%s"

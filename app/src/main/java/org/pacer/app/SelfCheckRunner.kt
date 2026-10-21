@@ -74,7 +74,8 @@ class SelfCheckRunner(
                 listOf(
                     SelfCheck.skip(
                         "permissions",
-                        "grant the requested permissions, then run the check again",
+                        "Pacer does not have its permissions yet. Grant them, then run the " +
+                            "check again.",
                     ),
                 ),
                 notes(),
@@ -507,12 +508,7 @@ class SelfCheckRunner(
      *   permissions yet and its probes cannot say anything.
      */
     private fun requestProbePermissions(activity: android.app.Activity): Boolean {
-        val wanted = ArrayList<String>()
-        for (permission in PROBE_PERMISSIONS) {
-            if (activity.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
-                wanted += permission
-            }
-        }
+        val wanted = AppPermissions.missing(activity)
         if (wanted.isEmpty()) return false
         activity.runOnUiThread {
             activity.requestPermissions(wanted.toTypedArray(), PROBE_PERMISSION_REQUEST)
@@ -569,14 +565,5 @@ class SelfCheckRunner(
 
         /** Long enough for the hook's quiet window plus one heartbeat. */
         private const val SENSOR_WAIT_SECONDS = 8L
-
-        private val PROBE_PERMISSIONS = arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_WIFI_STATE,
-            Manifest.permission.CHANGE_WIFI_STATE,
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-        )
     }
 }

@@ -37,12 +37,26 @@ class StartupActivity : Activity() {
         // Asked before drawing, or the screen always claims "not connected".
         PacerConfigClient.init()
         PacerConfigClient.onReady { runOnUiThread { if (!isFinishing) render() } }
+        // Before the skip-startup shortcut: a user who hides this screen still needs the
+        // permissions, and asking from a page they will never see again would only show up
+        // much later as an empty self-check.
+        AppPermissions.request(this) { if (!isFinishing) render() }
         if (settings.skipStartup) {
             openMain()
             return
         }
         render()
         startRootCheck()
+    }
+
+    /** The user answered the permission dialog; the report line may now say more. */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == AppPermissions.REQUEST_CODE) render()
     }
 
     private fun render() {
