@@ -220,7 +220,7 @@ class MainActivity : Activity() {
                         // scroll view rather than pushing the page up: a message that appears
                         // and disappears must not resize the page under the user's thumb.
                         addView(
-                            noticeStrip(),
+                            buildNoticeStrip(),
                             FrameLayout.LayoutParams(
                                 FrameLayout.LayoutParams.MATCH_PARENT,
                                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -751,7 +751,7 @@ class MainActivity : Activity() {
     }
 
     private fun showNotice(text: String, kind: NoticeKind) {
-        handler.removeCallbacks(hideNotice)
+        handler.removeCallbacks(hideNoticeTask)
         noticeText.text = text
         noticeStrip.visibility = View.VISIBLE
         noticeStrip.setBackgroundColor(
@@ -770,7 +770,7 @@ class MainActivity : Activity() {
             View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         val ms = noticeDurationMs(text, kind)
-        if (ms > 0L) handler.postDelayed(hideNotice, ms)
+        if (ms > 0L) handler.postDelayed(hideNoticeTask, ms)
     }
 
     /** Hides the strip; the text goes too so a screen reader cannot still find it. */
@@ -780,10 +780,10 @@ class MainActivity : Activity() {
         noticeText.text = ""
     }
 
-    private val hideNotice = Runnable { hideNotice() }
+    private val hideNoticeTask = Runnable { hideNotice() }
 
     /** The floating strip itself. Built once; [showNotice] only changes its content. */
-    private fun noticeStrip(): LinearLayout {
+    private fun buildNoticeStrip(): LinearLayout {
         noticeStrip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -841,7 +841,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(statusTick)
         // The strip's own timer must not fire while the page is behind another one; it would
         // hide a message the user has not seen yet on their way back.
-        handler.removeCallbacks(hideNotice)
+        handler.removeCallbacks(hideNoticeTask)
         // A recording cannot outlive the page that owns the draft: the tick would keep
         // collecting points nobody can see or stop. Ending it here keeps the promise the
         // button makes - what was walked is what gets saved.
