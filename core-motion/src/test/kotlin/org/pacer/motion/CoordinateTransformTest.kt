@@ -56,6 +56,41 @@ class CoordinateTransformTest {
     }
 
     @Test
+    fun `gcj02 for five cities matches the published scheme`() {
+        // FIXED NUMBERS, for the same reason `bd09 for Beijing has the published value`
+        // exists: everything else in this file would accept a transform that is merely
+        // nonzero, deterministic and self-inverse. Measured against two independent
+        // implementations of the published scheme, which agree with these values to
+        // 0.00 cm.
+        //
+        // What this catches that the range assertions do not: swapping transformLat's two
+        // arguments. That bug keeps every shift in the plausible 100..1000 m band while
+        // moving Guangzhou by 642 m, so all three range assertions still pass.
+        val cases = listOf(
+            Triple(GeoPoint(39.9042, 116.4074), 39.905603343, 116.413642254),
+            Triple(GeoPoint(31.2304, 121.4737), 31.228457738, 121.478223059),
+            Triple(GeoPoint(23.1291, 113.2644), 23.126423340, 113.269729592),
+            Triple(GeoPoint(43.8256, 87.6168), 43.826805393, 87.619649949),
+            Triple(GeoPoint(28.75, 115.85), 28.746725682, 115.854924377),
+        )
+        for ((wgs, wantLat, wantLon) in cases) {
+            val got = CoordinateTransform.wgs84ToGcj02(wgs)
+            assertEquals("lat for $wgs", wantLat, got.lat, 1e-6)
+            assertEquals("lon for $wgs", wantLon, got.lon, 1e-6)
+        }
+    }
+
+    @Test
+    fun `gcj02 shift for Beijing is the known number, not merely plausible`() {
+        // A range assertion such as `shift in 100.0..1000.0` also accepts a 46 m error.
+        // Pinning the size catches a scale slip that leaves the direction right.
+        val wgs = GeoPoint(39.9042, 116.4074)
+        val gcj = CoordinateTransform.wgs84ToGcj02(wgs)
+        val shift = GeoMath.haversine(wgs, gcj)
+        assertEquals(554.85, shift, 1.0)
+    }
+
+    @Test
     fun `bd09 for Beijing has the published value`() {
         // A FIXED NUMBER, because every other test in this file only checks that the
         // transform is nonzero, deterministic or self-inverse - and a transform can be all

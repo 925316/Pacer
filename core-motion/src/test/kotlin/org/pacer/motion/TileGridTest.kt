@@ -62,11 +62,38 @@ class TileGridTest {
         val shifted = gcj.pixel(beijing, 18)
         val dx = abs(shifted.x - plain.x)
         val dy = abs(shifted.y - plain.y)
-        assertTrue("dx=$dx dy=$dy", dx > 50 && dy > 50)
-        // ...and at zoom 12 both land on the same tile, which is why a low zoom hides the
-        // bug: the offset is real but smaller than a tile there.
-        assertEquals(3372, tileOf(gcj, beijing).x)
-        assertEquals(1552, tileOf(gcj, beijing).y)
+        // Exact pixels, not just "somewhere else": a transposed argument or a wrong sign in
+        // the datum conversion moves this number, and the assertion below would still hold.
+        assertEquals("dx", 1163.64, dx, 0.5)
+        assertEquals("dy", 341.02, dy, 0.5)
+    }
+
+    @Test
+    fun `the gcj grid asks for a different tile than the plain one once a tile is smaller than the offset`() {
+        // This REPLACES an assertion that could not fail. The old test asserted that the
+        // GCJ-shifted Beijing lands on tile (3372, 1552) - the WGS-84 tile - at zoom 12.
+        // A zoom-12 tile is 7.5 km wide and the offset is 0.55 km, so both datums land in
+        // the same tile for any shift under several kilometres: the assertion held no
+        // matter what the conversion did, which is the opposite of a test.
+        //
+        // WHAT THIS CATCHES AND WHAT IT DOES NOT: the tile index quantises to 256 pixels,
+        // so this detects "the datum was not applied at all" and nothing finer. A bug that
+        // shifts by the wrong amount by up to ~40% still lands on a different tile and
+        // passes. The exact-pixel assertion in `gcj grid shifts a point inside China by the
+        // expected offset` and the pinned coordinates in CoordinateTransformTest are the
+        // ones that catch a wrong magnitude; this one only proves the branch ran.
+        val gcj = GcjTileGrid()
+        val plain = WebMercatorGrid("Google")
+        assertEquals(
+            "zoom 12 hides the shift; that is why it was a bad place to assert",
+            plain.tile(plain.pixel(beijing, 12)),
+            gcj.tile(gcj.pixel(beijing, 12)),
+        )
+        for (z in listOf(13, 15, 18)) {
+            val wgsTile = plain.tile(plain.pixel(beijing, z))
+            val gcjTile = gcj.tile(gcj.pixel(beijing, z))
+            assertTrue("z=$z: $wgsTile == $gcjTile, the datum was not applied", wgsTile != gcjTile)
+        }
     }
 
     @Test
