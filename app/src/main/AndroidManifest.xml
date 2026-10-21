@@ -24,6 +24,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Route export writes into Download/Pacer. From Android 10 the platform lets an app
+         write its own files there through MediaStore with no permission at all; the older
+         releases need this one, which is why it stops at 28 rather than being asked of
+         every user forever. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <!-- No map SDK is linked any more: the basemap tiles are drawn by the app itself, so
          there is no native library to extract and no vendor key to place here. -->
     <application

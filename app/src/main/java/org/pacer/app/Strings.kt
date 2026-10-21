@@ -146,6 +146,13 @@ interface Strings {
     val routeLoadedAs: String
     val nameRequiredWithLimit: String
 
+    /** Writing copies out to Download/Pacer, where a file manager can reach them. */
+    val exportRoutes: String
+    val exported: String
+    val exportFailed: String
+    val nothingToExport: String
+    val currentDraftFileName: String
+
     /** What a successful start says: the run that is now happening, in one line. */
     val startedJoystickMode: String
     val startedJoystickModeWithPlan: String
@@ -397,6 +404,11 @@ object EnglishStrings : Strings {
     override val routeSavedAs = "Saved \"%s\" (%d waypoints, %.0f m)."
     override val routeLoadedAs = "\"%s\" (%d %s)"
     override val nameRequiredWithLimit = "A route name is required, %d characters at most."
+    override val exportRoutes = "Export every route to Download/Pacer"
+    override val exported = "Wrote %d file(s) to Download/%s."
+    override val exportFailed = "Wrote %d file(s), then stopped: %s"
+    override val nothingToExport = "There is no saved route and no drawn route to export."
+    override val currentDraftFileName = "current-draft"
     override val startedJoystickMode = "Joystick mode started at %.5f, %.5f, heading %.0f deg, %.2f m/s."
     override val startedJoystickModeWithPlan =
         "Joystick mode started at %.5f, %.5f, heading %.0f deg; the speed comes from the plan.%s"
@@ -654,6 +666,11 @@ object ChineseStrings : Strings {
     override val routeSavedAs = "已保存「%s」（%d 个路径点，%.0f 米）。"
     override val routeLoadedAs = "「%s」（%d %s）"
     override val nameRequiredWithLimit = "需要填写路线名，最多 %d 个字符。"
+    override val exportRoutes = "导出全部路线到下载/Pacer"
+    override val exported = "已写入 %d 个文件到下载/%s。"
+    override val exportFailed = "已写入 %d 个文件，然后中断：%s"
+    override val nothingToExport = "没有已保存的路线，也没有画好的路线可导出。"
+    override val currentDraftFileName = "当前草稿"
     override val startedJoystickMode = "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度，%.2f m/s。"
     override val startedJoystickModeWithPlan =
         "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度；速度由变速计划提供。%s"

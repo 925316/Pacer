@@ -42,6 +42,12 @@ object AppPermissions {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list += Manifest.permission.POST_NOTIFICATIONS
         }
+        // Only the API 26-28 export path writes to shared storage; the manifest caps the
+        // declaration there, so asking on a newer device would be asking for a permission
+        // the app cannot even hold.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            list += Manifest.permission.WRITE_EXTERNAL_STORAGE
+        }
         return list
     }
 

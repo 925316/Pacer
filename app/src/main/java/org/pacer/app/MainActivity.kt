@@ -377,6 +377,9 @@ class MainActivity : Activity() {
         root.addView(action(strings.saveRoute) { saveCurrentRoute() })
         savedRouteBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(savedRouteBox)
+        // The list above lives in the app's private storage, which the user cannot open.
+        // This writes copies into Download/Pacer so they can be backed up or moved.
+        root.addView(action(strings.exportRoutes) { exportRoutes() })
         return root
     }
 
@@ -921,6 +924,49 @@ class MainActivity : Activity() {
                 setNotice(result.reason, NoticeKind.FAILURE)
             is SavedRoutes.SaveResult.InvalidRoute ->
                 setNotice(result.reason, NoticeKind.FAILURE)
+        }
+    }
+
+    /** Exports every saved route, and the current draft, into Download/Pacer. */
+    private fun exportRoutes() {
+        val routes = store.savedRoutes().routes
+        val draftPoints = if (draft.size >= 2) RouteJson.encode(draft.points) else null
+        if (routes.isEmpty() && draftPoints == null) {
+            setNotice(strings.nothingToExport, NoticeKind.FAILURE)
+            return
+        }
+        val draftName = strings.currentDraftFileName
+        // These are small files, but they are still file writes; keeping them off the UI
+        // thread is the same rule every other write in this app follows. thread() starts the
+        // thread itself, so naming it as an argument is the only correct form here.
+        thread(name = "pacer-route-export", isDaemon = true) {
+            val failures = ArrayList<String>()
+            var written = 0
+            for (route in routes) {
+                when (val result = RouteExport.write(this@MainActivity, route.name, route.toJson())) {
+                    is RouteExport.Result.Written -> written++
+                    is RouteExport.Result.Failed -> failures += "${route.name}: ${result.reason}"
+                }
+            }
+            if (draftPoints != null) {
+                val result = RouteExport.write(this@MainActivity, draftName, draftPoints)
+                when (result) {
+                    is RouteExport.Result.Written -> written++
+                    is RouteExport.Result.Failed -> failures += "${draftName}: ${result.reason}"
+                }
+            }
+            val count = written
+            val problem = failures.firstOrNull()
+            runOnUiThread {
+                if (problem != null) {
+                    setNotice(
+                        String.format(Locale.US, strings.exportFailed, count, problem),
+                        NoticeKind.FAILURE,
+                    )
+                } else {
+                    setNotice(String.format(Locale.US, strings.exported, count, RouteExport.FOLDER))
+                }
+            }
         }
     }
 
