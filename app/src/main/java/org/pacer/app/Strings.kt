@@ -47,7 +47,6 @@ interface Strings {
     val routeSummaryIncomplete: String
     val openMap: String
     val loadSample: String
-    val clearRoute: String
     val startRecording: String
     val stopRecording: String
     val savedRoutes: String
@@ -115,6 +114,10 @@ interface Strings {
     val permissionBody: String
     val permissionGrant: String
     val permissionLater: String
+
+    /** The interval plan's folded header announces what tapping it will do. */
+    val planExpand: String
+    val planCollapse: String
 
     /** The per-kilometre pace curve, which is a second shape the same editor can express. */
     val paceSection: String
@@ -271,7 +274,6 @@ object EnglishStrings : Strings {
     override val routeSummaryIncomplete = "   (need two distinct points to run a route)"
     override val openMap = "Open the map and controls"
     override val loadSample = "Load sample route (Urumqi)"
-    override val clearRoute = "Clear route"
     override val startRecording = "Start recording from the joystick"
     override val stopRecording = "Stop recording"
     override val savedRoutes = "Saved routes"
@@ -371,6 +373,8 @@ object EnglishStrings : Strings {
             "Location is also what puts the marker on the map. Nothing is sent anywhere."
     override val permissionGrant = "Grant"
     override val permissionLater = "Not now"
+    override val planExpand = "Open the interval plan"
+    override val planCollapse = "Close the interval plan"
     override val paceSection = "Pace per kilometre"
     override val paceHint =
         "The pace each kilometre is run at. The overall time is the sum, so this is also how " +
@@ -549,7 +553,6 @@ object ChineseStrings : Strings {
     override val routeSummaryIncomplete = "   （需要两个不同的点才能跑路线）"
     override val openMap = "打开地图与控制器"
     override val loadSample = "载入示例路线（乌鲁木齐）"
-    override val clearRoute = "清空路线"
     override val startRecording = "用摇杆开始录制"
     override val stopRecording = "停止录制"
     override val savedRoutes = "已保存路线"
@@ -628,6 +631,8 @@ object ChineseStrings : Strings {
             "显示或核对任何东西；地图上的位置标记也需要定位权限。所有数据都不会上传到任何地方。"
     override val permissionGrant = "授予"
     override val permissionLater = "以后再说"
+    override val planExpand = "展开变速计划"
+    override val planCollapse = "收起变速计划"
     override val paceSection = "按公里配速"
     override val paceHint =
         "每一公里各跑多快。总时长就是这些配速之和，所以「整体目标」也是靠它达成的：" +

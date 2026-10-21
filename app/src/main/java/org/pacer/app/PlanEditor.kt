@@ -56,30 +56,45 @@ class PlanEditor(
         gravity = Gravity.END
     }
 
+    /** The chevron in front of the summary: "v" folded, "^" open. */
+    private val chevron = TextView(activity).apply {
+        textSize = 16f
+        setPadding(0, 0, dp(4), 0)
+    }
+
     private val body = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         visibility = View.GONE
     }
 
+    /**
+     * The folded header: a real, tappable row with a chevron.
+     *
+     * A bold title and a right-aligned summary alone would read as a section label over the
+     * page rather than as the control that opens the plan - so the whole editor behind it
+     * would be easy to miss.
+     */
+    private val headerRow: LinearLayout = LinearLayout(activity).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, dp(7), 0, dp(7))
+        isClickable = true
+        isFocusable = true
+        addView(chevron)
+        addView(
+            TextView(activity).apply {
+                text = strings.intervalPlanSection
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+            },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        addView(summary)
+    }
+
     val view: LinearLayout = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
-        addView(
-            LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                isClickable = true
-                setPadding(0, 20, 0, 6)
-                setOnClickListener { toggle() }
-                addView(
-                    TextView(activity).apply {
-                        text = strings.intervalPlanSection
-                        textSize = 17f
-                        typeface = Typeface.DEFAULT_BOLD
-                    },
-                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-                )
-                addView(summary)
-            },
-        )
+        addView(headerRow)
         addView(body)
     }
 
@@ -94,12 +109,46 @@ class PlanEditor(
         // steps, steady speed), and waiting for a stored plan left this block blank whenever
         // the config channel was not bound - which is most of the time, since it binds only
         // under the module.
+        headerRow.setOnClickListener { toggle() }
         buildBody()
         refresh()
+        setShow(false)
     }
 
     /** Static parts once; the dynamic ones are the only things a change has to redraw. */
     private fun buildBody() {
+        // Column headings, because the numbers no longer carry a unit of their own: two
+        // decimal columns side by side are otherwise unreadable.
+        body.addView(
+            LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 0, 0, dp(2))
+                addView(label("", dp(16)))
+                addView(label("", dp(58)))
+                addView(
+                    TextView(activity).apply {
+                        text = strings.planSpeed
+                        textSize = 11f
+                        gravity = Gravity.CENTER
+                        layoutParams = LinearLayout.LayoutParams(
+                            dp(124),
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        )
+                    },
+                )
+                addView(
+                    TextView(activity).apply {
+                        text = strings.planDuration
+                        textSize = 11f
+                        gravity = Gravity.CENTER
+                        layoutParams = LinearLayout.LayoutParams(
+                            dp(118),
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        )
+                    },
+                )
+            },
+        )
         body.addView(stepsColumn)
         body.addView(
             Button(activity).apply {
@@ -120,14 +169,14 @@ class PlanEditor(
             TextView(activity).apply {
                 text = strings.paceSection
                 textSize = 15f
-                setPadding(0, 16, 0, 0)
+                setPadding(0, dp(8), 0, 0)
             },
         )
         body.addView(
             TextView(activity).apply {
                 text = strings.paceHint
                 textSize = 12f
-                setPadding(0, 2, 0, 4)
+                setPadding(0, dp(1), 0, dp(2))
             },
         )
         paceToggle.textSize = 13f
@@ -150,7 +199,7 @@ class PlanEditor(
             TextView(activity).apply {
                 text = strings.planPresets
                 textSize = 13f
-                setPadding(0, 12, 0, 0)
+                setPadding(0, dp(6), 0, 0)
             },
         )
         body.addView(presetGrid())
@@ -171,7 +220,7 @@ class PlanEditor(
             TextView(activity).apply {
                 text = "1"
                 textSize = 14f
-                minWidth = 48
+                minWidth = dp(32)
                 gravity = Gravity.CENTER
                 tag = REPEAT_LABEL
             },
@@ -226,6 +275,10 @@ class PlanEditor(
         expanded = show
         body.visibility = if (show) View.VISIBLE else View.GONE
         summary.text = headerSummary()
+        // The chevron is the only thing on the row that says it can be opened without
+        // reading the words, and it says which way it will go.
+        chevron.text = if (show) "\u25be" else "\u25b8"
+        headerRow.contentDescription = if (show) strings.planCollapse else strings.planExpand
     }
 
     /** The folded label: what will run, without opening anything. */
@@ -289,14 +342,16 @@ class PlanEditor(
         paceDraft.splits.forEachIndexed { index, seconds ->
             val row = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 6, 0, 0)
+                setPadding(0, dp(4), 0, 0)
                 gravity = Gravity.CENTER_VERTICAL
             }
             row.addView(
                 TextView(activity).apply {
                     text = String.format(Locale.US, strings.paceKilometre, index + 1)
                     textSize = 13f
-                    minWidth = 132
+                    // dp, not px: a pixel width is 44 dp on a 3x screen and clips the
+                    // Chinese label to "km 3".
+                    minWidth = dp(96)
                 },
             )
             row.addView(
@@ -309,7 +364,7 @@ class PlanEditor(
                 TextView(activity).apply {
                     text = formatPace(seconds)
                     textSize = 13f
-                    minWidth = 96
+                    minWidth = dp(56)
                     gravity = Gravity.CENTER
                 },
             )
@@ -369,15 +424,18 @@ class PlanEditor(
     private fun stepRow(index: Int, speed: Double, duration: Double): LinearLayout {
         val row = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 6, 0, 0)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, 0)
         }
-        row.addView(label(String.format(Locale.US, "%d.", index + 1), 28))
+        // No unit text per row; the column headings above say what the two numbers are, so
+        // nine controls fit on one line instead of eleven.
+        row.addView(label(String.format(Locale.US, "%d", index + 1), dp(16)))
         row.addView(
             stepper("−", strings.planSpeed) {
                 draft.setSpeed(index, speed - SPEED_STEP); refresh()
             },
         )
-        row.addView(label(String.format(Locale.US, "%.1f m/s", speed), 72))
+        row.addView(label(String.format(Locale.US, "%.1f", speed), dp(38)))
         row.addView(
             stepper("+", strings.planSpeed) {
                 draft.setSpeed(index, speed + SPEED_STEP); refresh()
@@ -388,7 +446,7 @@ class PlanEditor(
                 draft.setDuration(index, duration - DURATION_STEP); refresh()
             },
         )
-        row.addView(label(String.format(Locale.US, "%.0f s", duration), 60))
+        row.addView(label(String.format(Locale.US, "%.0f", duration), dp(32)))
         row.addView(
             stepper("+", strings.planDuration) {
                 draft.setDuration(index, duration + DURATION_STEP); refresh()
@@ -404,6 +462,10 @@ class PlanEditor(
         )
         return row
     }
+
+    /** Density-independent size, so a layout tuned on one screen fits another. */
+    private fun dp(value: Int): Int =
+        (value * activity.resources.displayMetrics.density).toInt()
 
     /**
      * One step of change, then redraw. Every mutation goes through here.
@@ -457,7 +519,7 @@ class PlanEditor(
                         isAllCaps = false
                         minWidth = 0
                         minimumWidth = 0
-                        setPadding(4, 0, 4, 0)
+                        setPadding(dp(2), 0, dp(2), 0)
                         layoutParams = LinearLayout.LayoutParams(
                             0,
                             LinearLayout.LayoutParams.WRAP_CONTENT,

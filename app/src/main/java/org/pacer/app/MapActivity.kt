@@ -131,25 +131,22 @@ class MapActivity : Activity() {
         editRow.addView(button(strings.undo) {
             editDraft { if (draft.size > 0) draft.removeAt(draft.size - 1) }
         })
-        editRow.addView(button(strings.clear) {
-            // Clearing is the one action here that cannot be undone point by point, and
-            // the button sits next to Undo. Asking once costs a tap; not asking costs a
-            // route the user has to redraw from memory.
-            if (draft.size < 2) {
-                editDraft { draft.clear() }
-            } else {
-                android.app.AlertDialog.Builder(this)
-                    .setTitle(strings.clearRouteTitle)
-                    .setMessage(String.format(Locale.US, strings.clearRouteMessage, draft.size))
-                    .setPositiveButton(strings.clear) { _, _ -> editDraft { draft.clear() } }
-                    .setNegativeButton(strings.cancel, null)
-                    .show()
-            }
-        })
+        editRow.addView(button(strings.clear) { clearDraftRoute() })
         removeButton = button(strings.remove) { removeSelectedWaypoint() }
         removeButton.isEnabled = false
         editRow.addView(removeButton)
         column.addView(editRow)
+
+        // The sample route belongs here rather than on the route page: it is a way to put
+        // points down, which is what this page does.
+        val sampleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        sampleRow.addView(button(strings.loadSample) {
+            editDraft {
+                draft.clear()
+                SAMPLE_ROUTE.forEach { draft.add(it) }
+            }
+        })
+        column.addView(sampleRow)
 
         val viewRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         viewRow.addView(button(strings.fit) { fitRoute() })
@@ -408,6 +405,25 @@ class MapActivity : Activity() {
         map?.setSelectedWaypoint(null)
     }
 
+    /**
+     * Clears every waypoint, asking first when there is more than a stray point to lose.
+     *
+     * Moved here from the route page, which had its own copy: clearing is an edit to the
+     * points, and this page is where the points are.
+     */
+    private fun clearDraftRoute() {
+        if (draft.size < 2) {
+            editDraft { draft.clear() }
+            return
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(strings.clearRouteTitle)
+            .setMessage(String.format(Locale.US, strings.clearRouteMessage, draft.size))
+            .setPositiveButton(strings.clear) { _, _ -> editDraft { draft.clear() } }
+            .setNegativeButton(strings.cancel, null)
+            .show()
+    }
+
     private fun removeSelectedWaypoint() {
         val index = selectedWaypoint
         if (index < 0 || index >= draft.size) return
@@ -546,5 +562,21 @@ class MapActivity : Activity() {
 
         /** How often the live marker is moved; the simulation advances in seconds. */
         const val LIVE_POLL_MS = 1000L
+
+        /**
+         * A sample loop in Urumqi, the same place the map opens on.
+         *
+         * Somewhere almost no user is, so it cannot be mistaken for their own position.
+         * Inside China because AMap and Baidu serve blank tiles outside it. Lives here now
+         * that the button that uses it is on this page.
+         */
+        val SAMPLE_ROUTE: List<GeoPoint> = listOf(
+            GeoPoint(43.8240, 87.6140),
+            GeoPoint(43.8252, 87.6152),
+            GeoPoint(43.8264, 87.6166),
+            GeoPoint(43.8276, 87.6182),
+            GeoPoint(43.8268, 87.6198),
+            GeoPoint(43.8250, 87.6188),
+        )
     }
 }

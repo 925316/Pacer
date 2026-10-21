@@ -350,8 +350,10 @@ class MainActivity : Activity() {
         }
         root.addView(routeSummary)
 
-        root.addView(action(strings.loadSample) { loadSampleRoute() })
-        root.addView(action(strings.clearRoute) { clearDraftRoute() })
+        // The sample route and Clear moved to the map's own control row. Both act on the
+        // points, they sit with the other actions that do, and clearing a route is exactly
+        // the kind of thing the map's own Clear already asks about - having a second copy
+        // here meant two places to look for the same edit.
 
         // Hand steering and recording both need a run the joystick can drive, and only a
         // straight-line run qualifies - a route or a plan owns its own motion. So this stays
@@ -588,26 +590,6 @@ class MainActivity : Activity() {
 
     private fun openMap() {
         startActivity(Intent(this, MapActivity::class.java))
-    }
-
-    /** Clears the drawn route, asking first when there is more than a stray point to lose. */
-    private fun clearDraftRoute() {
-        if (draft.size < 2) {
-            draft.clear()
-            persistAndRender()
-            renderSavedRoutes()
-            return
-        }
-        android.app.AlertDialog.Builder(this)
-            .setTitle(strings.clearRouteTitle)
-            .setMessage(String.format(Locale.US, strings.clearRouteMessage, draft.size))
-            .setPositiveButton(strings.clear) { _, _ ->
-                draft.clear()
-                persistAndRender()
-                renderSavedRoutes()
-            }
-            .setNegativeButton(strings.cancel, null)
-            .show()
     }
 
     /** Shows what is actually configured. */
@@ -851,14 +833,6 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------------
     // Route editing
     // ---------------------------------------------------------------------
-
-    /** Replaces the route with a fixed one, for trying the engine without drawing anything. */
-    private fun loadSampleRoute() {
-        draft.clear()
-        SAMPLE_ROUTE.forEach { draft.add(it) }
-        persistAndRender()
-        renderSavedRoutes()
-    }
 
     /**
      * Saves the per-app datum table.
@@ -1804,20 +1778,5 @@ class MainActivity : Activity() {
 
         /** How often the status line re-reads the stored run. */
         const val STATUS_POLL_MS = 1000L
-
-        /**
-         * A sample loop in Urumqi, the same place the map opens on.
-         *
-         * Somewhere almost no user is, so it cannot be mistaken for their own position.
-         * Inside China because AMap and Baidu serve blank tiles outside it.
-         */
-        val SAMPLE_ROUTE: List<GeoPoint> = listOf(
-            GeoPoint(43.8240, 87.6140),
-            GeoPoint(43.8252, 87.6152),
-            GeoPoint(43.8264, 87.6166),
-            GeoPoint(43.8276, 87.6182),
-            GeoPoint(43.8268, 87.6198),
-            GeoPoint(43.8250, 87.6188),
-        )
     }
 }
