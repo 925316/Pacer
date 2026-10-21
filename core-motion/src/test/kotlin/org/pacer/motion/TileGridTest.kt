@@ -84,15 +84,20 @@ class TileGridTest {
         // ones that catch a wrong magnitude; this one only proves the branch ran.
         val gcj = GcjTileGrid()
         val plain = WebMercatorGrid("Google")
-        assertEquals(
-            "zoom 12 hides the shift; that is why it was a bad place to assert",
-            plain.tile(plain.pixel(beijing, 12)),
-            gcj.tile(gcj.pixel(beijing, 12)),
-        )
+        // Compare the INDEX, not the whole TileRef: TileRef is a data class carrying the
+        // offset inside the tile, which of course differs once the datum is applied. That
+        // is the point - at zoom 12 the offset moves the pixel but not the tile.
+        val plainTile = plain.tile(plain.pixel(beijing, 12))
+        val gcjTile = gcj.tile(gcj.pixel(beijing, 12))
+        assertEquals("zoom 12 hides the shift; that is why it was a bad place to assert", plainTile.x, gcjTile.x)
+        assertEquals("zoom 12 hides the shift; that is why it was a bad place to assert", plainTile.y, gcjTile.y)
         for (z in listOf(13, 15, 18)) {
             val wgsTile = plain.tile(plain.pixel(beijing, z))
-            val gcjTile = gcj.tile(gcj.pixel(beijing, z))
-            assertTrue("z=$z: $wgsTile == $gcjTile, the datum was not applied", wgsTile != gcjTile)
+            val gcjTileZ = gcj.tile(gcj.pixel(beijing, z))
+            assertTrue(
+                "z=$z: index $wgsTile == $gcjTileZ, the datum was not applied",
+                wgsTile.x != gcjTileZ.x || wgsTile.y != gcjTileZ.y,
+            )
         }
     }
 
