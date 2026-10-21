@@ -104,6 +104,12 @@ class StringsFormatTest {
                 strings.unexpectedFailure,
                 strings.selfCheckCrashed,
                 strings.selfCheckDone,
+                strings.overridesSaved,
+                strings.overridesSavedPartial,
+                strings.routeReplaced,
+                strings.routeSavedAs,
+                strings.routeLoadedAs,
+                strings.nameRequiredWithLimit,
             )
             for (template in templates) {
                 assertTrue("no specifiers in \"$template\"", specifiers(template).isNotEmpty())

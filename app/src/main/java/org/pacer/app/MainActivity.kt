@@ -58,10 +58,29 @@ class MainActivity : Activity() {
     /** startedAtMs of the run whose settings this page last adopted. */
     private var lastRestoreStartedAt = Long.MIN_VALUE
 
-    private lateinit var output: TextView
+    /**
+     * The one line under the pages that describes a momentary outcome.
+     *
+     * It floats over the bottom of the page instead of sitting in a band above it: the band
+     * was reserved whether or not there was anything to say, on every page, and it held a
+     * running stopwatch and a one-off confirmation in the same two TextViews.
+     */
+    private lateinit var noticeStrip: LinearLayout
+    private lateinit var noticeText: TextView
+    private lateinit var noticeDismiss: Button
 
-    /** The run's state, at the top of the page; see the call site. */
-    private lateinit var statusView: TextView
+    /** The run's state, inside the pinned bar where Start and Stop already are. */
+    private lateinit var runStateLine: TextView
+
+    /**
+     * Where the audit and preview reports are printed.
+     *
+     * On the Settings page, under the buttons that produce them, and selectable: a six-line
+     * report does not fit the two-line notice strip, and text there cannot be selected. The
+     * self-check panel next to it has always worked this way, so this is the existing shape
+     * rather than a new one.
+     */
+    private lateinit var reportOutput: TextView
 
     private lateinit var runPageRoot: LinearLayout
     private lateinit var routePageRoot: LinearLayout
@@ -75,13 +94,6 @@ class MainActivity : Activity() {
 
     /** Guards the speed field's own writes from being read back as typing. */
     private var writingSpeed = false
-
-    /**
-     * The last failure or consequence, above the status line.
-     *
-     * Held here so the per-second status refresh cannot overwrite it.
-     */
-    private var notice: String? = null
 
     private lateinit var walkBtn: RadioButton
     private lateinit var runBtn: RadioButton
@@ -181,20 +193,10 @@ class MainActivity : Activity() {
         routePageRoot = buildRoutePage()
         settingsPageRoot = buildSettingsPage()
 
-        // Status and messages sit above the pages, not inside one of them: a route saved on
-        // the Route page has to stay readable after switching to Run.
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 24, 40, 0)
-        }
-        statusView = TextView(this).apply { textSize = 15f }
-        header.addView(statusView)
-        output = MessageView(this).apply {
-            textSize = 13f
-            setPadding(0, 6, 0, 0)
-        }
-        header.addView(output)
-
+        // The run state lives in the pinned bar with Start and Stop; there is no separate
+        // status band, because a band reserved on every page would mostly be empty and
+        // would mix a stopwatch with one-off confirmations in the same two TextViews.
+        // Outcomes instead float over the bottom of the page.
         runScroll = scrollPage(runPageRoot)
         routeScroll = scrollPage(routePageRoot)
         settingsScroll = scrollPage(settingsPageRoot)
@@ -203,18 +205,28 @@ class MainActivity : Activity() {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 // The window is edge to edge on API 35, so without this the status bar sits
-                // on top of the status line and the gesture bar on top of the tab strip.
+                // on top of the first row and the gesture bar on top of the tab strip.
                 fitsSystemWindows = true
                 // A second, fixed allowance because fitsSystemWindows only reports a
                 // navigation bar when the device draws one as a window; a gesture pill is
                 // drawn by the system and still overlaps this row.
                 setPadding(0, 0, 0, dp(NAV_BAR_ALLOWANCE_DP))
-                addView(header)
                 addView(
                     FrameLayout(this@MainActivity).apply {
                         addView(runScroll)
                         addView(routeScroll)
                         addView(settingsScroll)
+                        // Last child, so it draws above the pages. It covers the tail of a
+                        // scroll view rather than pushing the page up: a message that appears
+                        // and disappears must not resize the page under the user's thumb.
+                        addView(
+                            noticeStrip(),
+                            FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.WRAP_CONTENT,
+                                Gravity.BOTTOM,
+                            ),
+                        )
                     },
                     LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
                 )
@@ -450,6 +462,16 @@ class MainActivity : Activity() {
         auditBtn = action(strings.audit) { auditRoute() }
         root.addView(auditBtn)
 
+        // Both buttons print here, so the report sits under the control that made it and can
+        // be selected. One view for both: two reports side by side would only raise the
+        // question of which one is current.
+        reportOutput = MessageView(this).apply {
+            textSize = 13f
+            setTextIsSelectable(true)
+            setPadding(0, 8, 0, 0)
+        }
+        root.addView(reportOutput)
+
         // --- diagnostics ------------------------------------------------------
         // Plain text in a plain box. The sheet is for reading and for pasting into a
         // chat, not for looking at, so there is no styling to keep in step with the
@@ -618,16 +640,8 @@ class MainActivity : Activity() {
         accuracyWarmupToggle.isChecked = stored.realism.accuracyWarmup
         satelliteJitterToggle.isChecked = stored.realism.satelliteJitter
         signalDropoutToggle.isChecked = stored.realism.signalDropout
-        output.text = when (stored.owner) {
-            MotionOwner.ROUTE -> "Loaded the stored configuration: a route simulation is running."
-            MotionOwner.ROUTE_PAUSED -> "Loaded the stored configuration: a route simulation is " +
-                "running, paused where it stands."
-            MotionOwner.PLAN -> "Loaded the stored configuration: a straight-line run with an " +
-                "interval plan is running."
-            MotionOwner.HAND -> "Loaded the stored configuration: a hand-steered straight-line " +
-                "simulation is running."
-            MotionOwner.NONE -> "Loaded the stored configuration; no simulation is running."
-        }
+        // No message here any more: "a run is active" is what the state line in the pinned
+        // bar says, and it says it continuously instead of once when the page resumed.
         updatePauseButton()
     }
 
@@ -647,7 +661,7 @@ class MainActivity : Activity() {
             return
         }
         if (!PacerConfigClient.setRoutePaused(pause)) {
-            setNotice(strings.configNotReady)
+            setNotice(strings.configNotReady, NoticeKind.FAILURE)
             return
         }
         setNotice(
@@ -670,61 +684,137 @@ class MainActivity : Activity() {
         pauseBtn.text = if (owner.canResumeRoute) strings.resumeRoute else strings.pauseRoute
     }
 
+    /**
+     * The state line in the pinned bar, and nothing else.
+     *
+     * Derives from what is stored, never from a button press: a start that failed writes
+     * nothing, so this cannot end up claiming a run that is not happening. When there is no
+     * run and the channel is bound it says nothing at all, because the disabled Pause button
+     * beside it already carries that fact.
+     */
     private fun updateStatus() {
         val stored = PacerConfigClient.stored()
-        val state = when {
-            stored == null -> strings.statusIdle
-            !stored.active -> strings.statusConfigIdle
-            stored.routePaused -> strings.statusPaused
-            else -> strings.statusRunning
+        val active = stored?.active == true
+        val paused = stored?.routePaused == true
+        val state = runStateOf(active = active, paused = paused, bound = PacerConfigClient.bound())
+        if (!::runStateLine.isInitialized) return
+        if (state == RunState.HIDDEN) {
+            // Hidden rather than an empty line: an empty line still costs its height.
+            runStateLine.visibility = View.GONE
+            return
         }
-        val detail = when {
-            stored == null || !stored.active -> ""
-            else -> {
-                // A route advances on its own clock; a straight run on its anchor, which
-                // hand steering moves without restarting the run.
-                val now = System.currentTimeMillis()
-                val seconds = if (stored.onRoute) {
-                    stored.routeSeconds(now)
-                } else {
-                    stored.straightSeconds(now)
-                }.toLong()
-                val point = subject.point(stored)
-                val where = point?.let { String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon) }
-                    ?: String.format(Locale.US, "%.5f, %.5f", stored.lat, stored.lon)
-                String.format(
-                    Locale.US,
-                    "%d:%02d   %s   %.1f m/s",
-                    seconds / 60,
-                    seconds % 60,
-                    where,
-                    stored.speed,
-                )
-            }
+        runStateLine.visibility = View.VISIBLE
+        val label = when (state) {
+            RunState.UNBOUND -> strings.moduleUnbound
+            RunState.PAUSED -> strings.statusPaused
+            RunState.RUNNING -> strings.statusRunning
+            RunState.HIDDEN -> ""
         }
-        statusView.text = buildString {
-            val n = notice
-            if (n != null) {
-                appendLine(n)
-            }
-            append(state)
-            if (detail.isNotEmpty()) {
-                append('\n')
-                append(detail)
-            }
+        runStateLine.text = if (!active || stored == null) {
+            label
+        } else {
+            // A route advances on its own clock; a straight run on its anchor, which hand
+            // steering moves without restarting the run.
+            val now = System.currentTimeMillis()
+            val seconds = if (stored.onRoute) {
+                stored.routeSeconds(now)
+            } else {
+                stored.straightSeconds(now)
+            }.toLong()
+            val point = subject.point(stored)
+            val where = point?.let { String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon) }
+                ?: String.format(Locale.US, "%.5f, %.5f", stored.lat, stored.lon)
+            String.format(
+                Locale.US,
+                "%s   %d:%02d   %s   %.1f m/s",
+                label,
+                seconds / 60,
+                seconds % 60,
+                where,
+                stored.speed,
+            )
         }
     }
 
     /**
-     * Writes a consequence where the user is looking, not at the bottom of the page.
+     * Shows an outcome in the strip over the bottom of the page.
      *
-     * A notice describes what a specific action just did, so it is cleared when the next one
-     * succeeds. Left in place it stayed on screen for the rest of the session and read like
-     * part of the live status.
+     * Three lifetimes: a confirmation goes away on its own, a long job stays until its
+     * result arrives, and a failure stays until the user dismisses it or does something
+     * that replaces it. That last case is the one that
+     * matters: a user who looked away at the wrong moment must not come back to a screen
+     * that looks like the run started.
      */
-    private fun setNotice(text: String?) {
-        notice = text
-        updateStatus()
+    private fun setNotice(text: String, kind: NoticeKind = NoticeKind.INFO) {
+        if (!::noticeStrip.isInitialized) return
+        showNotice(text, kind)
+    }
+
+    private fun showNotice(text: String, kind: NoticeKind) {
+        handler.removeCallbacks(hideNotice)
+        noticeText.text = text
+        noticeStrip.visibility = View.VISIBLE
+        noticeStrip.setBackgroundColor(
+            when (kind) {
+                NoticeKind.FAILURE -> NOTICE_FAILURE_BG
+                NoticeKind.PROGRESS -> NOTICE_PROGRESS_BG
+                NoticeKind.INFO -> NOTICE_INFO_BG
+            },
+        )
+        noticeDismiss.visibility = if (kind == NoticeKind.FAILURE) View.VISIBLE else View.GONE
+        // A failure is the one thing worth interrupting a screen reader for; the rest can
+        // wait for the reader to reach them.
+        noticeStrip.accessibilityLiveRegion = if (kind == NoticeKind.FAILURE) {
+            View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE
+        } else {
+            View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        val ms = noticeDurationMs(text, kind)
+        if (ms > 0L) handler.postDelayed(hideNotice, ms)
+    }
+
+    /** Hides the strip; the text goes too so a screen reader cannot still find it. */
+    private fun hideNotice() {
+        if (!::noticeStrip.isInitialized) return
+        noticeStrip.visibility = View.GONE
+        noticeText.text = ""
+    }
+
+    private val hideNotice = Runnable { hideNotice() }
+
+    /** The floating strip itself. Built once; [showNotice] only changes its content. */
+    private fun noticeStrip(): LinearLayout {
+        noticeStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            // Clicks must not fall through to the page underneath: on the map page a tap
+            // appends a waypoint, and a message drifting over it must not do that.
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(16), dp(10), dp(8), dp(10))
+            visibility = View.GONE
+            elevation = dp(4).toFloat()
+        }
+        noticeText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(NOTICE_TEXT_COLOR)
+            setLineSpacing(0f, 1.15f)
+        }
+        noticeStrip.addView(
+            noticeText,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        noticeDismiss = Button(this).apply {
+            text = strings.dismissNotice
+            textSize = 13f
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(dp(8), 0, dp(8), 0)
+            setOnClickListener { hideNotice() }
+        }
+        noticeStrip.addView(noticeDismiss)
+        return noticeStrip
     }
 
     override fun onResume() {
@@ -749,6 +839,9 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         handler.removeCallbacks(statusTick)
+        // The strip's own timer must not fire while the page is behind another one; it would
+        // hide a message the user has not seen yet on their way back.
+        handler.removeCallbacks(hideNotice)
         // A recording cannot outlive the page that owns the draft: the tick would keep
         // collecting points nobody can see or stop. Ending it here keeps the promise the
         // button makes - what was walked is what gets saved.
@@ -779,16 +872,20 @@ class MainActivity : Activity() {
         val normalised = CoordinatePolicy.format(parsed)
         coordinateInput.setText(normalised)
         if (!PacerConfigClient.saveCoordinateOverrides(normalised)) {
-            output.text = strings.configNotReady
+            setNotice(strings.configNotReady, NoticeKind.FAILURE)
             return
         }
         val dropped = typed.split(';').count { it.isNotBlank() } - parsed.size
-        output.text = when {
-            parsed.isEmpty() && typed.isBlank() -> "Coordinate overrides cleared; AUTO applies."
-            parsed.isEmpty() -> "No valid entry in that text; nothing was saved."
-            dropped > 0 -> "Saved ${parsed.size} override(s); $dropped entr(y/ies) were unreadable " +
-                "and are shown dropped."
-            else -> "Saved ${parsed.size} coordinate override(s)."
+        when {
+            parsed.isEmpty() && typed.isBlank() ->
+                setNotice(strings.overridesCleared)
+            parsed.isEmpty() ->
+                setNotice(strings.overridesUnreadable, NoticeKind.FAILURE)
+            dropped > 0 -> setNotice(
+                String.format(Locale.US, strings.overridesSavedPartial, parsed.size, dropped),
+                NoticeKind.FAILURE,
+            )
+            else -> setNotice(String.format(Locale.US, strings.overridesSaved, parsed.size))
         }
     }
 
@@ -804,7 +901,7 @@ class MainActivity : Activity() {
     /** Asks for a name, then stores the current draft under it. */
     private fun saveCurrentRoute() {
         if (!draft.isValid) {
-            setNotice(strings.routeNeedsTwoPoints)
+            setNotice(strings.routeNeedsTwoPoints, NoticeKind.FAILURE)
             return
         }
         val stored = store.savedRoutes()
@@ -831,16 +928,25 @@ class MainActivity : Activity() {
         when (val result = routes.save(draft, name, replaceId)) {
             is SavedRoutes.SaveResult.Saved -> {
                 store.saveNamedRoutes(routes)
-                output.text = if (result.replaced) {
-                    "Replaced \"${result.route.name}\"."
-                } else {
-                    "Saved \"${result.route.name}\" (${result.route.points.size} waypoints, " +
-                        String.format(Locale.US, "%.0f m", result.route.lengthMeters) + ")."
-                }
+                setNotice(
+                    if (result.replaced) {
+                        String.format(Locale.US, strings.routeReplaced, result.route.name)
+                    } else {
+                        String.format(
+                            Locale.US,
+                            strings.routeSavedAs,
+                            result.route.name,
+                            result.route.points.size,
+                            result.route.lengthMeters,
+                        )
+                    },
+                )
                 renderSavedRoutes()
             }
-            is SavedRoutes.SaveResult.InvalidName -> output.text = result.reason
-            is SavedRoutes.SaveResult.InvalidRoute -> output.text = result.reason
+            is SavedRoutes.SaveResult.InvalidName ->
+                setNotice(result.reason, NoticeKind.FAILURE)
+            is SavedRoutes.SaveResult.InvalidRoute ->
+                setNotice(result.reason, NoticeKind.FAILURE)
         }
     }
 
@@ -891,13 +997,20 @@ class MainActivity : Activity() {
         val apply = {
             val loaded = routes.draftOf(id)
             if (loaded == null) {
-                setNotice(strings.routeGone)
+                setNotice(strings.routeGone, NoticeKind.FAILURE)
             } else {
                 draft = loaded
                 persistAndRender()
                 renderSavedRoutes()
-                output.text =
-                    "\"${route.name}\" (${route.points.size} ${strings.waypointCountSuffix})"
+                setNotice(
+                    String.format(
+                        Locale.US,
+                        strings.routeLoadedAs,
+                        route.name,
+                        route.points.size,
+                        strings.waypointCountSuffix,
+                    ),
+                )
             }
         }
         if (!replacesWork) {
@@ -931,8 +1044,14 @@ class MainActivity : Activity() {
                     renderSavedRoutes()
                     setNotice(strings.renamed)
                 } else {
-                    output.text =
-                        "${strings.nameRequired} (${SavedRoutes.MAX_NAME_LENGTH})"
+                    setNotice(
+                        String.format(
+                            Locale.US,
+                            strings.nameRequiredWithLimit,
+                            SavedRoutes.MAX_NAME_LENGTH,
+                        ),
+                        NoticeKind.FAILURE,
+                    )
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -1020,7 +1139,7 @@ class MainActivity : Activity() {
         }
         val start = draft.points.firstOrNull()
         if (start == null) {
-            setNotice(strings.placeWaypointFirst)
+            setNotice(strings.placeWaypointFirst, NoticeKind.FAILURE)
             return false
         }
         val lat = start.lat
@@ -1042,7 +1161,7 @@ class MainActivity : Activity() {
         // Nothing was stored when the channel is not bound, so claiming a run here would
         // send the user looking for the wrong problem on the target side.
         if (!started) {
-            setNotice(strings.configNotReady)
+            setNotice(strings.configNotReady, NoticeKind.FAILURE)
             return false
         }
         setNotice(
@@ -1121,11 +1240,14 @@ class MainActivity : Activity() {
         if (active == null) {
             val owner = PacerConfigClient.owner()
             if (!owner.acceptsHandSteering) {
-                output.text = when (owner) {
-                    MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED -> strings.recordNeedsJoystickRoute
-                    MotionOwner.PLAN -> strings.recordNeedsJoystickPlan
-                    else -> strings.recordNeedsJoystickIdle
-                }
+                setNotice(
+                    when (owner) {
+                        MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED -> strings.recordNeedsJoystickRoute
+                        MotionOwner.PLAN -> strings.recordNeedsJoystickPlan
+                        else -> strings.recordNeedsJoystickIdle
+                    },
+                    NoticeKind.FAILURE,
+                )
                 return
             }
             recorder = RouteRecorder()
@@ -1169,18 +1291,20 @@ class MainActivity : Activity() {
         val stored = PacerConfigClient.stored()
         val last = stored?.takeIf { it.active }?.let { subject.point(it) }
         if (!recording.finish(last)) {
-            setNotice(strings.nothingRecorded)
+            setNotice(strings.nothingRecorded, NoticeKind.FAILURE)
             return
         }
         draft = recording.toDraft()
         persistAndRender()
         renderSavedRoutes()
-        output.text = String.format(
-            Locale.US,
-            strings.recordedSummary,
-            recording.size,
-            recording.distanceMeters,
-            ((System.currentTimeMillis() - recordStartedAtMs) / 1000L).toInt(),
+        setNotice(
+            String.format(
+                Locale.US,
+                strings.recordedSummary,
+                recording.size,
+                recording.distanceMeters,
+                ((System.currentTimeMillis() - recordStartedAtMs) / 1000L).toInt(),
+            ),
         )
     }
 
@@ -1192,7 +1316,7 @@ class MainActivity : Activity() {
      */
     private fun planForStart(): String? {
         if (!planEditor.isValid) {
-            setNotice(strings.planInvalid)
+            setNotice(strings.planInvalid, NoticeKind.FAILURE)
             planEditor.open()
             return null
         }
@@ -1230,7 +1354,7 @@ class MainActivity : Activity() {
             return
         }
         if (!draft.isValid) {
-            setNotice(strings.needTwoWaypoints)
+            setNotice(strings.needTwoWaypoints, NoticeKind.FAILURE)
             return
         }
         // The road path when one was planned on the map screen, the plain polyline otherwise.
@@ -1254,7 +1378,7 @@ class MainActivity : Activity() {
             realism = realismToggles(),
         )
         if (!started) {
-            setNotice(strings.configNotReady)
+            setNotice(strings.configNotReady, NoticeKind.FAILURE)
             return
         }
         setNotice(
@@ -1285,12 +1409,14 @@ class MainActivity : Activity() {
             startForegroundService(Intent(this, JoystickOverlayService::class.java))
             // Saying which input owns the run here is cheaper than letting the user find
             // out by dragging the knob.
-            output.text = when (PacerConfigClient.owner()) {
-                MotionOwner.ROUTE -> strings.joystickLockedRoute
-                MotionOwner.ROUTE_PAUSED -> strings.joystickLockedRoutePaused
-                MotionOwner.PLAN -> strings.joystickLockedPlan
-                else -> strings.joystickReady
-            }
+            setNotice(
+                when (PacerConfigClient.owner()) {
+                    MotionOwner.ROUTE -> strings.joystickLockedRoute
+                    MotionOwner.ROUTE_PAUSED -> strings.joystickLockedRoutePaused
+                    MotionOwner.PLAN -> strings.joystickLockedPlan
+                    else -> strings.joystickReady
+                },
+            )
         } else {
             startActivity(
                 Intent(
@@ -1298,7 +1424,7 @@ class MainActivity : Activity() {
                     Uri.parse("package:$packageName"),
                 ),
             )
-            setNotice(strings.grantOverlay)
+            setNotice(strings.grantOverlay, NoticeKind.FAILURE)
         }
     }
 
@@ -1319,12 +1445,12 @@ class MainActivity : Activity() {
         // a confident report about nothing.
         val route = routeForPreview()
         if (route == null) {
-            setNotice(strings.needTwoWaypoints)
+            setNotice(strings.needTwoWaypoints, NoticeKind.FAILURE)
             return
         }
         // A plan the editor rejects would silently audit a steady-speed run instead.
         if (!planEditor.isValid) {
-            setNotice(strings.planInvalid)
+            setNotice(strings.planInvalid, NoticeKind.FAILURE)
             planEditor.open()
             return
         }
@@ -1340,7 +1466,7 @@ class MainActivity : Activity() {
         // Deterministic rather than Random, so a report can be reproduced from its numbers.
         val seedBase = System.currentTimeMillis()
         auditBtn.isEnabled = false
-        setNotice(strings.auditing)
+        setNotice(strings.auditing, NoticeKind.PROGRESS)
         thread {
             fun runOnce(seed: Long) = RouteSimulator(
                 route,
@@ -1373,7 +1499,7 @@ class MainActivity : Activity() {
                 }
             }
             runOnUiThread {
-                output.text = text
+                showReport(text)
                 auditBtn.isEnabled = true
             }
         }.also { worker ->
@@ -1387,6 +1513,7 @@ class MainActivity : Activity() {
                             t.javaClass.simpleName,
                             t.message ?: "",
                         ),
+                        NoticeKind.FAILURE,
                     )
                 }
             }
@@ -1425,7 +1552,23 @@ class MainActivity : Activity() {
                 selfCheckOutput.text = text
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                 clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Pacer self-check", text))
-                output.text = String.format(Locale.US, strings.selfCheckDone, report.summaryLine())
+                setNotice(String.format(Locale.US, strings.selfCheckDone, report.summaryLine()))
+            }
+        }
+    }
+
+    /**
+     * Prints a long report under the button that made it, and brings it into view.
+     *
+     * The scroll matters: the buttons sit low on the Settings page, so a report written below
+     * them would land off screen and read as "nothing happened".
+     */
+    private fun showReport(text: String) {
+        if (!::reportOutput.isInitialized) return
+        reportOutput.text = text
+        reportOutput.post {
+            if (::settingsScroll.isInitialized) {
+                settingsScroll.smoothScrollTo(0, reportOutput.top)
             }
         }
     }
@@ -1471,17 +1614,17 @@ class MainActivity : Activity() {
         // about nothing. The sample route stays behind its own explicit button.
         val previewRoute = routeForPreview()
         if (previewRoute == null) {
-            setNotice(strings.needTwoWaypoints)
+            setNotice(strings.needTwoWaypoints, NoticeKind.FAILURE)
             return
         }
         // Same rule as Start: a plan the editor rejects must not be previewed as a steady run.
         if (!planEditor.isValid) {
-            setNotice(strings.planInvalid)
+            setNotice(strings.planInvalid, NoticeKind.FAILURE)
             planEditor.open()
             return
         }
         previewBtn.isEnabled = false
-        setNotice(strings.simulating)
+        setNotice(strings.simulating, NoticeKind.PROGRESS)
         // Read the controls here: a background thread must not touch the views.
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
@@ -1512,7 +1655,7 @@ class MainActivity : Activity() {
                 appendLine("Samples: ${fixes.size}")
             }
             runOnUiThread {
-                output.text = text
+                showReport(text)
                 previewBtn.isEnabled = true
             }
         }.also { worker ->
@@ -1528,6 +1671,7 @@ class MainActivity : Activity() {
                             t.javaClass.simpleName,
                             t.message ?: "",
                         ),
+                        NoticeKind.FAILURE,
                     )
                 }
             }
@@ -1547,8 +1691,16 @@ class MainActivity : Activity() {
     private fun runBar(): LinearLayout {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 12)
+            setPadding(dp(16), dp(6), dp(16), dp(6))
         }
+        // Above the Start button: the state is about the run the button belongs to, and it is
+        // GONE when there is nothing to say so the bar keeps its height while idle.
+        runStateLine = TextView(this).apply {
+            textSize = 13f
+            setPadding(dp(4), 0, dp(4), dp(6))
+            visibility = View.GONE
+        }
+        bar.addView(runStateLine)
         bar.addView(
             Button(this).apply {
                 text = strings.startRouteShort
@@ -1570,10 +1722,11 @@ class MainActivity : Activity() {
         secondary.addView(pauseBtn)
         secondary.addView(
             weightedButton(strings.stopShort, strings.stopSimulation) {
-                if (PacerConfigClient.stop()) {
-                    setNotice(strings.statusConfigIdle)
-                } else {
-                    setNotice(strings.configNotReady)
+                // Success needs no words: the state line above goes away and the pause
+                // button disables, which is what "stopped" looks like. A failure does need
+                // them, because otherwise the screen would look exactly like success.
+                if (!PacerConfigClient.stop()) {
+                    setNotice(strings.configNotReady, NoticeKind.FAILURE)
                 }
                 updatePauseButton()
             },
@@ -1620,6 +1773,17 @@ class MainActivity : Activity() {
         val TAB_ACTIVE = 0xFF1A73E8.toInt()
         val TAB_INACTIVE = 0xFF5F6368.toInt()
         val TAB_DIVIDER = 0x14000000
+
+        /**
+         * The floating strip. Solid, not translucent: it sits over running text, and a
+         * see-through background under 14sp copy is unreadable on this kind of page. The
+         * kind is carried by three different backgrounds plus the presence of a dismiss
+         * button, so colour is never the only signal.
+         */
+        val NOTICE_INFO_BG = 0xFF303134.toInt()
+        val NOTICE_PROGRESS_BG = 0xFF1A4C7A.toInt()
+        val NOTICE_FAILURE_BG = 0xFF8C1D18.toInt()
+        val NOTICE_TEXT_COLOR = 0xFFF1F1F1.toInt()
 
         /** Room kept clear under the tab strip for a gesture bar. */
         const val NAV_BAR_ALLOWANCE_DP = 24

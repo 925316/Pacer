@@ -128,6 +128,21 @@ interface Strings {
     val paceInvalid: String
     val paceSummary: String
 
+    /** The floating strip's dismiss button, which only a failure shows. */
+    val dismissNotice: String
+
+    /** Coordinate-override outcomes, kept here rather than built as English sentences in code. */
+    val overridesCleared: String
+    val overridesUnreadable: String
+    val overridesSaved: String
+    val overridesSavedPartial: String
+
+    /** Saved-route outcomes. */
+    val routeReplaced: String
+    val routeSavedAs: String
+    val routeLoadedAs: String
+    val nameRequiredWithLimit: String
+
     /** What a successful start says: the run that is now happening, in one line. */
     val startedJoystickMode: String
     val startedJoystickModeWithPlan: String
@@ -174,7 +189,6 @@ interface Strings {
     val routeGone: String
     val waypointCountSuffix: String
     val renamed: String
-    val nameRequired: String
     val deleted: String
     val placeWaypointFirst: String
     val recording: String
@@ -369,6 +383,16 @@ object EnglishStrings : Strings {
     override val paceTotals = "%.0f s over %.1f km, mean %s"
     override val paceInvalid = "Every kilometre needs a pace between 2:00 and 60:00."
     override val paceSummary = "%d km, mean %s"
+    override val dismissNotice = "OK"
+    override val overridesCleared = "Coordinate overrides cleared; AUTO applies."
+    override val overridesUnreadable = "Nothing in that text was a valid entry, so nothing was saved."
+    override val overridesSaved = "Saved %d coordinate override(s)."
+    override val overridesSavedPartial =
+        "Saved %d override(s); %d entr(y/ies) were unreadable and are shown dropped."
+    override val routeReplaced = "Replaced \"%s\"."
+    override val routeSavedAs = "Saved \"%s\" (%d waypoints, %.0f m)."
+    override val routeLoadedAs = "\"%s\" (%d %s)"
+    override val nameRequiredWithLimit = "A route name is required, %d characters at most."
     override val startedJoystickMode = "Joystick mode started at %.5f, %.5f, heading %.0f deg, %.2f m/s."
     override val startedJoystickModeWithPlan =
         "Joystick mode started at %.5f, %.5f, heading %.0f deg; the speed comes from the plan.%s"
@@ -425,7 +449,6 @@ object EnglishStrings : Strings {
     override val routeGone = "That route is no longer in the store."
     override val waypointCountSuffix = "waypoints"
     override val renamed = "Renamed."
-    override val nameRequired = "A name is required, under the length limit."
     override val deleted = "Deleted."
     override val placeWaypointFirst =
         "Place a waypoint on the map first; a run needs a start."
@@ -617,6 +640,15 @@ object ChineseStrings : Strings {
     override val paceTotals = "共 %.0f 秒 / %.1f 公里，平均 %s"
     override val paceInvalid = "每一公里都要有配速，范围 2:00 到 60:00。"
     override val paceSummary = "%d 公里，平均 %s"
+    override val dismissNotice = "知道了"
+    override val overridesCleared = "坐标系覆盖已清空，改为 AUTO。"
+    override val overridesUnreadable = "那段文字里没有一条有效记录，什么也没保存。"
+    override val overridesSaved = "已保存 %d 条坐标系覆盖。"
+    override val overridesSavedPartial = "已保存 %d 条；另有 %d 条读不懂，显示为已丢弃。"
+    override val routeReplaced = "已覆盖「%s」。"
+    override val routeSavedAs = "已保存「%s」（%d 个路径点，%.0f 米）。"
+    override val routeLoadedAs = "「%s」（%d %s）"
+    override val nameRequiredWithLimit = "需要填写路线名，最多 %d 个字符。"
     override val startedJoystickMode = "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度，%.2f m/s。"
     override val startedJoystickModeWithPlan =
         "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度；速度由变速计划提供。%s"
@@ -669,7 +701,6 @@ object ChineseStrings : Strings {
     override val routeGone = "该路线已不在存储中。"
     override val waypointCountSuffix = "个路径点"
     override val renamed = "已重命名。"
-    override val nameRequired = "必须填写名称，且不超过长度上限。"
     override val deleted = "已删除。"
     override val placeWaypointFirst = "请先在地图上放置一个路径点，运行需要一个起点。"
     override val recording = "录制中。用悬浮摇杆操控方向，停止时保存路线。"
