@@ -37,9 +37,14 @@ import org.pacer.hook.hooks.env.EnvGeo
 import org.pacer.hook.hooks.env.FakeRadioEnvironment
 import org.pacer.hook.hooks.system.vendor.ProcessIdentity
 import org.pacer.motion.CheckItem
+import org.pacer.motion.CoordinatePolicy
+import org.pacer.motion.CoordinateSystem
+import org.pacer.motion.CoordinateTransform
+import org.pacer.motion.GeoMath
 import org.pacer.motion.MotionOwner
 import org.pacer.motion.SelfCheck
 import org.pacer.motion.SelfCheckReport
+import java.util.Locale
 
 /**
  * Runs the probes and returns a report.
@@ -99,6 +104,7 @@ class SelfCheckRunner(
         }
 
         val expected = runCatching { expectedFix() }.getOrNull()
+        items += coordinateProbes()
         items += locationProbes(expected)
         items += radioProbes()
         // Sensors last and only when a step run is on: the probe waits several seconds
@@ -110,6 +116,81 @@ class SelfCheckRunner(
         }
 
         return SelfCheckReport.of(processLabel(), items, notes(), scopeNote = SCOPE_NOTE)
+    }
+
+    // ---------------------------------------------------------------- coordinates
+
+    /**
+     * What datum each hooked SDK would be given, and by how much that differs from WGS-84.
+     *
+     * This is pure arithmetic on the stored configuration, but it is the one part of the
+     * pipeline a user cannot verify by opening a map: a 500 m datum error and a working
+     * spoof look identical on a phone, and the map that would reveal it is exactly the
+     * thing being spoofed. Printing the numbers is how the app states its own answer
+     * instead of asking the user to trust it.
+     *
+     * The offset is reported together with the distance so a wrong transform cannot hide
+     * behind a plausible-looking coordinate: a shift of 0 m means the conversion did
+     * nothing, and a shift far outside 100-700 m means it did the wrong thing.
+     */
+    private fun coordinateProbes(): List<CheckItem> {
+        val state = cfg ?: return emptyList()
+        val wgs = runCatching { subject.point(state) }.getOrNull()
+            ?: return listOf(
+                SelfCheck.skip("coordinate system", "the engine has no current fix to convert"),
+            )
+        val overrides = CoordinatePolicy.parse(state.coordinateOverrides)
+        val override = overrides.firstOrNull { it.appliesTo(context.packageName) }?.system
+        val overridden = if (override == null) "" else " (settings override for this package: $override)"
+
+        val out = ArrayList<CheckItem>()
+        val gcj = CoordinateTransform.wgs84ToGcj02(wgs)
+        val bd = CoordinateTransform.wgs84ToBd09(wgs)
+
+        // AMap and Tencent take one datum and have no request to read, so this is the whole
+        // rule for them; the only thing that can change it is a package override.
+        out += SelfCheck.pass(
+            "AMap / Tencent datum",
+            String.format(
+                Locale.US,
+                "%s: %.5f, %.5f, %.0f m from the WGS-84 fix%s",
+                (override ?: CoordinateSystem.GCJ02).name, gcj.lat, gcj.lon,
+                GeoMath.haversine(wgs, gcj), overridden,
+            ),
+        )
+
+        // Baidu names the datum it wants per client, and the hook follows that rather than
+        // forcing BD-09. Both branches are printed because which one runs depends on the
+        // target app, which this report cannot see.
+        out += SelfCheck.pass(
+            "Baidu datum",
+            String.format(
+                Locale.US,
+                "follows the client coorType: gcj02 -> %.5f, %.5f, bd09ll -> %.5f, %.5f; " +
+                    "bd09mc is delivered as BD-09 rather than projected to Mercator",
+                gcj.lat, gcj.lon, bd.lat, bd.lon,
+            ),
+        )
+
+        // The second rotation is small next to the GCJ-02 offset, and conflating the two is
+        // how "Baidu is another 500 m off" gets believed.
+        out += SelfCheck.pass(
+            "BD-09 extra rotation",
+            String.format(Locale.US, "%.0f m beyond GCJ-02", GeoMath.haversine(gcj, bd)),
+        )
+
+        // A fix outside the offset's coverage legitimately converts to itself, so this is a
+        // statement about which branch ran, not a pass/fail on the size of the shift.
+        out += SelfCheck.pass(
+            "offset coverage",
+            if (GeoMath.haversine(wgs, gcj) < 1.0) {
+                "this fix is outside the boundary the GCJ-02 scheme covers, so every " +
+                    "conversion returns it unchanged; that matches what the providers do"
+            } else {
+                "this fix is inside the covered area, so GCJ-02 and BD-09 both shift it"
+            },
+        )
+        return out
     }
 
     // ---------------------------------------------------------------- location
