@@ -24,21 +24,6 @@ object PacerConfigClient {
     @Volatile private var service: XposedService? = null
     @Volatile private var prefs: SharedPreferences? = null
 
-    /**
-     * What a screen shows when [start] returned false.
-     *
-     * One string rather than one per screen: the same failure has the same cause, and two
-     * copies of the advice would eventually disagree about it.
-     *
-     * Deliberately NOT "the module is not installed": the channel binds asynchronously, so
-     * a press during the first moments of a cold start fails the same way a missing module
-     * does. The wording has to be true for both.
-     */
-    const val NOT_READY_MESSAGE =
-        "The simulation was not started: the module's config channel is not bound yet. " +
-            "Try again in a moment; if it keeps happening, check that Pacer is enabled and " +
-            "that this app (or the target app) is in its scope."
-
     private val pendingReady = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
 
     /** Guards against a second listener: the bind callback is process wide. */
@@ -101,6 +86,13 @@ object PacerConfigClient {
         val active: Boolean,
         /** Wall-clock millis the run started; the clock every derived position uses. */
         val startedAtMs: Long,
+        /**
+         * Where a straight-line run's line begins, in wall-clock millis.
+         *
+         * Hand steering re-anchors the line without restarting the run, so this is what a
+         * straight run's position is measured from. Equal to [startedAtMs] until then.
+         */
+        val anchorAtMs: Long,
         val onRoute: Boolean,
         val routeJson: String,
         val lat: Double,
@@ -148,6 +140,13 @@ object PacerConfigClient {
             nowMs = nowMs,
             paused = routePaused,
         )
+
+        /** Seconds into a straight run, measured from its anchor rather than its start. */
+        fun straightSeconds(nowMs: Long = System.currentTimeMillis()): Double {
+            val base = if (anchorAtMs > 0L) anchorAtMs else startedAtMs
+            if (base <= 0L) return 0.0
+            return ((nowMs - base).coerceAtLeast(0L)) / 1000.0
+        }
     }
 
     /** The stored configuration, or null while the channel is not ready or unused. */
@@ -159,6 +158,7 @@ object PacerConfigClient {
         return Stored(
             active = p.getBoolean("active", false),
             startedAtMs = p.getLong("start_ts", 0L),
+            anchorAtMs = p.getLong("anchor_ts", p.getLong("start_ts", 0L)),
             onRoute = !p.getString("route_json", "").isNullOrEmpty(),
             routeJson = p.getString("route_json", "") ?: "",
             lat = readDouble(p, "lat", 0.0),
@@ -214,6 +214,9 @@ object PacerConfigClient {
             .putBoolean("active", true)
             .putLong("speed_mps", java.lang.Double.doubleToRawLongBits(speed))
             .putLong("start_ts", System.currentTimeMillis())
+            // The straight-line anchor starts level with the run; steering moves only it,
+            // never start_ts, which seeds the track and anchors the step counter.
+            .putLong("anchor_ts", System.currentTimeMillis())
             .putLong("lat", java.lang.Double.doubleToRawLongBits(lat))
             .putLong("lon", java.lang.Double.doubleToRawLongBits(lon))
             .putFloat("accuracy", accuracy)
@@ -244,13 +247,6 @@ object PacerConfigClient {
     }
 
     /**
-     * Writes the per-app datum table on its own, without starting or stopping a run.
-     *
-     * A separate write because this is a preference, not a run setting: it applies to
-     * whatever the next run pushes, and forcing the user to restart a simulation to
-     * change it would be a worse deal than one extra button.
-     */
-    /**
      * The saved coordinate table, independent of whether a run has ever been started.
      *
      * [stored] answers null until something has been pushed, so reading the table through it
@@ -258,6 +254,13 @@ object PacerConfigClient {
      */
     fun coordinateOverrides(): String = prefs?.getString("coord_overrides", "") ?: ""
 
+    /**
+     * Writes the per-app datum table on its own, without starting or stopping a run.
+     *
+     * A separate write because this is a preference, not a run setting: it applies to
+     * whatever the next run pushes, and forcing the user to restart a simulation to
+     * change it would be a worse deal than one extra button.
+     */
     fun saveCoordinateOverrides(table: String): Boolean {
         val p = prefs ?: return false
         p.edit().putString("coord_overrides", table).apply()
@@ -398,10 +401,16 @@ object PacerConfigClient {
     /**
      * Writes the current derived position as the new start point, so a motion change
      * continues from where the subject is rather than from where the run began.
+     *
+     * `start_ts` is deliberately NOT touched. It seeds the humanized track and anchors the
+     * step counter; rewriting it on every steering update made the step count fall back to
+     * the device's own base and the run's clock restart from zero, once per gesture. The
+     * elapsed time is measured from a separate anchor that only this function moves.
      */
     private fun anchorHere(p: SharedPreferences, edit: SharedPreferences.Editor, nowMs: Long) {
         val start = GeoPoint(readDouble(p, "lat", 0.0), readDouble(p, "lon", 0.0))
-        val elapsed = ((nowMs - p.getLong("start_ts", nowMs)).coerceAtLeast(0L)) / 1000.0
+        val anchor = p.getLong("anchor_ts", p.getLong("start_ts", nowMs))
+        val elapsed = ((nowMs - anchor).coerceAtLeast(0L)) / 1000.0
         // An interval plan supplies the distance directly: speed x time would describe a
         // different track from the one the hook side derives from the same plan.
         val meters = SpeedPlan.parse(p.getString("plan", "") ?: "")?.metersAt(elapsed)
@@ -413,7 +422,7 @@ object PacerConfigClient {
         )
         edit.putLong("lat", java.lang.Double.doubleToRawLongBits(here.lat))
             .putLong("lon", java.lang.Double.doubleToRawLongBits(here.lon))
-            .putLong("start_ts", nowMs)
+            .putLong("anchor_ts", nowMs)
     }
 
     private fun readDouble(p: SharedPreferences, key: String, fallback: Double): Double =

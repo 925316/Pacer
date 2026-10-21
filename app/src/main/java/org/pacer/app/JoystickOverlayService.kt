@@ -187,12 +187,22 @@ class JoystickOverlayService : Service() {
                         if (!travelled && event.actionMasked == MotionEvent.ACTION_UP) {
                             knobX = 0f
                             knobY = 0f
-                            PacerConfigClient.stop()
-                            // With the run gone there is nothing left to steer, and an
-                            // overlay that outlives it can only be removed by stopping
-                            // the whole app. The tap is the close control; deferred so
-                            // the view is not removed mid-gesture.
-                            post { stopSelf() }
+                            // Closing the overlay on a refused stop would leave the target app
+                            // moving with no way back: stop() writes nothing when the config
+                            // channel is not bound, and the window is the only control left.
+                            if (PacerConfigClient.stop()) {
+                                // With the run gone there is nothing left to steer, and an
+                                // overlay that outlives it can only be removed by stopping
+                                // the whole app. The tap is the close control; deferred so
+                                // the view is not removed mid-gesture.
+                                post { stopSelf() }
+                            } else {
+                                Toast.makeText(
+                                    this@JoystickOverlayService,
+                                    strings.configNotReady,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         }
                         lockedOwner = MotionOwner.NONE
                         invalidate()

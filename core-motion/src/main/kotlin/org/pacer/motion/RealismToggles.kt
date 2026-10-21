@@ -17,6 +17,6 @@ data class RealismToggles(
     val accuracyWarmup: Boolean = true,
     /** Vary the satellite count inside a plausible band. */
     val satelliteJitter: Boolean = true,
-    /** Occasional signal loss for a few seconds. */
+    /** Occasional dip in the reported satellite count, a few seconds at a time. */
     val signalDropout: Boolean = true,
 )

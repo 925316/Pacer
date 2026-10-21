@@ -104,6 +104,9 @@ interface Strings {
     val selfCheck: String
     val runSelfCheck: String
     val selfCheckHint: String
+
+    /** The one failure a user is most likely to meet: no module behind the config channel. */
+    val configNotReady: String
     val statusIdle: String
     val statusRunning: String
     val statusPaused: String
@@ -118,7 +121,6 @@ interface Strings {
     val rootUnknown: String
     val moduleBound: String
     val moduleUnbound: String
-    val onlyRunningRouteCanPause: String
     val routeNeedsTwoPoints: String
     val routeName: String
     val noSavedRoutes: String
@@ -128,7 +130,6 @@ interface Strings {
     val nameRequired: String
     val deleted: String
     val placeWaypointFirst: String
-    val badPlan: String
     val recording: String
     val nothingRecorded: String
     val needTwoWaypoints: String
@@ -299,6 +300,10 @@ object EnglishStrings : Strings {
             "the public APIs and compares them with what the engine says they must be. This " +
             "app is deliberately outside the module's scope, so what it sees is the " +
             "system-wide result."
+    override val configNotReady =
+        "The simulation was not started: the module's config channel is not bound yet. " +
+            "Try again in a moment; if it keeps happening, check that Pacer is enabled and " +
+            "that this app (or the target app) is in its scope."
     override val statusIdle = "Idle: no simulation is running."
     override val statusRunning = "Running"
     override val statusPaused = "Paused"
@@ -313,7 +318,6 @@ object EnglishStrings : Strings {
     override val rootUnknown = "Root: unknown"
     override val moduleBound = "Module: connected"
     override val moduleUnbound = "Module: not connected"
-    override val onlyRunningRouteCanPause = "Only a running route can be paused."
     override val routeNeedsTwoPoints =
         "A named route needs two distinct waypoints; this draft is not one yet."
     override val routeName = "Route name"
@@ -325,8 +329,6 @@ object EnglishStrings : Strings {
     override val deleted = "Deleted."
     override val placeWaypointFirst =
         "Place a waypoint on the map first; a straight line needs a start."
-    override val badPlan =
-        "The interval plan could not be read. Use e.g. 3.0@180;1.4@60#5."
     override val recording =
         "Recording. Steer with the floating joystick; the route is saved when you stop."
     override val nothingRecorded = "Nothing was recorded: the subject did not move far enough."
@@ -494,6 +496,9 @@ object ChineseStrings : Strings {
     override val selfCheckHint =
         "通过公开接口读回本应用自己看到的定位、WiFi、基站、蓝牙和计步器，并与引擎声明的值比对。" +
             "本应用刻意不在模块作用域内，所以它看到的是系统层面的结果。"
+    override val configNotReady =
+        "模拟没能开始：模块的配置通道还没连上。稍等再试；如果一直这样，请确认 Pacer 已在 " +
+            "LSPosed 里启用，并且这个应用（或目标应用）在它的作用域里。"
     override val statusIdle = "空闲：没有正在运行的模拟。"
     override val statusRunning = "运行中"
     override val statusPaused = "已暂停"
@@ -508,7 +513,6 @@ object ChineseStrings : Strings {
     override val rootUnknown = "Root：未知"
     override val moduleBound = "模块：已连接"
     override val moduleUnbound = "模块：未连接"
-    override val onlyRunningRouteCanPause = "只有正在运行的路线才能暂停。"
     override val routeNeedsTwoPoints = "命名路线需要两个不同的路径点，当前草稿还不满足。"
     override val routeName = "路线名称"
     override val noSavedRoutes = "还没有已保存的路线。"
@@ -518,7 +522,6 @@ object ChineseStrings : Strings {
     override val nameRequired = "必须填写名称，且不超过长度上限。"
     override val deleted = "已删除。"
     override val placeWaypointFirst = "请先在地图上放置一个路径点，直线运动需要一个起点。"
-    override val badPlan = "变速计划无法解析。示例：3.0@180;1.4@60#5。"
     override val recording = "录制中。用悬浮摇杆操控方向，停止时保存路线。"
     override val nothingRecorded = "没有录制到内容：移动距离不够。"
     override val needTwoWaypoints = "开始路线前请至少添加两个不同的路径点。"

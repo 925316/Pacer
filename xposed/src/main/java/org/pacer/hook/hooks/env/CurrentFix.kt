@@ -51,8 +51,11 @@ object CurrentFix {
      * from the epoch.
      */
     private fun elapsedSeconds(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long): Double {
-        if (cfg.startTimestamp <= 0L) return 0.0
-        return ((nowMs - cfg.startTimestamp).coerceAtLeast(0L)) / 1000.0
+        // The anchor, not the start: hand steering moves the line's origin without
+        // restarting the run, so only the anchor says where this straight line began.
+        val base = if (cfg.anchorTimestamp > 0L) cfg.anchorTimestamp else cfg.startTimestamp
+        if (base <= 0L) return 0.0
+        return ((nowMs - base).coerceAtLeast(0L)) / 1000.0
     }
 
     /**

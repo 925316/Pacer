@@ -26,6 +26,18 @@ object RouteEngine {
     /** One lap's length in seconds, fixed when a repeating run is first built. */
     @Volatile private var lapSeconds: Double = 0.0
 
+    /**
+     * One lap's distance and steps, fixed at the same moment as [lapSeconds].
+     *
+     * Each lap is humanized with its own noise, so lap k ends at a slightly different
+     * distance than lap k-1. Reading the increment from the current lap made the running
+     * total jump by a growing amount at every boundary, and at the step counter that shows
+     * up as a burst of steps in one second - exactly the shape an audit looks for. Freezing
+     * the two keeps the total a straight line.
+     */
+    @Volatile private var lapMeters: Double = 0.0
+    @Volatile private var lapSteps: Long = 0L
+
     /** The run that [lapSeconds] belongs to, so a new run starts counting again. */
     @Volatile private var lapRunStartedAt: Long = 0L
 
@@ -37,6 +49,8 @@ object RouteEngine {
         if (cfg.startTimestamp != lapRunStartedAt) {
             lapRunStartedAt = cfg.startTimestamp
             lapSeconds = 0.0
+            lapMeters = 0.0
+            lapSteps = 0L
         }
         // The route clock, not the wall clock: a paused run has to answer with one
         // frozen second for as long as it stays paused, and a resumed run has to
@@ -83,6 +97,8 @@ object RouteEngine {
             )
             if (cfg.loopRoute && lapSeconds <= 0.0) {
                 lapSeconds = fixes.lastOrNull()?.tSec ?: 0.0
+                lapMeters = fixes.lastOrNull()?.distanceMeters ?: 0.0
+                lapSteps = fixes.lastOrNull()?.cumulativeSteps ?: 0L
             }
         }
         val list = fixes
@@ -93,8 +109,8 @@ object RouteEngine {
         val sample = MotionSamples.afterLaps(
             sample = base,
             laps = lap.index,
-            lapMeters = list.last().distanceMeters,
-            lapSteps = list.last().cumulativeSteps,
+            lapMeters = lapMeters,
+            lapSteps = lapSteps,
             tSec = elapsed,
         )
         // A paused run keeps its position but not its motion: the sample it reports is

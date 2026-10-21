@@ -63,7 +63,24 @@ class SelfCheckRunner(
     fun run(): SelfCheckReport {
         // The probes need these to read anything at all; asking here rather than at
         // launch keeps a permission wall away from a page nobody is using yet.
-        requestProbePermissions(context)
+        //
+        // The request is asynchronous, so a check that started in the same breath read
+        // "not granted" for every stream and reported a wall of SKIPs - which looks exactly
+        // like a device that cannot support the feature. Return that as its own answer and
+        // let the caller re-run once the dialog is done.
+        if (requestProbePermissions(context)) {
+            return SelfCheckReport.of(
+                processLabel(),
+                listOf(
+                    SelfCheck.skip(
+                        "permissions",
+                        "grant the requested permissions, then run the check again",
+                    ),
+                ),
+                notes(),
+                scopeNote = SCOPE_NOTE,
+            )
+        }
         val items = ArrayList<CheckItem>()
 
         if (cfg == null || !cfg.active) {
@@ -423,16 +440,18 @@ class SelfCheckRunner(
      */
     private fun expectedFix(): Expected? {
         val state = cfg ?: return null
-        val point = subject.point(state) ?: return null
-        // Speed follows the same owner rule the module uses: a paused route reports zero,
-        // and any other running owner reports the configured speed.
-        val speed = if (state.routePaused) 0.0 else state.speed
+        val sample = subject.sample(state) ?: return null
+        // Not state.speed: a route carries its own speed curve, and a straight run under an
+        // interval plan carries the plan's current step. Comparing the injected speed with
+        // the configured one failed every correct route run.
+        val speed = if (state.routePaused) 0.0 else sample.speedMps
         return Expected(
-            lat = point.lat,
-            lon = point.lon,
+            lat = sample.point.lat,
+            lon = sample.point.lon,
             speedMps = speed,
-            accuracyMeters = state.accuracy,
-            altitudeMeters = state.altitude,
+            accuracyMeters = sample.accuracyMeters,
+            // The module adds the configured ground altitude to the engine's drift.
+            altitudeMeters = state.altitude + sample.altitudeMeters,
         )
     }
 
@@ -482,19 +501,23 @@ class SelfCheckRunner(
      *
      * Requesting them at first launch would be a permission wall in front of a page the
      * user has not started using; asking when the check is run keeps the cost where the
-     * benefit is. The self-check still runs if they are refused - with SKIPs.
+     * benefit is.
+     *
+     * @return true when a request was posted, so the caller knows this run saw no
+     *   permissions yet and its probes cannot say anything.
      */
-    private fun requestProbePermissions(activity: android.app.Activity) {
+    private fun requestProbePermissions(activity: android.app.Activity): Boolean {
         val wanted = ArrayList<String>()
         for (permission in PROBE_PERMISSIONS) {
             if (activity.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
                 wanted += permission
             }
         }
-        if (wanted.isEmpty()) return
+        if (wanted.isEmpty()) return false
         activity.runOnUiThread {
             activity.requestPermissions(wanted.toTypedArray(), PROBE_PERMISSION_REQUEST)
         }
+        return true
     }
 
     private fun firstInt(target: Any, vararg methods: String): Int? {
@@ -522,11 +545,14 @@ class SelfCheckRunner(
         val altitudeMeters: Double,
     )
 
-    private companion object {
+    companion object {
+        /** The request code MainActivity answers, so the check can re-run by itself. */
+        const val PROBE_PERMISSION_REQUEST = 1001
+
         /** The injected fix carries jitter and rounding; a metre is generous. */
-        const val SPEED_TOLERANCE_MPS = 0.8
-        const val ACCURACY_TOLERANCE_METERS = 6.0
-        const val ALTITUDE_TOLERANCE_METERS = 5.0
+        private const val SPEED_TOLERANCE_MPS = 0.8
+        private const val ACCURACY_TOLERANCE_METERS = 6.0
+        private const val ALTITUDE_TOLERANCE_METERS = 5.0
 
         /**
          * Printed at the top of every report.
@@ -536,17 +562,15 @@ class SelfCheckRunner(
          * returned the simulated fix; whether the target app sees the same depends on the
          * system-server layer, which is checked by opening that app and looking.
          */
-        const val SCOPE_NOTE =
+        private const val SCOPE_NOTE =
             "this process only. A PASS proves this app's own API calls return the simulated " +
                 "values; it does not prove any other app does. To check a target app, open it " +
                 "and look at its map."
 
         /** Long enough for the hook's quiet window plus one heartbeat. */
-        const val SENSOR_WAIT_SECONDS = 8L
+        private const val SENSOR_WAIT_SECONDS = 8L
 
-        const val PROBE_PERMISSION_REQUEST = 1001
-
-        val PROBE_PERMISSIONS = arrayOf(
+        private val PROBE_PERMISSIONS = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.ACCESS_WIFI_STATE,

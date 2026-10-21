@@ -137,6 +137,9 @@ class PlanEditor(
         body.addView(totals)
     }
 
+    /** Opens the editor, so a start that needs a plan can show what is wrong with it. */
+    fun open() = setShow(true)
+
     fun wireFormat(): String = draft.toWireFormat()
 
     /** Loads a stored plan; a blank or unreadable string leaves the editor as it is. */

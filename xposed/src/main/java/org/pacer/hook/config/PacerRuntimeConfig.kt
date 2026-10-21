@@ -38,6 +38,16 @@ object PacerRuntimeConfig {
     /** Wall-clock millis when the current simulation started. */
     @Volatile var startTimestamp: Long = 0L
 
+    /**
+     * Where a straight-line run's clock is measured from.
+     *
+     * Separate from [startTimestamp] because hand steering re-anchors the line: the position
+     * restarts from the point the subject reached, but the run itself has not restarted -
+     * rewriting the start would reset the step counter to the device's own base and the
+     * elapsed time to zero, once per gesture. Equal to the start until the first re-anchor.
+     */
+    @Volatile var anchorTimestamp: Long = 0L
+
     // --- target position (WGS84) ---
     @Volatile var latitude: Double = 0.0
     @Volatile var longitude: Double = 0.0
@@ -94,6 +104,7 @@ object PacerRuntimeConfig {
         mockBluetooth = mockBluetooth,
         realism = realism,
         startTimestamp = startTimestamp,
+        anchorTimestamp = anchorTimestamp,
         latitude = latitude,
         longitude = longitude,
         accuracyMeters = accuracyMeters,
@@ -116,6 +127,7 @@ object PacerRuntimeConfig {
         val mockBluetooth: Boolean,
         val realism: RealismToggles,
         val startTimestamp: Long,
+        val anchorTimestamp: Long,
         val latitude: Double,
         val longitude: Double,
         val accuracyMeters: Float,

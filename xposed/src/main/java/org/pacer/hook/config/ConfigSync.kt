@@ -69,6 +69,10 @@ object ConfigSync {
         PacerRuntimeConfig.active = prefs.getBoolean("active", false)
         PacerRuntimeConfig.speedMps = doubleOf(prefs, "speed_mps", 0.0)
         PacerRuntimeConfig.startTimestamp = prefs.getLong("start_ts", 0L)
+        // Older configs have no anchor; the start is the anchor until a steering update
+        // moves it, so falling back keeps an existing run's clock where it was.
+        PacerRuntimeConfig.anchorTimestamp =
+            prefs.getLong("anchor_ts", PacerRuntimeConfig.startTimestamp)
         PacerRuntimeConfig.latitude = doubleOf(prefs, "lat", 0.0)
         PacerRuntimeConfig.longitude = doubleOf(prefs, "lon", 0.0)
         PacerRuntimeConfig.accuracyMeters = prefs.getFloat("accuracy", 5f)

@@ -32,17 +32,37 @@ class LiveSubject {
     private var lapRunStartedAt = 0L
     private var lapSeconds = 0.0
 
+    /** One lap's distance and steps, frozen with [lapSeconds] for the same reason. */
+    private var lapMeters = 0.0
+    private var lapSteps = 0L
+
     private var parsedRouteJson: String? = null
     private var parsedRoute: RoutePath? = null
 
     /** Where the subject is, or null when the run has no usable position yet. */
-    fun point(stored: PacerConfigClient.Stored, nowMs: Long = System.currentTimeMillis()): GeoPoint? {
-        val elapsed = stored.routeSeconds(nowMs)
+    fun point(stored: PacerConfigClient.Stored, nowMs: Long = System.currentTimeMillis()): GeoPoint? =
+        sample(stored, nowMs)?.point
+
+    /**
+     * The whole sample the stored run reports at this instant.
+     *
+     * The self-check compares the injected fix field by field, and speed and altitude are not
+     * the configured ones once a run owns its own motion: a route carries its own speed curve
+     * and its own drift. Asking for the sample rather than re-deriving those two from the
+     * settings is what keeps the check from failing a correct run.
+     */
+    fun sample(
+        stored: PacerConfigClient.Stored,
+        nowMs: Long = System.currentTimeMillis(),
+    ): org.pacer.motion.FixSample? {
         val routePath = routeOf(stored)
         if (routePath != null) {
+            val elapsed = stored.routeSeconds(nowMs)
             if (stored.startedAtMs != lapRunStartedAt) {
                 lapRunStartedAt = stored.startedAtMs
                 lapSeconds = 0.0
+                lapMeters = 0.0
+                lapSteps = 0L
                 lap = null
             }
             val lapInfo = MotionSamples.lapAt(elapsed, if (stored.loopRoute) lapSeconds else 0.0)
@@ -54,13 +74,34 @@ class LiveSubject {
             return MotionSamples.afterLaps(
                 base,
                 lapInfo.index,
-                samples.last().distanceMeters,
-                samples.last().cumulativeSteps,
+                lapMeters,
+                lapSteps,
                 elapsed,
-            ).point
+            )
         }
+        val elapsed = stored.straightSeconds(nowMs)
         val meters = SpeedPlan.parse(stored.plan)?.metersAt(elapsed) ?: (stored.speed * elapsed)
-        return StraightLine.byDistance(GeoPoint(stored.lat, stored.lon), stored.bearing.toDouble(), meters)
+        val point = StraightLine.byDistance(
+            GeoPoint(stored.lat, stored.lon),
+            stored.bearing.toDouble(),
+            meters,
+        )
+        // A straight run reports the configured values; only a route owns a speed curve and
+        // a drift of its own. satellites and steps are not part of this comparison.
+        return org.pacer.motion.FixSample(
+            tSec = elapsed,
+            point = point,
+            speedMps = stored.speed,
+            bearingDeg = stored.bearing,
+            distanceMeters = meters,
+            phase = org.pacer.motion.MotionPhase.CRUISE,
+            accuracyMeters = stored.accuracy,
+            altitudeMeters = 0.0,
+            satellites = 0,
+            signalDropout = false,
+            cumulativeSteps = 0L,
+            cadenceSpm = 0.0,
+        )
     }
 
     /**
@@ -86,7 +127,12 @@ class LiveSubject {
             steadyAccuracyMeters = stored.accuracy,
         ).simulate(dtSec = 1.0, seed = MotionSeed.forRun(stored.startedAtMs, lapIndex))
         if (stored.loopRoute && lapSeconds <= 0.0) {
+            // Distance and steps are frozen with the lap length, so every boundary adds the
+            // same amount. Reading them from the current lap made the total jump by a
+            // growing margin - a step counter that bursts once per lap is a machine tell.
             lapSeconds = samples.lastOrNull()?.tSec ?: 0.0
+            lapMeters = samples.lastOrNull()?.distanceMeters ?: 0.0
+            lapSteps = samples.lastOrNull()?.cumulativeSteps ?: 0L
         }
         lap = Lap(key, samples)
         return samples

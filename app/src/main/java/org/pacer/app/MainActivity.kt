@@ -630,12 +630,13 @@ class MainActivity : Activity() {
         val owner = PacerConfigClient.owner()
         val pause = owner.canPauseRoute
         if (!pause && !owner.canResumeRoute) {
-            setNotice(strings.onlyRunningRouteCanPause)
+            // Reachable only if the state changed between the poll and the tap; the button
+            // itself is disabled in this case, see updatePauseButton.
             updatePauseButton()
             return
         }
         if (!PacerConfigClient.setRoutePaused(pause)) {
-            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
+            setNotice(strings.configNotReady)
             return
         }
         setNotice(
@@ -664,13 +665,19 @@ class MainActivity : Activity() {
             stored == null -> strings.statusIdle
             !stored.active -> strings.statusConfigIdle
             stored.routePaused -> strings.statusPaused
-            stored.onRoute -> strings.statusRunning
             else -> strings.statusRunning
         }
         val detail = when {
             stored == null || !stored.active -> ""
             else -> {
-                val seconds = stored.routeSeconds(System.currentTimeMillis()).toLong()
+                // A route advances on its own clock; a straight run on its anchor, which
+                // hand steering moves without restarting the run.
+                val now = System.currentTimeMillis()
+                val seconds = if (stored.onRoute) {
+                    stored.routeSeconds(now)
+                } else {
+                    stored.straightSeconds(now)
+                }.toLong()
                 val point = subject.point(stored)
                 val where = point?.let { String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon) }
                     ?: String.format(Locale.US, "%.5f, %.5f", stored.lat, stored.lon)
@@ -697,7 +704,13 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Writes a consequence where the user is looking, not at the bottom of the page. */
+    /**
+     * Writes a consequence where the user is looking, not at the bottom of the page.
+     *
+     * A notice describes what a specific action just did, so it is cleared when the next one
+     * succeeds. Left in place it stayed on screen for the rest of the session and read like
+     * part of the live status.
+     */
     private fun setNotice(text: String?) {
         notice = text
         updateStatus()
@@ -755,7 +768,7 @@ class MainActivity : Activity() {
         val normalised = CoordinatePolicy.format(parsed)
         coordinateInput.setText(normalised)
         if (!PacerConfigClient.saveCoordinateOverrides(normalised)) {
-            output.text = PacerConfigClient.NOT_READY_MESSAGE
+            output.text = strings.configNotReady
             return
         }
         val dropped = typed.split(';').count { it.isNotBlank() } - parsed.size
@@ -992,10 +1005,7 @@ class MainActivity : Activity() {
         val lat = start.lat
         val lon = start.lon
         val speed = speedMps()
-        val plan = planWire.takeIf { planEditor.isValid } ?: run {
-            setNotice(strings.badPlan)
-            return
-        }
+        val plan = planForStart() ?: return
         val started = PacerConfigClient.start(
             lat = lat,
             lon = lon,
@@ -1011,7 +1021,7 @@ class MainActivity : Activity() {
         // Nothing was stored when the channel is not bound, so claiming a run here would
         // send the user looking for the wrong problem on the target side.
         if (!started) {
-            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
+            setNotice(strings.configNotReady)
             return
         }
         setNotice(
@@ -1126,6 +1136,21 @@ class MainActivity : Activity() {
     }
 
     /**
+     * The plan a run should start with, or null after saying why not.
+     *
+     * The editor reports its own reason ("a step needs a speed above zero"), and opening it
+     * puts that reason on screen instead of leaving the user to guess which field is wrong.
+     */
+    private fun planForStart(): String? {
+        if (!planEditor.isValid) {
+            setNotice(strings.planInvalid)
+            planEditor.open()
+            return null
+        }
+        return planWire
+    }
+
+    /**
      * A numeric field's value, or [fallback] when it is empty or unreadable.
      *
      * The field is written back with what was actually used. Otherwise a blank box would
@@ -1164,10 +1189,7 @@ class MainActivity : Activity() {
         val route = RoutePath(geometry)
         val first = route.points.first()
         val speed = speedMps()
-        val plan = planWire.takeIf { planEditor.isValid } ?: run {
-            setNotice(strings.badPlan)
-            return
-        }
+        val plan = planForStart() ?: return
         val started = PacerConfigClient.start(
             lat = first.lat,
             lon = first.lon,
@@ -1183,7 +1205,7 @@ class MainActivity : Activity() {
             realism = realismToggles(),
         )
         if (!started) {
-            setNotice(PacerConfigClient.NOT_READY_MESSAGE)
+            setNotice(strings.configNotReady)
             return
         }
         setNotice(
@@ -1256,6 +1278,12 @@ class MainActivity : Activity() {
         val route = routeForPreview()
         if (route == null) {
             setNotice(strings.needTwoWaypoints)
+            return
+        }
+        // A plan the editor rejects would silently audit a steady-speed run instead.
+        if (!planEditor.isValid) {
+            setNotice(strings.planInvalid)
+            planEditor.open()
             return
         }
         // Read the controls here: a background thread must not touch the views.
@@ -1347,6 +1375,23 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Re-runs the self-check once the probe permissions have been answered. */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != SelfCheckRunner.PROBE_PERMISSION_REQUEST) return
+        // The first press only asked for permissions; without this the user would have to
+        // press again and would see a report of SKIPs for their trouble.
+        if (grantResults.isNotEmpty() &&
+            grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        ) {
+            runSelfCheck()
+        }
+    }
+
     /** Mean distance between two runs' positions at the same sample index. */
     private fun meanDisplacementMeters(a: List<FixSample>, b: List<FixSample>): Double {
         val n = minOf(a.size, b.size)
@@ -1372,6 +1417,12 @@ class MainActivity : Activity() {
         val previewRoute = routeForPreview()
         if (previewRoute == null) {
             setNotice(strings.needTwoWaypoints)
+            return
+        }
+        // Same rule as Start: a plan the editor rejects must not be previewed as a steady run.
+        if (!planEditor.isValid) {
+            setNotice(strings.planInvalid)
+            planEditor.open()
             return
         }
         previewBtn.isEnabled = false
@@ -1458,7 +1509,7 @@ class MainActivity : Activity() {
                 if (PacerConfigClient.stop()) {
                     setNotice(strings.statusConfigIdle)
                 } else {
-                    setNotice(PacerConfigClient.NOT_READY_MESSAGE)
+                    setNotice(strings.configNotReady)
                 }
                 updatePauseButton()
             },

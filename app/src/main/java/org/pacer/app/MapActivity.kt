@@ -223,7 +223,10 @@ class MapActivity : Activity() {
             }
         }
         created.onWaypointDropped = { index, point ->
-            editDraft { if (index < draft.size) draft.replaceAt(index, point) }
+            // Forced: the drag has been writing the draft all along so the map and the
+            // length follow the finger, so the draft already holds this point and a
+            // difference check would find nothing to save. The drop is what makes it real.
+            editDraft(force = true) { if (index < draft.size) draft.replaceAt(index, point) }
         }
         created.onLongPress = { point -> relocate(point) }
         created.setRoute(draft.points.toList(), draft.points.toList())
@@ -350,11 +353,14 @@ class MapActivity : Activity() {
      *
      * One place, because saving and redrawing must happen together: a saved draft the map has
      * not drawn is invisible, and a drawn route the other screen cannot read is worse.
+     *
+     * [force] saves even when the JSON is unchanged, for a caller that has already mutated
+     * the draft in place and now only wants it written.
      */
-    private fun editDraft(change: () -> Unit) {
+    private fun editDraft(force: Boolean = false, change: () -> Unit) {
         val before = draft.toJson()
         change()
-        if (draft.toJson() == before) return
+        if (!force && draft.toJson() == before) return
         // An index read before the edit may now name a different point.
         clearSelection()
         store.save(draft)
@@ -416,7 +422,7 @@ class MapActivity : Activity() {
     private fun fitRoute() {
         val points = draft.points.toList()
         if (points.isEmpty()) {
-            setNotice(strings.placeWaypointFirst)
+            setNotice(strings.nothingToCentre)
             return
         }
         map?.fitRoute(points)
@@ -450,7 +456,7 @@ class MapActivity : Activity() {
      */
     private fun relocate(point: GeoPoint) {
         when (PacerConfigClient.owner()) {
-            MotionOwner.ROUTE -> setNotice(strings.routeCannotMove)
+            MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED -> setNotice(strings.routeCannotMove)
             MotionOwner.PLAN, MotionOwner.HAND -> {
                 PacerConfigClient.teleport(point.lat, point.lon)
                 setNotice(
@@ -486,12 +492,16 @@ class MapActivity : Activity() {
 
     private fun updateInfo() {
         val stored = PacerConfigClient.stored()
+        // The marker walks a route; the line above it has to describe the same point, or the
+        // page shows the run's start while the dot is elsewhere. The stored lat/lon is only
+        // the anchor a straight run was launched from.
+        val live = stored?.let { livePoint(it) }
+        val point = live ?: stored?.let { GeoPoint(it.lat, it.lon) }
         val state = when {
             stored == null -> strings.statusIdle
             !stored.active -> strings.statusConfigIdle
-            stored.routePaused -> "${strings.statusPaused}  ${stored.lat}, ${stored.lon}"
-            else -> "${strings.statusRunning}  ${String.format(Locale.US, "%.5f", stored.lat)}, " +
-                String.format(Locale.US, "%.5f", stored.lon)
+            stored.routePaused -> "${strings.statusPaused}  ${formatPoint(point)}"
+            else -> "${strings.statusRunning}  ${formatPoint(point)}"
         }
         info.text = buildString {
             val n = notice
@@ -512,6 +522,9 @@ class MapActivity : Activity() {
             )
         }
     }
+
+    private fun formatPoint(point: GeoPoint?): String =
+        if (point == null) "-" else String.format(Locale.US, "%.5f, %.5f", point.lat, point.lon)
 
     /** Total length of the waypoints, for the info line. */
     private fun lengthOf(points: List<GeoPoint>): Double {
