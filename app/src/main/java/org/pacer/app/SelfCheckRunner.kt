@@ -41,6 +41,8 @@ import org.pacer.motion.CoordinatePolicy
 import org.pacer.motion.CoordinateSystem
 import org.pacer.motion.CoordinateTransform
 import org.pacer.motion.GeoMath
+import org.pacer.motion.GeoPoint
+import org.pacer.motion.MapDefaults
 import org.pacer.motion.MotionOwner
 import org.pacer.motion.SelfCheck
 import org.pacer.motion.SelfCheckReport
@@ -134,14 +136,19 @@ class SelfCheckRunner(
      * nothing, and a shift far outside 100-700 m means it did the wrong thing.
      */
     private fun coordinateProbes(): List<CheckItem> {
-        val state = cfg ?: return emptyList()
-        val wgs = runCatching { subject.point(state) }.getOrNull()
+        // This deliberately does NOT require an active run. Every other probe compares
+        // against what the module is injecting, but the datum conversions are pure
+        // arithmetic and are exactly as true before a run starts - and requiring a run
+        // meant the one answer a user cannot check for themselves was the one answer that
+        // never appeared, because a run needs the module bound.
+        val wgs = (cfg?.let { runCatching { subject.point(it) }.getOrNull() } ?: fallbackFix())
             ?: return listOf(
-                SelfCheck.skip("coordinate system", "the engine has no current fix to convert"),
+                SelfCheck.skip("coordinate system", "no fix to convert; draw a route or start a run"),
             )
-        val overrides = CoordinatePolicy.parse(state.coordinateOverrides)
+        val overrides = CoordinatePolicy.parse(cfg?.coordinateOverrides.orEmpty())
         val override = overrides.firstOrNull { it.appliesTo(context.packageName) }?.system
         val overridden = if (override == null) "" else " (settings override for this package: $override)"
+        val from = if (cfg?.active == true) "the running fix" else "the current draft or map centre"
 
         val out = ArrayList<CheckItem>()
         val gcj = CoordinateTransform.wgs84ToGcj02(wgs)
@@ -153,9 +160,9 @@ class SelfCheckRunner(
             "AMap / Tencent datum",
             String.format(
                 Locale.US,
-                "%s: %.5f, %.5f, %.0f m from the WGS-84 fix%s",
+                "%s: %.5f, %.5f, %.0f m from %s%s",
                 (override ?: CoordinateSystem.GCJ02).name, gcj.lat, gcj.lon,
-                GeoMath.haversine(wgs, gcj), overridden,
+                GeoMath.haversine(wgs, gcj), from, overridden,
             ),
         )
 
@@ -192,6 +199,20 @@ class SelfCheckRunner(
         )
         return out
     }
+
+    /**
+     * A fix to demonstrate the conversions with when no run is active.
+     *
+     * The current draft's last waypoint, or the map's default centre: both are places the
+     * user can see on the map, so the reported numbers are checkable against something.
+     * A made-up coordinate would be arithmetic about nowhere.
+     *
+     * Reads through [RouteStore] rather than the preferences file directly, so this cannot
+     * disagree with the map about what the draft is.
+     */
+    private fun fallbackFix(): GeoPoint? = runCatching {
+        RouteStore(context).load().points.lastOrNull() ?: MapDefaults.CENTER
+    }.getOrNull()
 
     // ---------------------------------------------------------------- location
 
