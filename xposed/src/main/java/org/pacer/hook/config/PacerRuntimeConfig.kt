@@ -2,6 +2,7 @@ package org.pacer.hook.config
 
 import org.pacer.motion.CoordinateOverride
 import org.pacer.motion.CoordinateSystem
+import org.pacer.motion.PacePlan
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.SpeedPlan
 
@@ -65,6 +66,14 @@ object PacerRuntimeConfig {
     @Volatile var plan: SpeedPlan? = null
 
     /**
+     * Per-kilometre pace curve, or null when the session is not prescribed that way.
+     *
+     * Mutually exclusive with [plan]: the editor produces one or the other, and
+     * [MotionConfig] refuses both at once.
+     */
+    @Volatile var pacePlan: PacePlan? = null
+
+    /**
      * Whether a route run starts over when it reaches the end instead of stopping there.
      * The position returns to the first waypoint while distance and steps keep growing;
      * the arithmetic lives in MotionSamples.atLooped.
@@ -112,6 +121,7 @@ object PacerRuntimeConfig {
         bearingDeg = bearingDeg,
         routeJson = routeJson,
         plan = plan,
+        pacePlan = pacePlan,
         loopRoute = loopRoute,
         routePaused = routePaused,
         routeOffsetMs = routeOffsetMs,
@@ -135,6 +145,7 @@ object PacerRuntimeConfig {
         val bearingDeg: Float,
         val routeJson: String,
         val plan: SpeedPlan?,
+        val pacePlan: PacePlan?,
         val loopRoute: Boolean,
         val routePaused: Boolean,
         val routeOffsetMs: Long,

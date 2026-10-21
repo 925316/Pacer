@@ -10,6 +10,7 @@ import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.CoordinatePolicy
 import org.pacer.motion.CoordinateSystem
+import org.pacer.motion.PacePlan
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.SpeedPlan
 
@@ -98,7 +99,14 @@ object ConfigSync {
         // Parsed here, once per config change, because the engine asks for the plan on
         // every sample. An unreadable plan becomes "no plan" rather than a run with
         // invented intervals.
-        PacerRuntimeConfig.plan = SpeedPlan.parse(prefs.getString("plan", "") ?: "")
+        //
+        // One key carries both shapes of plan and the prefix says which: a timed step plan is
+        // "3.0@180;1.4@60", a pace curve is "pace:0=3.33;...". They must not both be set, so
+        // reading the key once and asking each parser is what keeps a pace curve from being
+        // silently dropped as an unreadable interval plan.
+        val planText = prefs.getString("plan", "") ?: ""
+        PacerRuntimeConfig.plan = SpeedPlan.parse(planText)
+        PacerRuntimeConfig.pacePlan = PacePlan.parse(planText)
         PacerRuntimeConfig.loopRoute = prefs.getBoolean("loop_route", false)
         PacerRuntimeConfig.routePaused = prefs.getBoolean("route_paused", false)
         PacerRuntimeConfig.routeOffsetMs = prefs.getLong("route_offset_ms", 0L)

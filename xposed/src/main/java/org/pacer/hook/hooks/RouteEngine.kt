@@ -11,6 +11,7 @@ import org.pacer.motion.FixSample
 import org.pacer.motion.MotionConfig
 import org.pacer.motion.MotionSamples
 import org.pacer.motion.MotionSeed
+import org.pacer.motion.PacePlan
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteClock
 import org.pacer.motion.RouteJson
@@ -93,6 +94,7 @@ object RouteEngine {
                 toggles = cfg.realism,
                 accuracyMeters = cfg.accuracyMeters,
                 plan = cfg.plan,
+                pacePlan = cfg.pacePlan,
                 seed = MotionSeed.forRun(cfg.startTimestamp, lap.index),
             )
             if (cfg.loopRoute && lapSeconds <= 0.0) {
@@ -127,13 +129,14 @@ object RouteEngine {
         toggles: RealismToggles,
         accuracyMeters: Float,
         plan: SpeedPlan?,
+        pacePlan: PacePlan?,
         seed: Long,
     ) {
         try {
             val config = if (speedMps > 0.0) {
-                MotionConfig(baseSpeedMps = speedMps, plan = plan)
+                MotionConfig(baseSpeedMps = speedMps, plan = plan, pacePlan = pacePlan)
             } else {
-                MotionConfig.run().copy(plan = plan)
+                MotionConfig.run().copy(plan = plan, pacePlan = pacePlan)
             }
             val sim = RouteSimulator(
                 route,

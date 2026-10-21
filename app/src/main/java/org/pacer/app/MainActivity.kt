@@ -25,6 +25,7 @@ import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
 import org.pacer.motion.MotionOwner
 import org.pacer.motion.MotionSeed
+import org.pacer.motion.PacePlan
 import org.pacer.motion.RealismToggles
 import org.pacer.motion.RouteDraft
 import org.pacer.motion.RouteJson
@@ -1075,12 +1076,29 @@ class MainActivity : Activity() {
      * A line about the interval plan that is about to run, using the plan's own arithmetic.
      */
     private fun planSummary(plan: String): String {
+        // A pace curve is described in splits, not in passes: quoting "0 s / 0 m per pass"
+        // for one would be the summary of a plan that is not running.
+        PacePlan.parse(plan)?.let { pace ->
+            val meanPace = pace.totalSeconds / (pace.distanceMeters / 1000.0)
+            return " " + String.format(
+                Locale.US,
+                strings.paceSummary,
+                kotlin.math.round(pace.distanceMeters / 1000.0).toInt(),
+                formatPace(meanPace),
+            ) + "."
+        }
         val parsed = SpeedPlan.parse(plan) ?: return ""
         val pass = String.format(Locale.US, strings.planPassSummary, parsed.passSeconds, parsed.passMeters)
         val total = parsed.totalMeters
             ?.let { String.format(Locale.US, strings.planTotalSummary, it) }
             ?: strings.planTotalForever
         return " Plan: $pass$total."
+    }
+
+    /** `5:00` for 300 seconds; a runner reads a split as minutes and seconds. */
+    private fun formatPace(seconds: Double): String {
+        val total = kotlin.math.round(seconds).toInt().coerceAtLeast(0)
+        return String.format(Locale.US, "%d:%02d", total / 60, total % 60)
     }
 
     /** The signal-realism switches as the engine's own type, so nothing has to list them twice. */
@@ -1316,6 +1334,7 @@ class MainActivity : Activity() {
         // The preview follows the interval plan too, or it would show a steady-speed track
         // for a session that will not be one.
         val plan = SpeedPlan.parse(planWire)
+        val pacePlan = PacePlan.parse(planWire)
         val speed = speedMps()
         // Two different runs of the same route, so the divergence below is meaningful.
         // Deterministic rather than Random, so a report can be reproduced from its numbers.
@@ -1325,7 +1344,7 @@ class MainActivity : Activity() {
         thread {
             fun runOnce(seed: Long) = RouteSimulator(
                 route,
-                MotionConfig(baseSpeedMps = speed).copy(plan = plan),
+                MotionConfig(baseSpeedMps = speed).copy(plan = plan, pacePlan = pacePlan),
                 toggles = toggles,
                 steadyAccuracyMeters = accuracy,
             ).simulate(dtSec = 1.0, seed = seed)
@@ -1467,12 +1486,14 @@ class MainActivity : Activity() {
         val toggles = realismToggles()
         val accuracy = numberOr(accuracyInput, 5f)
         val plan = SpeedPlan.parse(planWire)
+        val pacePlanForPreview = PacePlan.parse(planWire)
         val speed = speedMps()
         thread {
             val route = previewRoute
             val fixes = RouteSimulator(
                 route,
-                MotionConfig(baseSpeedMps = speed).copy(plan = plan),
+                MotionConfig(baseSpeedMps = speed)
+                    .copy(plan = plan, pacePlan = pacePlanForPreview),
                 toggles = toggles,
                 steadyAccuracyMeters = accuracy,
             ).simulate(dtSec = 1.0)

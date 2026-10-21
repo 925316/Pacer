@@ -7,6 +7,8 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import org.pacer.motion.PaceDraft
+import org.pacer.motion.PacePlan
 import org.pacer.motion.PlanDraft
 import java.util.Locale
 
@@ -25,6 +27,20 @@ class PlanEditor(
 ) {
 
     private val draft = PlanDraft(steps = emptyList())
+
+    /**
+     * The per-kilometre curve, which is the other shape this editor can express.
+     *
+     * Two shapes in one editor on purpose: they are two ways to answer the same question
+     * ("what speed, when"), a run may use only one of them, and giving each its own screen
+     * would mean two entry points for one decision.
+     */
+    private val paceDraft = PaceDraft()
+    private var paceEnabled = false
+
+    private val paceColumn = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+    private val paceTotals = TextView(activity).apply { textSize = 13f }
+    private val paceToggle = Button(activity).apply { textSize = 13f; isAllCaps = false }
 
     /** Rebuilt whole on every change: there are at most a handful of steps. */
     private val stepsColumn = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -97,6 +113,39 @@ class PlanEditor(
             },
         )
 
+        // The pace curve sits beside the steps, not in another screen: both answer "what
+        // speed when", a run uses at most one of them, and two screens would be two entry
+        // points for one decision.
+        body.addView(
+            TextView(activity).apply {
+                text = strings.paceSection
+                textSize = 15f
+                setPadding(0, 16, 0, 0)
+            },
+        )
+        body.addView(
+            TextView(activity).apply {
+                text = strings.paceHint
+                textSize = 12f
+                setPadding(0, 2, 0, 4)
+            },
+        )
+        paceToggle.textSize = 13f
+        paceToggle.isAllCaps = false
+        paceToggle.setOnClickListener {
+            if (!paceEnabled) {
+                // Turning the curve on has to displace the steps, because a run has one
+                // speed source. Refusing instead would leave the user with a button that
+                // does nothing and no explanation.
+                draft.steps.clear()
+            }
+            paceEnabled = !paceEnabled
+            refresh()
+        }
+        body.addView(paceToggle)
+        body.addView(paceColumn)
+        body.addView(paceTotals)
+
         body.addView(
             TextView(activity).apply {
                 text = strings.planPresets
@@ -142,7 +191,23 @@ class PlanEditor(
 
     /** Loads a stored plan; a blank or unreadable string leaves the editor as it is. */
     fun load(wire: String) {
-        if (wire.isNotBlank()) draft.load(wire)
+        if (wire.isBlank()) {
+            refresh()
+            return
+        }
+        // A stored pace curve and a stored step plan are different kinds of value; reading
+        // the wrong one as "no plan" would silently downgrade a run to a steady speed.
+        if (wire.trim().startsWith(PacePlan.WIRE_PREFIX)) {
+            if (paceDraft.load(wire)) {
+                paceEnabled = true
+                draft.steps.clear()
+                refresh()
+            }
+            return
+        }
+        if (draft.load(wire)) {
+            paceEnabled = false
+        }
         refresh()
     }
 
@@ -167,6 +232,12 @@ class PlanEditor(
     private fun headerSummary(): String = when {
         expanded -> ""
         !isValid -> strings.planInvalidShort
+        paceEnabled -> String.format(
+            Locale.US,
+            strings.paceSummary,
+            paceDraft.splits.size,
+            formatPace(paceDraft.averageSplit),
+        )
         draft.steps.isEmpty() -> strings.planNone
         else -> String.format(
             Locale.US,
@@ -190,6 +261,8 @@ class PlanEditor(
         draft.steps.forEachIndexed { index, step ->
             stepsColumn.addView(stepRow(index, step.speedMps, step.durationSec))
         }
+        paceToggle.text = if (paceEnabled) strings.paceRemoveCurve else strings.paceEnableCurve
+        rebuildPace()
         repeatRow.findViewWithTag<TextView>(REPEAT_LABEL)?.text =
             if (draft.repeats == 0) strings.planForever else draft.repeats.toString()
         // Repeats and totals only describe a plan that exists. With no steps they would read
@@ -204,6 +277,86 @@ class PlanEditor(
             }
         }
         totals.visibility = if (hasPlan || !isValid) View.VISIBLE else View.GONE
+    }
+
+    /** The per-kilometre rows, one line each: mark, pace, and the two steppers. */
+    private fun rebuildPace() {
+        paceColumn.removeAllViews()
+        paceColumn.visibility = if (paceEnabled) View.VISIBLE else View.GONE
+        paceTotals.visibility = if (paceEnabled) View.VISIBLE else View.GONE
+        if (!paceEnabled) return
+
+        paceDraft.splits.forEachIndexed { index, seconds ->
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 6, 0, 0)
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            row.addView(
+                TextView(activity).apply {
+                    text = String.format(Locale.US, strings.paceKilometre, index + 1)
+                    textSize = 13f
+                    minWidth = 132
+                },
+            )
+            row.addView(
+                stepper("−", strings.paceSection) {
+                    paceDraft.setSplit(index, seconds - PaceDraft.SPLIT_STEP_SEC)
+                    refresh()
+                },
+            )
+            row.addView(
+                TextView(activity).apply {
+                    text = formatPace(seconds)
+                    textSize = 13f
+                    minWidth = 96
+                    gravity = Gravity.CENTER
+                },
+            )
+            row.addView(
+                stepper("+", strings.paceSection) {
+                    paceDraft.setSplit(index, seconds + PaceDraft.SPLIT_STEP_SEC)
+                    refresh()
+                },
+            )
+            if (paceDraft.splits.size > 1) {
+                row.addView(
+                    activity.smallAction("×") {
+                        paceDraft.remove(index)
+                        refresh()
+                    }.apply { contentDescription = strings.paceRemove },
+                )
+            }
+            paceColumn.addView(row)
+        }
+        paceColumn.addView(
+            Button(activity).apply {
+                text = strings.paceAddKilometre
+                textSize = 13f
+                isAllCaps = false
+                setOnClickListener {
+                    paceDraft.add()
+                    refresh()
+                }
+            },
+        )
+        paceTotals.text = if (paceDraft.toPlan() == null) {
+            strings.paceInvalid
+        } else {
+            String.format(
+                Locale.US,
+                strings.paceTotals,
+                paceDraft.totalSeconds,
+                paceDraft.distanceMeters / 1000.0,
+                formatPace(paceDraft.averageSplit),
+            )
+        }
+    }
+
+    /** `5:00` for 300 seconds; a runner reads a split as minutes and seconds. */
+    private fun formatPace(seconds: Double): String {
+        val total = kotlin.math.round(seconds).toInt().coerceAtLeast(0)
+        return String.format(Locale.US, "%d:%02d", total / 60, total % 60)
     }
 
     /**
@@ -261,9 +414,20 @@ class PlanEditor(
     private fun refresh() {
         // An empty list means "no plan, steady speed", which is a state the run supports; it
         // is not a broken plan. Only a list that exists and would not run is invalid.
-        isValid = draft.steps.isEmpty() || draft.toPlan() != null
+        val stepsValid = draft.steps.isEmpty() || draft.toPlan() != null
+        val paceValid = !paceEnabled || paceDraft.toPlan() != null
+        isValid = stepsValid && paceValid
         rebuild()
-        onChange(if (isValid) draft.toWireFormat() else "")
+        // Handing the wire form to the caller is what actually configures the run, so the
+        // pace curve has to travel through the same channel as the steps. A pace curve sends
+        // an empty step plan: the two are mutually exclusive, and MotionConfig refuses both.
+        onChange(
+            when {
+                !isValid -> ""
+                paceEnabled -> paceDraft.toWireFormat()
+                else -> draft.toWireFormat()
+            },
+        )
         summary.text = headerSummary()
     }
 

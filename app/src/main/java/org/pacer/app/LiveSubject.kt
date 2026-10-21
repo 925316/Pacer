@@ -4,6 +4,7 @@ import org.pacer.motion.GeoPoint
 import org.pacer.motion.MotionConfig
 import org.pacer.motion.MotionSamples
 import org.pacer.motion.MotionSeed
+import org.pacer.motion.PacePlan
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
@@ -80,7 +81,15 @@ class LiveSubject {
             )
         }
         val elapsed = stored.straightSeconds(nowMs)
-        val meters = SpeedPlan.parse(stored.plan)?.metersAt(elapsed) ?: (stored.speed * elapsed)
+        // A pace curve is indexed by distance, so it cannot answer "how far at time t" the
+        // way a timed plan can. Invert it instead: the curve knows how long a distance
+        // takes, so walk to the moment and read the distance off that inverse.
+        val pace = PacePlan.parse(stored.plan)
+        val meters = if (pace != null) {
+            pace.metersAt(elapsed)
+        } else {
+            SpeedPlan.parse(stored.plan)?.metersAt(elapsed) ?: (stored.speed * elapsed)
+        }
         val point = StraightLine.byDistance(
             GeoPoint(stored.lat, stored.lon),
             stored.bearing.toDouble(),
@@ -122,6 +131,7 @@ class LiveSubject {
             MotionConfig(
                 baseSpeedMps = if (stored.speed > 0.0) stored.speed else 3.0,
                 plan = SpeedPlan.parse(stored.plan),
+                pacePlan = PacePlan.parse(stored.plan),
             ),
             toggles = stored.realism,
             steadyAccuracyMeters = stored.accuracy,

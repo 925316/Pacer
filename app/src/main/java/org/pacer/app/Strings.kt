@@ -116,6 +116,18 @@ interface Strings {
     val permissionGrant: String
     val permissionLater: String
 
+    /** The per-kilometre pace curve, which is a second shape the same editor can express. */
+    val paceSection: String
+    val paceHint: String
+    val paceKilometre: String
+    val paceAddKilometre: String
+    val paceRemove: String
+    val paceEnableCurve: String
+    val paceRemoveCurve: String
+    val paceTotals: String
+    val paceInvalid: String
+    val paceSummary: String
+
     /** What a successful start says: the run that is now happening, in one line. */
     val startedJoystickMode: String
     val startedJoystickModeWithPlan: String
@@ -345,6 +357,18 @@ object EnglishStrings : Strings {
             "Location is also what puts the marker on the map. Nothing is sent anywhere."
     override val permissionGrant = "Grant"
     override val permissionLater = "Not now"
+    override val paceSection = "Pace per kilometre"
+    override val paceHint =
+        "The pace each kilometre is run at. The overall time is the sum, so this is also how " +
+            "an overall target is met: type the paces that add up to it."
+    override val paceKilometre = "km %d"
+    override val paceAddKilometre = "+ Add a kilometre"
+    override val paceRemove = "Remove this kilometre"
+    override val paceEnableCurve = "Use a per-kilometre pace"
+    override val paceRemoveCurve = "Stop using per-kilometre pace"
+    override val paceTotals = "%.0f s over %.1f km, mean %s"
+    override val paceInvalid = "Every kilometre needs a pace between 2:00 and 60:00."
+    override val paceSummary = "%d km, mean %s"
     override val startedJoystickMode = "Joystick mode started at %.5f, %.5f, heading %.0f deg, %.2f m/s."
     override val startedJoystickModeWithPlan =
         "Joystick mode started at %.5f, %.5f, heading %.0f deg; the speed comes from the plan.%s"
@@ -581,6 +605,18 @@ object ChineseStrings : Strings {
             "显示或核对任何东西；地图上的位置标记也需要定位权限。所有数据都不会上传到任何地方。"
     override val permissionGrant = "授予"
     override val permissionLater = "以后再说"
+    override val paceSection = "按公里配速"
+    override val paceHint =
+        "每一公里各跑多快。总时长就是这些配速之和，所以「整体目标」也是靠它达成的：" +
+            "把配速填成加起来等于目标的那个组合。"
+    override val paceKilometre = "第 %d 公里"
+    override val paceAddKilometre = "＋ 增加一公里"
+    override val paceRemove = "删除这一公里"
+    override val paceEnableCurve = "改用按公里配速"
+    override val paceRemoveCurve = "不再使用按公里配速"
+    override val paceTotals = "共 %.0f 秒 / %.1f 公里，平均 %s"
+    override val paceInvalid = "每一公里都要有配速，范围 2:00 到 60:00。"
+    override val paceSummary = "%d 公里，平均 %s"
     override val startedJoystickMode = "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度，%.2f m/s。"
     override val startedJoystickModeWithPlan =
         "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度；速度由变速计划提供。%s"
