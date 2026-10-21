@@ -14,6 +14,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import org.pacer.motion.GeoPoint
+import org.pacer.motion.MapDefaults
 import org.pacer.motion.PixelPoint
 import org.pacer.motion.TileGrid
 import java.util.concurrent.Executors
@@ -45,8 +46,8 @@ import kotlin.math.roundToInt
 internal class TileMapView(
     context: Context,
     private val source: TileSource,
-    initialCenter: GeoPoint = DEFAULT_CENTER,
-    initialZoom: Int = DEFAULT_ZOOM,
+    initialCenter: GeoPoint = MapDefaults.CENTER,
+    initialZoom: Int = MapDefaults.ZOOM,
 ) : View(context) {
 
     /** One raster source: where its tiles live, and on which grid they are cut. */
@@ -546,14 +547,6 @@ internal class TileMapView(
 
     private companion object {
         const val TILE_SIZE = TileGrid.TILE_SIZE
-
-        /**
-         * Urumqi: the default view, deliberately nowhere near most users.
-         *
-         * Inside China on purpose: AMap and Baidu serve blank tiles outside it.
-         */
-        val DEFAULT_CENTER = GeoPoint(43.8256, 87.6168)
-        const val DEFAULT_ZOOM = 13
 
         // 256x256 ARGB tiles are 256 KiB each, so this is a ~38 MiB ceiling.
         const val MAX_CACHED_TILES = 150

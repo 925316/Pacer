@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import org.pacer.motion.GeoMath
 import org.pacer.motion.GeoPoint
+import org.pacer.motion.MapDefaults
 import org.pacer.motion.MotionOwner
 import org.pacer.motion.RouteDraft
 import java.util.Locale
@@ -205,8 +206,8 @@ class MapActivity : Activity() {
                 url = { x, y, z -> style.url(x, y, z, layer) },
                 overlay = { x, y, z -> style.overlay(x, y, z, layer) },
             ),
-            initialCenter = center ?: draft.points.lastOrNull() ?: DEFAULT_CENTER,
-            initialZoom = previous?.zoom ?: DEFAULT_ZOOM,
+            initialCenter = center ?: draft.points.lastOrNull() ?: MapDefaults.CENTER,
+            initialZoom = previous?.zoom ?: MapDefaults.ZOOM,
         )
         created.onTap = { point -> editDraft { draft.add(point) } }
         created.onWaypointTap = { index -> selectWaypoint(index) }
@@ -556,10 +557,6 @@ class MapActivity : Activity() {
         }
 
     private companion object {
-        /** Where the map opens when the guard rails are needed; the store usually answers. */
-        val DEFAULT_CENTER = GeoPoint(43.8256, 87.6168)
-        const val DEFAULT_ZOOM = 13
-
         /** How often the live marker is moved; the simulation advances in seconds. */
         const val LIVE_POLL_MS = 1000L
 
