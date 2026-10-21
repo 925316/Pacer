@@ -261,7 +261,14 @@ class MainActivity : Activity() {
         speedGroup.addView(customBtn)
         runBtn.isChecked = true
         root.addView(speedGroup)
-        speedInput = numberField(strings.customSpeed, "3.0")
+        speedInput = numberRow(
+            root,
+            strings.customSpeed,
+            strings.unitMps,
+            "3.0",
+            strings.customSpeedHint,
+            strings.resetToDefault,
+        )
         // Typing a speed is choosing Custom. The guard stops the radio listener's own
         // write from being read back as typing.
         speedInput.addTextChangedListener(
@@ -360,19 +367,38 @@ class MainActivity : Activity() {
         root.addView(titleView(strings.tabSettings))
 
         root.addView(section(strings.simulation))
-        accuracyInput = numberField(strings.accuracy, "5.0")
-        root.addView(accuracyInput)
-        altitudeInput = numberField(strings.altitude, "0.0")
-        root.addView(altitudeInput)
-        bearingInput = numberField(strings.bearing, "45.0")
-        root.addView(bearingInput)
+        root.addView(hint(strings.simulationHint))
+        accuracyInput = numberRow(
+            root,
+            strings.accuracy,
+            strings.unitMeters,
+            "5.0",
+            strings.accuracyHint,
+            strings.resetToDefault,
+        )
+        altitudeInput = numberRow(
+            root,
+            strings.altitude,
+            strings.unitMeters,
+            "0.0",
+            strings.altitudeHint,
+            strings.resetToDefault,
+        )
+        bearingInput = numberRow(
+            root,
+            strings.bearing,
+            strings.unitDegrees,
+            "45.0",
+            strings.bearingHint,
+            strings.resetToDefault,
+        )
 
         // --- per-app coordinate systems --------------------------------------
         // One plain text field. The table is a preference that applies to whatever
         // package it names, and it is saved on its own rather than only at Start.
         root.addView(section(strings.coordinateSystem))
         coordinateInput = EditText(this).apply {
-            hint = "com.example.app=GCJ02;com.other.app=WGS84"
+            hint = "com.autonavi.minimap=GCJ02"
             setInputType(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
         }
         root.addView(coordinateInput)
@@ -554,6 +580,9 @@ class MainActivity : Activity() {
 
     /** Shows what is actually configured. */
     private fun restoreFromStore() {
+        // Read on its own: a table saved before any run was ever started is still applied by
+        // the hook side, so the field must show it even when nothing else is stored.
+        coordinateInput.setText(PacerConfigClient.coordinateOverrides())
         val stored = PacerConfigClient.stored() ?: return
         lastRestoreStartedAt = stored.startedAtMs
         accuracyInput.setText(String.format(Locale.US, "%.1f", stored.accuracy))
@@ -573,7 +602,6 @@ class MainActivity : Activity() {
         stepToggle.isChecked = stored.stepSimulation
         bluetoothToggle.isChecked = stored.mockBluetooth
         planEditor.load(stored.plan)
-        coordinateInput.setText(stored.coordinateOverrides)
         loopToggle.isChecked = stored.loopRoute
         bearingHoldToggle.isChecked = stored.realism.bearingHold
         altitudeDriftToggle.isChecked = stored.realism.altitudeDrift
@@ -1098,12 +1126,30 @@ class MainActivity : Activity() {
         )
     }
 
-    /** A numeric field's value, or [fallback] when it is empty or unreadable. */
-    private fun numberOr(field: EditText, fallback: Float): Float =
-        field.text.toString().toFloatOrNull() ?: fallback
+    /**
+     * A numeric field's value, or [fallback] when it is empty or unreadable.
+     *
+     * The field is written back with what was actually used. Otherwise a blank box would
+     * run on a value nothing displayed, which is how "I deleted it to see the hint" turns
+     * into an accuracy the user never chose.
+     */
+    private fun numberOr(field: EditText, fallback: Float): Float {
+        val parsed = field.text.toString().toFloatOrNull()
+        if (parsed == null) {
+            field.setText(String.format(Locale.US, "%.1f", fallback))
+            return fallback
+        }
+        return parsed
+    }
 
-    private fun doubleOr(field: EditText, fallback: Double): Double =
-        field.text.toString().toDoubleOrNull() ?: fallback
+    private fun doubleOr(field: EditText, fallback: Double): Double {
+        val parsed = field.text.toString().toDoubleOrNull()
+        if (parsed == null) {
+            field.setText(String.format(Locale.US, "%.1f", fallback))
+            return fallback
+        }
+        return parsed
+    }
 
     private fun startRoute(confirmed: Boolean = false) {
         if (!confirmed && PacerConfigClient.owner() != MotionOwner.NONE) {

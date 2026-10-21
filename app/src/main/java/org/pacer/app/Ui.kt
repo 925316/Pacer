@@ -44,11 +44,57 @@ fun Activity.section(text: String): TextView = TextView(this).apply {
 
 fun Activity.radio(label: String): RadioButton = RadioButton(this).apply { text = label }
 
-fun Activity.numberField(hint: String, initial: String): EditText = EditText(this).apply {
-    this.hint = hint
-    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or
-        InputType.TYPE_NUMBER_FLAG_SIGNED
-    setText(initial)
+/**
+ * A number with its name, unit and explanation all permanently visible.
+ *
+ * Label and unit cannot live in the placeholder, which disappears the moment the field holds
+ * a value - the only way to learn what "5.0" meant would be to delete it. The unit is a
+ * separate view here, the explanation is a line under the row, and [reset] puts the
+ * documented default back, which is otherwise only guessable.
+ *
+ * An emptied field is restored on focus loss rather than left blank: a blank box that
+ * silently runs on a hidden default is the same bug in a different disguise.
+ */
+fun Activity.numberRow(
+    into: LinearLayout,
+    label: String,
+    unit: String,
+    initial: String,
+    explanation: String,
+    reset: String,
+): EditText {
+    into.addView(
+        TextView(this).apply {
+            text = label
+            textSize = 15f
+            setPadding(0, 12, 0, 0)
+        },
+    )
+    val line = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+    val input = EditText(this).apply {
+        setText(initial)
+        inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or
+            InputType.TYPE_NUMBER_FLAG_SIGNED
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        setOnFocusChangeListener { _, focused ->
+            if (!focused && text.isBlank()) setText(initial)
+        }
+    }
+    line.addView(input)
+    line.addView(
+        TextView(this).apply {
+            text = unit
+            textSize = 14f
+            setPadding(8, 0, 8, 0)
+        },
+    )
+    line.addView(smallAction(reset) { input.setText(initial) })
+    into.addView(line)
+    into.addView(hint(explanation))
+    return input
 }
 
 fun Activity.action(label: String, onClick: () -> Unit): Button = Button(this).apply {

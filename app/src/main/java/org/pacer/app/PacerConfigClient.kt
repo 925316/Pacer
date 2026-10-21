@@ -250,6 +250,14 @@ object PacerConfigClient {
      * whatever the next run pushes, and forcing the user to restart a simulation to
      * change it would be a worse deal than one extra button.
      */
+    /**
+     * The saved coordinate table, independent of whether a run has ever been started.
+     *
+     * [stored] answers null until something has been pushed, so reading the table through it
+     * left the field blank after a restart even while the hook side kept applying the table.
+     */
+    fun coordinateOverrides(): String = prefs?.getString("coord_overrides", "") ?: ""
+
     fun saveCoordinateOverrides(table: String): Boolean {
         val p = prefs ?: return false
         p.edit().putString("coord_overrides", table).apply()

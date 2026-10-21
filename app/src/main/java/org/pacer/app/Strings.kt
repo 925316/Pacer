@@ -40,6 +40,7 @@ interface Strings {
     val ride: String
     val custom: String
     val customSpeed: String
+    val customSpeedHint: String
     val route: String
     val routeHint: String
     val routeSummary: String
@@ -52,9 +53,19 @@ interface Strings {
     val savedRoutes: String
     val saveRoute: String
     val simulation: String
+
+    /** What the reported-position numbers are, and when a change takes effect. */
+    val simulationHint: String
+    val unitMeters: String
+    val unitDegrees: String
+    val unitMps: String
+    val resetToDefault: String
     val accuracy: String
+    val accuracyHint: String
     val altitude: String
+    val altitudeHint: String
     val bearing: String
+    val bearingHint: String
     val intervalPlanSection: String
     val loopRoute: String
     val loopRouteHint: String
@@ -190,7 +201,6 @@ object EnglishStrings : Strings {
     override val run = "Run 3.0"
     override val ride = "Ride 6.0"
     override val custom = "Custom"
-    override val customSpeed = "Custom speed m/s"
     override val route = "Route"
     override val routeHint =
         "Waypoints are placed on the map: pan to a place, tap to append one, drag a " +
@@ -204,10 +214,33 @@ object EnglishStrings : Strings {
     override val stopRecording = "Stop recording"
     override val savedRoutes = "Saved routes"
     override val saveRoute = "Save current route as..."
-    override val simulation = "Reported position"
-    override val accuracy = "Steady accuracy (m)"
-    override val altitude = "Start altitude (m)"
-    override val bearing = "Straight-line bearing (deg, 0 = north)"
+    override val simulation = "What other apps see"
+    override val simulationHint =
+        "These three numbers are written into the simulated fix, so a target app reads them " +
+            "as if the phone had measured them. A change takes effect when the next " +
+            "simulation starts, not while one is running."
+    override val unitMeters = "m"
+    override val unitDegrees = "deg"
+    override val unitMps = "m/s"
+    override val resetToDefault = "Reset"
+    override val customSpeed = "Custom speed"
+    override val customSpeedHint =
+        "Used only while Custom is selected. Below 0.3 m/s the subject counts as standing " +
+            "still and only jitters in place."
+    override val accuracy = "Horizontal accuracy"
+    override val accuracyHint =
+        "Goes into the fix's accuracy field: how far off the position may be. Apps draw a " +
+            "circle of this radius and decide whether to trust the point, so a smaller number " +
+            "claims a better fix. It does not change where the subject walks."
+    override val altitude = "Starting altitude"
+    override val altitudeHint =
+        "The elevation the fix reports, as if the ground were that high. 0 is sea level. " +
+            "It does not affect the track on the map; switch on the drift below to make it wander."
+    override val bearing = "Heading of a straight run"
+    override val bearingHint =
+        "0 is north and the number grows clockwise: 90 east, 180 south, 270 west. Only the " +
+            "straight run started from the route page uses it; a route or the joystick sets " +
+            "its own heading."
     override val intervalPlanSection = "Interval plan"
     override val loopRoute = "Repeat the route (laps)"
     override val loopRouteHint =
@@ -222,10 +255,11 @@ object EnglishStrings : Strings {
             "cells are simulated."
     override val coordinateSystem = "Per-app coordinate system"
     override val coordinateSystemHint =
-        "A fix carries no datum, so an app that draws it on a Chinese base map assumes " +
-            "GCJ-02 while one that draws it on a Google base map assumes WGS-84; the two " +
-            "differ by about half a kilometre. AUTO follows the API being hooked. This table " +
-            "overrides that per package; semicolons separate entries."
+        "Format: package=datum, several entries separated by semicolons. The datum is one of " +
+            "AUTO, WGS84, GCJ02 or BD09. A fix carries no datum of its own, so an app drawing " +
+            "it on a Chinese base map assumes GCJ-02 while one drawing it on a Google base map " +
+            "assumes WGS-84, and the two differ by about half a kilometre; AUTO follows the API " +
+            "being hooked. Saved immediately, unlike the numbers above."
     override val saveOverrides = "Save coordinate overrides"
     override val signalRealism = "Signal realism"
     override val signalRealismHint =
@@ -237,12 +271,16 @@ object EnglishStrings : Strings {
     override val altitudeDrift = "Drift the altitude"
     override val altitudeDriftHint = "A slow random walk of a few centimetres per second."
     override val accuracyWarmup = "Warm up the accuracy"
-    override val accuracyWarmupHint = "30 m converging to 5 m over the first half minute."
+    override val accuracyWarmupHint =
+        "30 m converging to the accuracy above over the first half minute, as a receiver does " +
+            "when it has just acquired the sky."
     override val satelliteJitter = "Vary the satellite count"
-    override val satelliteJitterHint = "A plausible 7 to 14 instead of one fixed number."
-    override val signalDropout = "Lose the signal occasionally"
+    override val satelliteJitterHint =
+        "A plausible 7 to 14 instead of one fixed number; off, it always reports 11."
+    override val signalDropout = "Drop the satellite count now and then"
     override val signalDropoutHint =
-        "A few seconds of dropout now and then, which is the one a strict receiver may reject."
+        "For a few seconds the fix reports 3 to 10 satellites instead of the usual count. " +
+            "The position keeps being delivered: this thins the sky, not the fix."
     override val startStraight = "Start straight line from the first waypoint"
     override val startRoute = "Start humanized route simulation"
     override val pauseRoute = "Pause route"
@@ -253,7 +291,7 @@ object EnglishStrings : Strings {
     override val stopShort = "Stop"
     override val joystickShort = "Joystick"
     override val preview = "Preview engine locally (no hooks)"
-    override val audit = "Audit this track (server-side heuristics)"
+    override val audit = "Audit this track"
     override val selfCheck = "Self-check"
     override val runSelfCheck = "Run self-check"
     override val selfCheckHint =
@@ -376,7 +414,9 @@ object ChineseStrings : Strings {
     override val run = "跑步 3.0"
     override val ride = "骑行 6.0"
     override val custom = "自定义"
-    override val customSpeed = "自定义速度 m/s"
+    override val customSpeed = "自定义速度"
+    override val customSpeedHint =
+        "只在选中「自定义」时使用。低于 0.3 m/s 会被当作原地静止，只在原地微动。"
     override val route = "路线"
     override val routeHint =
         "路径点在地图上放置：拖动到目标位置，点击追加一个点，拖动圆点可以移动它。这里只是列出地图上已画好的点。"
@@ -389,10 +429,26 @@ object ChineseStrings : Strings {
     override val stopRecording = "停止录制"
     override val savedRoutes = "已保存路线"
     override val saveRoute = "将当前路线另存为..."
-    override val simulation = "上报的位置参数"
-    override val accuracy = "稳定精度（米）"
-    override val altitude = "起始海拔（米）"
-    override val bearing = "直线方位角（度，0 = 正北）"
+    override val simulation = "其它应用看到的定位数值"
+    override val simulationHint =
+        "这三项会写进模拟出来的定位结果，目标应用会把它当成手机自己测到的。改完不会立刻" +
+            "生效，下一次开始模拟时才用新值。"
+    override val unitMeters = "米"
+    override val unitDegrees = "度"
+    override val unitMps = "米/秒"
+    override val resetToDefault = "恢复默认"
+    override val accuracy = "水平精度"
+    override val accuracyHint =
+        "写进定位结果的精度字段，含义是「这个点大约差多少米」。应用会按这个半径画误差圈、" +
+            "判断能不能信这个点，所以填得越小表示定位越准。它不改变人往哪儿走。"
+    override val altitude = "起始海拔"
+    override val altitudeHint =
+        "定位结果里报告的海拔高度，相当于说脚下地面有这么高。0 表示海平面。它不影响地图上" +
+            "的轨迹；想让海拔自己浮动，打开下面的「海拔缓慢漂移」。"
+    override val bearing = "直线运动的起始方向"
+    override val bearingHint =
+        "0 是正北，数字顺时针增加：90 正东、180 正南、270 正西。只有路线页的「从第一个路径点" +
+            "开始直线运动」会用它；跑路线或者用摇杆时，方向由它们自己决定。"
     override val intervalPlanSection = "变速计划"
     override val loopRoute = "循环跑这条路线"
     override val loopRouteHint = "跑完最后一站后回到第一个路径点继续，而不是停下。距离和步数会继续累加。"
@@ -402,8 +458,10 @@ object ChineseStrings : Strings {
     override val bluetoothHint = "关闭时，WiFi 和基站仍然被模拟，但蓝牙扫描会报告真实周边。"
     override val coordinateSystem = "按应用指定坐标系"
     override val coordinateSystemHint =
-        "定位结果本身不带基准，画在中国底图上的应用会当成 GCJ-02，画在谷歌底图上的会当成 WGS-84，" +
-            "两者相差约五百米。AUTO 表示跟随被 hook 的接口。此表按包名覆盖默认值，用分号分隔多项。"
+        "格式：包名=坐标系，多项用分号隔开。坐标系可填 AUTO、WGS84、GCJ02 或 BD09。" +
+            "定位数据本身不带基准，画在中国底图上的应用会当成 GCJ-02、画在谷歌底图上的会" +
+            "当成 WGS-84，两者相差约五百米；AUTO 表示跟随被 hook 的接口。" +
+            "点保存后立刻生效（上面那三项则要等下次开始模拟）。"
     override val saveOverrides = "保存坐标系覆盖"
     override val signalRealism = "信号真实度"
     override val signalRealismHint = "每项都能让轨迹少一点机器味。关掉某项就让那部分信号保持稳定。"
@@ -412,11 +470,14 @@ object ChineseStrings : Strings {
     override val altitudeDrift = "海拔缓慢漂移"
     override val altitudeDriftHint = "每秒几厘米的随机游走。"
     override val accuracyWarmup = "精度预热"
-    override val accuracyWarmupHint = "前三十秒从 30 米收敛到 5 米，模拟冷启动定位。"
+    override val accuracyWarmupHint =
+        "前三十秒从 30 米收敛到上面填的精度，模拟接收机刚锁定卫星时的状态。"
     override val satelliteJitter = "卫星数量浮动"
-    override val satelliteJitterHint = "在 7 到 14 之间浮动，而不是固定一个数字。"
-    override val signalDropout = "偶尔丢失信号"
-    override val signalDropoutHint = "偶尔掉几秒，严格的接收机可能会因此拒绝。"
+    override val satelliteJitterHint = "在 7 到 14 之间浮动，而不是固定一个数字；关掉后固定报告 11 颗。"
+    override val signalDropout = "偶尔压低的卫星数"
+    override val signalDropoutHint =
+        "有几秒钟只报告 3 到 10 颗卫星，而不是平时的数量。定位本身照常下发：这一项只是让" +
+            "天上的卫星看起来变少，不是真的中断定位。"
     override val startStraight = "从第一个路径点开始直线运动"
     override val startRoute = "开始拟人化路线模拟"
     override val pauseRoute = "暂停路线"
@@ -427,7 +488,7 @@ object ChineseStrings : Strings {
     override val stopShort = "停止"
     override val joystickShort = "摇杆"
     override val preview = "本地预览引擎（不经过 hook）"
-    override val audit = "审查这条轨迹（服务端启发式）"
+    override val audit = "审查这条轨迹"
     override val selfCheck = "自检"
     override val runSelfCheck = "运行自检"
     override val selfCheckHint =
