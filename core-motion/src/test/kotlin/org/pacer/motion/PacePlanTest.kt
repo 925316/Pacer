@@ -61,12 +61,13 @@ class PacePlanTest {
 
     @Test
     fun `a kilometre split list covers every kilometre it lists`() {
-        val p = PacePlan.fromKilometreSplits(listOf(3.0, 2.8, 2.6))
+        // Splits are PACE, in seconds per kilometre: 5:00, 5:20, 5:40.
+        val p = PacePlan.fromKilometreSplits(listOf(300.0, 320.0, 340.0))
         // Three splits describe three kilometres. The first version of this stopped at the
         // last breakpoint, so the third kilometre took no time at all.
         assertEquals(3000.0, p.distanceMeters, 1e-9)
-        assertEquals(2.6, p.speedAtDistance(3000.0), 1e-9)
-        assertEquals(2.6, p.speedAtDistance(2500.0), 1e-9)
+        assertEquals(1000.0 / 340.0, p.speedAtDistance(3000.0), 1e-9)
+        assertEquals(1000.0 / 340.0, p.speedAtDistance(2500.0), 1e-9)
     }
 
     @Test
@@ -75,7 +76,7 @@ class PacePlanTest {
         // across the whole kilometre breaks it: straight-line interpolation made a 300 s
         // split finish in 305 s.
         val splits = listOf(300.0, 310.0, 320.0)
-        val p = PacePlan.fromKilometreSplits(splits.map { 1000.0 / it })
+        val p = PacePlan.fromKilometreSplits(splits)
         for (i in splits.indices) {
             val from = p.secondsTo(i * 1000.0)
             val to = p.secondsTo((i + 1) * 1000.0)
@@ -86,9 +87,9 @@ class PacePlanTest {
 
     @Test
     fun `a partial final kilometre ends the curve where the route does`() {
-        val p = PacePlan.fromKilometreSplits(listOf(3.0, 2.5), lastPartialMeters = 400.0)
+        val p = PacePlan.fromKilometreSplits(listOf(300.0, 400.0), lastPartialMeters = 400.0)
         assertEquals(1400.0, p.distanceMeters, 1e-9)
-        assertEquals(2.5, p.speedAtDistance(1400.0), 1e-9)
+        assertEquals(1000.0 / 400.0, p.speedAtDistance(1400.0), 1e-9)
     }
 
     @Test
@@ -108,7 +109,7 @@ class PacePlanTest {
         // SpeedPlan's own text form has no prefix; the two must never parse into each other,
         // or a stored run would come back as a different kind of session.
         assertNull(PacePlan.parse("3.0@180;1.4@60#5"))
-        assertNull(SpeedPlan.parse(PacePlan.fromKilometreSplits(listOf(3.0, 2.0)).format()))
+        assertNull(SpeedPlan.parse(PacePlan.fromKilometreSplits(listOf(300.0, 320.0)).format()))
     }
 
     @Test
@@ -124,7 +125,7 @@ class PacePlanTest {
     @Test
     fun `a run refuses to carry both speed sources`() {
         val plan = SpeedPlan(listOf(SpeedPlan.Step(3.0, 60.0)), repeats = 1)
-        val pace = PacePlan.fromKilometreSplits(listOf(3.0, 2.5))
+        val pace = PacePlan.fromKilometreSplits(listOf(300.0, 320.0))
         val both = runCatching { MotionConfig(baseSpeedMps = 3.0, plan = plan, pacePlan = pace) }
         assertTrue("both sources must be rejected", both.isFailure)
     }
@@ -133,7 +134,7 @@ class PacePlanTest {
     fun `the generated track follows the curve and still reaches the finish`() {
         // The engine must consume the curve, not ignore it: the second kilometre has to be
         // slower than the first, and the track has to cover the whole route.
-        val pace = PacePlan.fromKilometreSplits(listOf(3.2, 2.4))
+        val pace = PacePlan.fromKilometreSplits(listOf(280.0, 380.0))
         val config = MotionConfig(baseSpeedMps = 3.0, pacePlan = pace, pausesPerMinute = 0.0)
         val route = RoutePath(
             listOf(
