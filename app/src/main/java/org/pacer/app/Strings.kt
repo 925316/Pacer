@@ -88,7 +88,9 @@ interface Strings {
     val satelliteJitterHint: String
     val signalDropout: String
     val signalDropoutHint: String
-    val startStraight: String
+
+    /** The straight-line run the joystick drives; the name says how it is controlled. */
+    val startJoystickMode: String
     val startRoute: String
     val pauseRoute: String
     val resumeRoute: String
@@ -107,6 +109,33 @@ interface Strings {
 
     /** The one failure a user is most likely to meet: no module behind the config channel. */
     val configNotReady: String
+
+    /** What a successful start says: the run that is now happening, in one line. */
+    val startedJoystickMode: String
+    val startedJoystickModeWithPlan: String
+    val startedRoute: String
+    val startedRouteWithPlan: String
+    val planPassSummary: String
+    val planTotalSummary: String
+    val planTotalForever: String
+    val mapRouteSummary: String
+
+    /** What the joystick window says about who owns the run it would steer. */
+    val joystickLockedRoute: String
+    val joystickLockedRoutePaused: String
+    val joystickLockedPlan: String
+    val joystickReady: String
+
+    /** Why recording cannot start yet: it follows a hand-steered run and nothing else. */
+    val recordNeedsJoystickRoute: String
+    val recordNeedsJoystickPlan: String
+    val recordNeedsJoystickIdle: String
+    val recordedSummary: String
+
+    /** A thrown exception, and the two lines the self-check writes when it is done. */
+    val unexpectedFailure: String
+    val selfCheckCrashed: String
+    val selfCheckDone: String
     val statusIdle: String
     val statusRunning: String
     val statusPaused: String
@@ -282,7 +311,7 @@ object EnglishStrings : Strings {
     override val signalDropoutHint =
         "For a few seconds the fix reports 3 to 10 satellites instead of the usual count. " +
             "The position keeps being delivered: this thins the sky, not the fix."
-    override val startStraight = "Start straight line from the first waypoint"
+    override val startJoystickMode = "Joystick mode from the first waypoint"
     override val startRoute = "Start humanized route simulation"
     override val pauseRoute = "Pause route"
     override val resumeRoute = "Resume route"
@@ -304,6 +333,41 @@ object EnglishStrings : Strings {
         "The simulation was not started: the module's config channel is not bound yet. " +
             "Try again in a moment; if it keeps happening, check that Pacer is enabled and " +
             "that this app (or the target app) is in its scope."
+    override val startedJoystickMode = "Joystick mode started at %.5f, %.5f, heading %.0f deg, %.2f m/s."
+    override val startedJoystickModeWithPlan =
+        "Joystick mode started at %.5f, %.5f, heading %.0f deg; the speed comes from the plan.%s"
+    override val startedRoute = "Following %d waypoints (%.0f m) at %.2f m/s."
+    override val startedRouteWithPlan =
+        "Following %d waypoints (%.0f m); the plan sets the speed on top of %.2f m/s.%s"
+    override val planPassSummary = "%.0f s / %.0f m per pass"
+    override val planTotalSummary = ", %.0f m in total"
+    override val planTotalForever = ", repeating for the whole route"
+    override val mapRouteSummary = "Waypoints: %d   Length: %s   Map: %s"
+    override val joystickLockedRoute =
+        "Joystick shown. A route run supplies its own speed and heading, so the knob is locked " +
+            "until the route is stopped. Drag the ring to move it, tap to stop."
+    override val joystickLockedRoutePaused =
+        "Joystick shown. The route is paused, so the subject stands still; the knob unlocks " +
+            "only if you stop the route. Drag the ring to move it, tap to stop."
+    override val joystickLockedPlan =
+        "Joystick shown. The interval plan supplies the speed, so the knob is locked until the " +
+            "plan run is stopped. Drag the ring to move it, tap to stop."
+    override val joystickReady =
+        "Joystick shown. Drag the knob to steer (releasing keeps the last heading), drag the " +
+            "ring to move it, tap to stop."
+    override val recordNeedsJoystickRoute =
+        "Recording follows the joystick, and a route run owns its own motion. Stop the route " +
+            "and start joystick mode to record one."
+    override val recordNeedsJoystickPlan =
+        "Recording follows the joystick, but the interval plan owns the speed. Clear the plan " +
+            "and start joystick mode to record."
+    override val recordNeedsJoystickIdle =
+        "Start joystick mode first, then record it."
+    override val recordedSummary =
+        "Recorded %d waypoints over %.0f m in %d s. It is in the editor now."
+    override val unexpectedFailure = "Something went wrong: %s: %s"
+    override val selfCheckCrashed = "The self-check itself crashed: %s: %s"
+    override val selfCheckDone = "Self-check: %s (report copied to the clipboard)"
     override val statusIdle = "Idle: no simulation is running."
     override val statusRunning = "Running"
     override val statusPaused = "Paused"
@@ -328,7 +392,7 @@ object EnglishStrings : Strings {
     override val nameRequired = "A name is required, under the length limit."
     override val deleted = "Deleted."
     override val placeWaypointFirst =
-        "Place a waypoint on the map first; a straight line needs a start."
+        "Place a waypoint on the map first; a run needs a start."
     override val recording =
         "Recording. Steer with the floating joystick; the route is saved when you stop."
     override val nothingRecorded = "Nothing was recorded: the subject did not move far enough."
@@ -350,10 +414,10 @@ object EnglishStrings : Strings {
     override val nothingToCentre = "Nothing to centre on yet."
     override val routeCannotMove =
         "This run follows a route, so it cannot be moved with a long press. Edit its " +
-            "waypoints instead, or stop it and start a straight-line run."
+            "waypoints instead, or stop it and switch to joystick mode."
     override val movedTo = "Simulation moved to %.5f, %.5f."
     override val longPressIdle =
-        "Long press moves a running straight-line simulation here; none is running."
+        "Long press moves a running joystick-mode simulation here; none is running."
     override val routePausedWhereItStands =
         "Route paused where it stands; the subject reports no speed until it resumes."
     override val routeResumedFromPoint = "Route resumed from the point it stopped at."
@@ -480,7 +544,7 @@ object ChineseStrings : Strings {
     override val signalDropoutHint =
         "有几秒钟只报告 3 到 10 颗卫星，而不是平时的数量。定位本身照常下发：这一项只是让" +
             "天上的卫星看起来变少，不是真的中断定位。"
-    override val startStraight = "从第一个路径点开始直线运动"
+    override val startJoystickMode = "摇杆模式（从第一个路径点出发）"
     override val startRoute = "开始拟人化路线模拟"
     override val pauseRoute = "暂停路线"
     override val resumeRoute = "继续路线"
@@ -499,6 +563,38 @@ object ChineseStrings : Strings {
     override val configNotReady =
         "模拟没能开始：模块的配置通道还没连上。稍等再试；如果一直这样，请确认 Pacer 已在 " +
             "LSPosed 里启用，并且这个应用（或目标应用）在它的作用域里。"
+    override val startedJoystickMode = "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度，%.2f m/s。"
+    override val startedJoystickModeWithPlan =
+        "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度；速度由变速计划提供。%s"
+    override val startedRoute = "正在沿 %d 个路径点（%.0f 米）以 %.2f m/s 前进。"
+    override val startedRouteWithPlan =
+        "正在沿 %d 个路径点（%.0f 米）前进；速度在 %.2f m/s 的基础上由计划调整。%s"
+    override val planPassSummary = "每趟 %.0f 秒 / %.0f 米"
+    override val planTotalSummary = "，合计 %.0f 米"
+    override val planTotalForever = "，沿整条路线循环"
+    override val mapRouteSummary = "路径点：%d   长度：%s   底图：%s"
+    override val joystickLockedRoute =
+        "摇杆已显示。当前是路线模式，速度与方向都由路线决定，停止路线前摇杆是锁定的。" +
+            "拖动外圈可以移动它，点一下停止。"
+    override val joystickLockedRoutePaused =
+        "摇杆已显示。路线处于暂停，人不移动；除非停止路线，否则摇杆仍锁定。" +
+            "拖动外圈可以移动它，点一下停止。"
+    override val joystickLockedPlan =
+        "摇杆已显示。速度由变速计划决定，停止计划运行前摇杆是锁定的。" +
+            "拖动外圈可以移动它，点一下停止。"
+    override val joystickReady =
+        "摇杆已显示。拖动中间的圆点控制方向（松手保持最后的方向），拖动外圈移动它，点一下停止。"
+    override val recordNeedsJoystickRoute =
+        "录制要跟着摇杆走，而路线模式的运动由路线决定。请停止路线，改用摇杆模式再录制。"
+    override val recordNeedsJoystickPlan =
+        "录制要跟着摇杆走，但速度由变速计划决定。请清空计划，改用摇杆模式再录制。"
+    override val recordNeedsJoystickIdle =
+        "请先启动摇杆模式，然后再录制。"
+    override val recordedSummary =
+        "已录制 %d 个路径点，共 %.0f 米，用时 %d 秒。已经放进编辑器里了。"
+    override val unexpectedFailure = "出了点问题：%s：%s"
+    override val selfCheckCrashed = "自检本身出错了：%s：%s"
+    override val selfCheckDone = "自检：%s（报告已复制到剪贴板）"
     override val statusIdle = "空闲：没有正在运行的模拟。"
     override val statusRunning = "运行中"
     override val statusPaused = "已暂停"
@@ -521,7 +617,7 @@ object ChineseStrings : Strings {
     override val renamed = "已重命名。"
     override val nameRequired = "必须填写名称，且不超过长度上限。"
     override val deleted = "已删除。"
-    override val placeWaypointFirst = "请先在地图上放置一个路径点，直线运动需要一个起点。"
+    override val placeWaypointFirst = "请先在地图上放置一个路径点，运行需要一个起点。"
     override val recording = "录制中。用悬浮摇杆操控方向，停止时保存路线。"
     override val nothingRecorded = "没有录制到内容：移动距离不够。"
     override val needTwoWaypoints = "开始路线前请至少添加两个不同的路径点。"
@@ -540,9 +636,9 @@ object ChineseStrings : Strings {
     override val loopShort = "循环"
     override val nothingToCentre = "还没有可以居中的目标。"
     override val routeCannotMove =
-        "当前是路线模式，长按无法移动。请改动路径点，或停止后改跑直线。"
+        "当前是路线模式，长按无法移动。请改动路径点，或停止后改用摇杆模式。"
     override val movedTo = "模拟位置已移动到 %.5f, %.5f。"
-    override val longPressIdle = "长按可以把正在跑的直线模拟移到这里，但当前没有运行中的模拟。"
+    override val longPressIdle = "长按可以把正在跑的摇杆模式模拟移到这里，但当前没有运行中的模拟。"
     override val routePausedWhereItStands = "路线已在原地暂停，继续之前不再上报速度。"
     override val routeResumedFromPoint = "路线已从暂停处继续。"
     override val mapGestureHint = "拖动平移，双指缩放，点击追加路径点，拖动圆点移动它。"

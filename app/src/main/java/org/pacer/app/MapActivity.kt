@@ -514,7 +514,7 @@ class MapActivity : Activity() {
             append(
                 String.format(
                     Locale.US,
-                    "Waypoints: %d   Length: %s   Map: %s",
+                    strings.mapRouteSummary,
                     draft.size,
                     if (draft.size < 2) "-" else String.format(Locale.US, "%.0f m", lengthOf(draft.points)),
                     style.label + " " + layer.label.lowercase(),

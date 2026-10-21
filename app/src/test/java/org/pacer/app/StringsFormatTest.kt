@@ -93,6 +93,17 @@ class StringsFormatTest {
                 strings.simulatingWithPlan,
                 strings.clearRouteMessage,
                 strings.noTilesForLayer,
+                strings.startedJoystickMode,
+                strings.startedJoystickModeWithPlan,
+                strings.startedRoute,
+                strings.startedRouteWithPlan,
+                strings.planPassSummary,
+                strings.planTotalSummary,
+                strings.mapRouteSummary,
+                strings.recordedSummary,
+                strings.unexpectedFailure,
+                strings.selfCheckCrashed,
+                strings.selfCheckDone,
             )
             for (template in templates) {
                 assertTrue("no specifiers in \"$template\"", specifiers(template).isNotEmpty())

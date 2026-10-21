@@ -344,7 +344,17 @@ class MainActivity : Activity() {
         // straight-line run qualifies - a route or a plan owns its own motion. So this stays
         // reachable, but here rather than in the bottom bar: it is how you record a walk,
         // not how you run a drawn route.
-        root.addView(action(strings.startStraight) { startStraight() })
+        //
+        // It brings the joystick up itself. Starting the run and then telling the user to go
+        // find the joystick in the bottom bar was the reason this looked like a button for a
+        // feature nobody could reach.
+        root.addView(
+            action(strings.startJoystickMode) {
+                // Only when the run really started: on a refusal there is nothing to steer,
+                // and a floating window over an idle subject explains nothing.
+                if (startStraight()) showJoystick()
+            },
+        )
         recordBtn = action(strings.startRecording) { toggleRecording() }
         root.addView(recordBtn)
 
@@ -992,20 +1002,30 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun startStraight(confirmed: Boolean = false) {
+    /**
+     * A straight-line run from the first waypoint on the map.
+     *
+     * There is no coordinate field any more, so the start point has to come from the route:
+     * the first waypoint is the one the user placed first, and a run that ignored it would
+     * be a run from nowhere in particular.
+     *
+     * @return true when a run was actually written, so the caller knows whether showing the
+     *   joystick now would point at something real. Every refusal path returns false.
+     */
+    private fun startStraight(confirmed: Boolean = false): Boolean {
         if (!confirmed && PacerConfigClient.owner() != MotionOwner.NONE) {
             confirmReplace { startStraight(true) }
-            return
+            return false
         }
         val start = draft.points.firstOrNull()
         if (start == null) {
             setNotice(strings.placeWaypointFirst)
-            return
+            return false
         }
         val lat = start.lat
         val lon = start.lon
         val speed = speedMps()
-        val plan = planForStart() ?: return
+        val plan = planForStart() ?: return false
         val started = PacerConfigClient.start(
             lat = lat,
             lon = lon,
@@ -1022,19 +1042,33 @@ class MainActivity : Activity() {
         // send the user looking for the wrong problem on the target side.
         if (!started) {
             setNotice(strings.configNotReady)
-            return
+            return false
         }
         setNotice(
             if (plan.isBlank()) {
-                String.format(Locale.US, "Straight line pushed: %.5f, %.5f at %.2f m/s.", lat, lon, speed)
+                String.format(
+                    Locale.US,
+                    strings.startedJoystickMode,
+                    lat,
+                    lon,
+                    numberOr(bearingInput, 45f),
+                    speed,
+                )
             } else {
                 // The plan overrides the speed field, so quoting only the field would
                 // describe a run that is not happening.
-                String.format(Locale.US, "Straight line pushed: %.5f, %.5f, speed from the plan.", lat, lon) +
-                    planSummary(plan)
+                String.format(
+                    Locale.US,
+                    strings.startedJoystickModeWithPlan,
+                    lat,
+                    lon,
+                    numberOr(bearingInput, 45f),
+                    planSummary(plan),
+                )
             },
         )
         updatePauseButton()
+        return true
     }
 
     /**
@@ -1042,9 +1076,10 @@ class MainActivity : Activity() {
      */
     private fun planSummary(plan: String): String {
         val parsed = SpeedPlan.parse(plan) ?: return ""
-        val pass = String.format(Locale.US, "%.0f s / %.0f m per pass", parsed.passSeconds, parsed.passMeters)
-        val total = parsed.totalMeters?.let { String.format(Locale.US, ", %.0f m in total", it) }
-            ?: ", repeating for the whole route"
+        val pass = String.format(Locale.US, strings.planPassSummary, parsed.passSeconds, parsed.passMeters)
+        val total = parsed.totalMeters
+            ?.let { String.format(Locale.US, strings.planTotalSummary, it) }
+            ?: strings.planTotalForever
         return " Plan: $pass$total."
     }
 
@@ -1069,13 +1104,9 @@ class MainActivity : Activity() {
             val owner = PacerConfigClient.owner()
             if (!owner.acceptsHandSteering) {
                 output.text = when (owner) {
-                    MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED ->
-                        "Recording follows the joystick, and a route run owns its own motion. " +
-                            "Stop the route and start a hand-steered straight line to record one."
-                    MotionOwner.PLAN ->
-                        "Recording follows the joystick, but the interval plan owns the speed. " +
-                            "Clear the plan and start a straight line to record."
-                    else -> "Start a hand-steered simulation first, then record it."
+                    MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED -> strings.recordNeedsJoystickRoute
+                    MotionOwner.PLAN -> strings.recordNeedsJoystickPlan
+                    else -> strings.recordNeedsJoystickIdle
                 }
                 return
             }
@@ -1128,7 +1159,7 @@ class MainActivity : Activity() {
         renderSavedRoutes()
         output.text = String.format(
             Locale.US,
-            "Recorded %d waypoints over %.0f m in %d s. It is in the editor now.",
+            strings.recordedSummary,
             recording.size,
             recording.distanceMeters,
             ((System.currentTimeMillis() - recordStartedAtMs) / 1000L).toInt(),
@@ -1212,7 +1243,7 @@ class MainActivity : Activity() {
             if (plan.isBlank()) {
                 String.format(
                     Locale.US,
-                    "Route pushed: %d points, %.0f m, %.2f m/s. The engine humanizes speed along it.",
+                    strings.startedRoute,
                     geometry.size,
                     route.totalLengthMeters,
                     speed,
@@ -1220,11 +1251,12 @@ class MainActivity : Activity() {
             } else {
                 String.format(
                     Locale.US,
-                    "Route pushed: %d points, %.0f m; speed follows the plan on top of the base %.2f m/s.",
+                    strings.startedRouteWithPlan,
                     geometry.size,
                     route.totalLengthMeters,
                     speed,
-                ) + planSummary(plan)
+                    planSummary(plan),
+                )
             },
         )
         updatePauseButton()
@@ -1236,18 +1268,10 @@ class MainActivity : Activity() {
             // Saying which input owns the run here is cheaper than letting the user find
             // out by dragging the knob.
             output.text = when (PacerConfigClient.owner()) {
-                MotionOwner.ROUTE ->
-                    "Joystick shown. A route run supplies its own speed and heading, so the knob " +
-                        "is locked until the route is stopped. Drag the ring to move it, tap to stop."
-                MotionOwner.ROUTE_PAUSED ->
-                    "Joystick shown. The route is paused, so the subject stands still; the knob " +
-                        "unlocks only if you stop the route. Drag the ring to move it, tap to stop."
-                MotionOwner.PLAN ->
-                    "Joystick shown. The interval plan supplies the speed, so the knob is locked " +
-                        "until the plan run is stopped. Drag the ring to move it, tap to stop."
-                else ->
-                    "Joystick shown. Drag the knob to steer (releasing keeps the last " +
-                        "heading), drag the ring to move it, tap to stop."
+                MotionOwner.ROUTE -> strings.joystickLockedRoute
+                MotionOwner.ROUTE_PAUSED -> strings.joystickLockedRoutePaused
+                MotionOwner.PLAN -> strings.joystickLockedPlan
+                else -> strings.joystickReady
             }
         } else {
             startActivity(
@@ -1337,7 +1361,14 @@ class MainActivity : Activity() {
             worker.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, t ->
                 runOnUiThread {
                     auditBtn.isEnabled = true
-                    setNotice("${t.javaClass.simpleName}: ${t.message}")
+                    setNotice(
+                        String.format(
+                            Locale.US,
+                            strings.unexpectedFailure,
+                            t.javaClass.simpleName,
+                            t.message ?: "",
+                        ),
+                    )
                 }
             }
         }
@@ -1361,7 +1392,12 @@ class MainActivity : Activity() {
                 // The runner guards each probe, so this is a bug in the runner itself;
                 // say so rather than showing an empty report that reads like a pass.
                 selfCheckOutput.post {
-                    selfCheckOutput.text = "Self-check crashed: ${t.javaClass.simpleName}: ${t.message}"
+                    selfCheckOutput.text = String.format(
+                        Locale.US,
+                        strings.selfCheckCrashed,
+                        t.javaClass.simpleName,
+                        t.message ?: "",
+                    )
                 }
                 return@thread
             }
@@ -1370,7 +1406,7 @@ class MainActivity : Activity() {
                 selfCheckOutput.text = text
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                 clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Pacer self-check", text))
-                output.text = "Self-check: ${report.summaryLine()} (report copied to the clipboard)"
+                output.text = String.format(Locale.US, strings.selfCheckDone, report.summaryLine())
             }
         }
     }
@@ -1464,7 +1500,14 @@ class MainActivity : Activity() {
             worker.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, t ->
                 runOnUiThread {
                     previewBtn.isEnabled = true
-                    setNotice("${t.javaClass.simpleName}: ${t.message}")
+                    setNotice(
+                        String.format(
+                            Locale.US,
+                            strings.unexpectedFailure,
+                            t.javaClass.simpleName,
+                            t.message ?: "",
+                        ),
+                    )
                 }
             }
         }
