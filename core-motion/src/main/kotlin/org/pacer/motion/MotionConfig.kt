@@ -40,6 +40,14 @@ data class MotionConfig(
      * number, including the acquire ramp's fatigue floor.
      */
     val plan: SpeedPlan? = null,
+    /**
+     * Optional pace curve indexed by distance, for a session prescribed per kilometre.
+     *
+     * Separate from [plan] because they answer different questions: a timed plan says what
+     * speed to hold at a moment, a pace curve says what speed to hold at a place. Only one
+     * may be set, so nothing has to decide which of two answers to believe.
+     */
+    val pacePlan: PacePlan? = null,
 ) {
     init {
         require(baseSpeedMps > 0) { "baseSpeedMps must be positive" }
@@ -47,6 +55,9 @@ data class MotionConfig(
         require(decelDurationSec > 0) { "decelDurationSec must be positive" }
         require(cruiseNoiseFraction in 0.0..0.5) { "cruiseNoiseFraction out of range" }
         require(maxPauseSec >= minPauseSec) { "pause range inverted" }
+        require(plan == null || pacePlan == null) {
+            "a run has one speed source, not both a timed plan and a pace curve"
+        }
     }
 
     companion object {

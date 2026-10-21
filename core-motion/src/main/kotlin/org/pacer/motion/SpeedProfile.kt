@@ -92,12 +92,12 @@ class SpeedProfile(
                 MotionPhase.ACQUIRE -> {
                     val k = min(1.0, phaseT / config.acquireDurationSec)
                     val ramp = k * k * (3 - 2 * k) // smoothstep
-                    val target = (targetSpeed(t) * ramp * speedCap).coerceAtLeast(0.0)
+                    val target = (targetSpeed(t, dist) * ramp * speedCap).coerceAtLeast(0.0)
                     if (k >= 1.0) transition(MotionPhase.CRUISE).also { phase = it; phaseT = 0.0 }
                     min(target, stopSpeed)
                 }
                 MotionPhase.CRUISE -> {
-                    cruiseBase = fatigued(targetSpeed(t), dist)
+                    cruiseBase = fatigued(targetSpeed(t, dist), dist)
                     val noisy = (cruiseBase * (1 + stepNoise(dtSec)) * speedCap)
                         .coerceAtLeast(0.0)
                     if (t >= nextPauseAt) {
@@ -143,10 +143,17 @@ class SpeedProfile(
     private fun transition(to: MotionPhase): MotionPhase = to
 
     /**
-     * The speed the session is aiming for at [tSec]: the interval plan's current step,
-     * or the flat base speed when there is no plan.
+     * The speed the session is aiming for, from whichever source is configured.
+     *
+     * A timed plan is read off the clock and a pace curve off the distance travelled, which
+     * is why both arguments are here. [MotionConfig] forbids setting both, so this never has
+     * to decide between two answers.
      */
-    private fun targetSpeed(tSec: Double): Double = config.plan?.speedAt(tSec) ?: config.baseSpeedMps
+    private fun targetSpeed(tSec: Double, distanceMeters: Double): Double = when {
+        config.pacePlan != null -> config.pacePlan.speedAtDistance(distanceMeters)
+        config.plan != null -> config.plan.speedAt(tSec)
+        else -> config.baseSpeedMps
+    }
 
     private fun fatigued(speedMps: Double, distanceMeters: Double): Double {
         val factor = 1.0 - config.fatiguePerKm * (distanceMeters / 1000.0)
