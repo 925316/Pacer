@@ -159,6 +159,14 @@ data class PacePlan(
         const val WIRE_PREFIX = "pace:"
 
         /**
+         * Width of the speed change at each kilometre mark, in metres.
+         *
+         * Short enough that a split still averages its own pace, long enough that the change
+         * does not look like a step.
+         */
+        const val BLEND_METERS = 100.0
+
+        /**
          * Reads `pace:0=3.00;1000=2.80`. Null for anything malformed, so a bad field shows
          * up as "no plan" rather than as a plan with invented numbers.
          */
@@ -187,21 +195,39 @@ data class PacePlan(
         /**
          * Builds a curve from one target per kilometre.
          *
-         * This is the kilometer-level shape a session is most often described in, and it is
-         * what the editor's per-kilometre rows produce. A shorter final kilometre is allowed:
-         * a 3.4 km route should not be forced into four whole marks.
+         * The breakpoints are NOT placed on the kilometre marks. A kilometre has to average
+         * exactly the pace the user typed, and a curve that runs straight from one mark's
+         * speed to the next spends the whole kilometre in between, so it finishes about five
+         * seconds slow on a 300 s split. Instead each kilometre holds its own speed and the
+         * change is squeezed into a short blend across the mark, which keeps every split on
+         * its target (a 100 m blend leaves the error under a fifth of a second) and still
+         * looks like a person easing into a new effort rather than a step change.
+         *
+         * A final partial kilometre ends the curve where the route does, at the last split's
+         * pace; the route engine holds the final speed past the end anyway.
          */
         fun fromKilometreSplits(splits: List<Double>, lastPartialMeters: Double? = null): PacePlan {
             val points = ArrayList<Point>()
-            points.add(Point(0.0, splits.first()))
+            val blend = BLEND_METERS / 2.0
+            points.add(Point(0.0, 1000.0 / splits.first()))
             for (i in 1 until splits.size) {
-                points.add(Point(i * 1000.0, splits[i]))
+                val mark = i * 1000.0
+                points.add(Point(mark - blend, 1000.0 / splits[i - 1]))
+                points.add(Point(mark + blend, 1000.0 / splits[i]))
             }
+            points.add(Point(splits.size * 1000.0, 1000.0 / splits.last()))
+
             val partial = lastPartialMeters
             if (partial != null && partial > 0.0 && partial < 1000.0) {
-                points.add(Point((splits.size - 1) * 1000.0 + partial, splits.last()))
+                val end = (splits.size - 1) * 1000.0 + partial
+                // Drop any breakpoint the shorter finish would leave past the end, so the
+                // last point really is the end of the curve.
+                while (points.size > 1 && points.last().distanceMeters > end + 1.0) {
+                    points.removeAt(points.size - 1)
+                }
+                points.add(Point(end, 1000.0 / splits.last()))
             }
-            return PacePlan(points)
+            return PacePlan(points.distinctBy { it.distanceMeters })
         }
 
         /** Time the plan takes in seconds, for the totals line. */

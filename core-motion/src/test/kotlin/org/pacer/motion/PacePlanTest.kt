@@ -60,10 +60,28 @@ class PacePlanTest {
     }
 
     @Test
-    fun `a kilometre split list becomes breakpoints at each kilometre`() {
+    fun `a kilometre split list covers every kilometre it lists`() {
         val p = PacePlan.fromKilometreSplits(listOf(3.0, 2.8, 2.6))
-        assertEquals(listOf(0.0, 1000.0, 2000.0), p.points.map { it.distanceMeters })
-        assertEquals(2.8, p.speedAtDistance(1000.0), 1e-9)
+        // Three splits describe three kilometres. The first version of this stopped at the
+        // last breakpoint, so the third kilometre took no time at all.
+        assertEquals(3000.0, p.distanceMeters, 1e-9)
+        assertEquals(2.6, p.speedAtDistance(3000.0), 1e-9)
+        assertEquals(2.6, p.speedAtDistance(2500.0), 1e-9)
+    }
+
+    @Test
+    fun `each kilometre averages the pace that was typed for it`() {
+        // This is the whole promise of a per-kilometre plan, and a curve that changes speed
+        // across the whole kilometre breaks it: straight-line interpolation made a 300 s
+        // split finish in 305 s.
+        val splits = listOf(300.0, 310.0, 320.0)
+        val p = PacePlan.fromKilometreSplits(splits.map { 1000.0 / it })
+        for (i in splits.indices) {
+            val from = p.secondsTo(i * 1000.0)
+            val to = p.secondsTo((i + 1) * 1000.0)
+            assertEquals("kilometre ${i + 1}", splits[i].toDouble(), to - from, 0.5)
+        }
+        assertEquals("whole session", splits.sum().toDouble(), p.totalSeconds, 1.0)
     }
 
     @Test
