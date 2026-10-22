@@ -7,13 +7,12 @@
 //
 // WHAT IT DELIBERATELY CANNOT DO: decide whether a target app is being spoofed.
 //
-// Two earlier versions of this file were wrong in opposite directions, and both are
-// worth remembering. The first asked the hook "are you installed?" and always heard
-// no, because the app ships the hook code and the framework loads it again with its
-// own class loader - two copies of every hook object, and the app can only ever read
-// its own. The second removed that probe and started measuring the real device
-// instead, reporting "getLastKnownLocation returned null" and "wifi SSIDs missing" as
-// failures while the system-server layer was rewriting fixes correctly.
+// Two mistakes are easy to make here, in opposite directions. Asking the hook "are you
+// installed?" always hears no, because the app ships the hook code and the framework
+// loads it again with its own class loader - two copies of every hook object, and the
+// app can only ever read its own. Measuring the raw device instead reports
+// "getLastKnownLocation returned null" and "wifi SSIDs missing" as failures while the
+// system-server layer is rewriting fixes correctly.
 //
 // So this app is kept OUT of the module's scope (`scope.list` does not list it). It
 // is an ordinary client, and the report is an honest statement of what an ordinary

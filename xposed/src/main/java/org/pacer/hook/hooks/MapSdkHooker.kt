@@ -1,3 +1,21 @@
+// Map-SDK location hooks (AMap / Baidu / Tencent). Those SDKs bypass
+// android.location entirely and keep their own Location types, so we intercept
+// their getters and listener callbacks and feed each one the coordinate system
+// it actually expects.
+//
+// Coordinate systems are resolved at runtime rather than assumed:
+// - AMap expects GCJ-02 (AMapLocation.COORD_TYPE_GCJ02).
+// - Tencent expects GCJ-02 by default (TencentLocationManager
+//   COORDINATE_TYPE_GCJ02 == 1).
+// - Baidu is the trap: LocationClientOption's default coorType is "gcj02" in
+//   current releases, not BD-09, so we read BDLocation.getCoorType() per
+//   instance. Feeding BD-09 to a client using the default would double-shift
+//   the position by a few hundred metres.
+//
+// The SDKs are obfuscated: AMapLocation stores lat/lon in `q`/`r` and
+// BDLocation in `c`/`d`, none of which are stable across releases. We therefore
+// only use the public getLatitude/setLatitude accessors and never guess field
+// names.
 package org.pacer.hook.hooks
 
 import io.github.libxposed.api.XposedInterface

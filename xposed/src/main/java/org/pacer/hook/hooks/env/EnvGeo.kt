@@ -7,11 +7,18 @@ package org.pacer.hook.hooks.env
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sqrt
+import org.pacer.motion.GeoMath
 
 object EnvGeo {
 
-    /** Mean meters per degree of latitude used by the local approximation. */
-    const val METERS_PER_DEGREE_LAT = 111320.0
+    /**
+     * Mean meters per degree of latitude used by the local approximation.
+     *
+     * Kept equal to the core copy by a test rather than by a reference: a `const val`
+     * cannot point at another module's constant across a module boundary, and this file
+     * is in the module that depends on core-motion.
+     */
+    const val METERS_PER_DEGREE_LAT = 111_320.0
 
     /**
      * The station address Android reports when it withholds the real one.

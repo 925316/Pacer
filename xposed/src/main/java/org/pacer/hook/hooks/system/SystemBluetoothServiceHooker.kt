@@ -15,10 +15,9 @@
 // into an already running process, which a registration-only approach silently
 // misses and then leaves with no results at all.
 //
-// IMPROVEMENTS over the reference, each one a defect recorded there:
-//   - the stop side is hooked. The reference has no stopScan handling, so an app
-//     that stops scanning keeps receiving synthetic beacons for as long as its
-//     binder lives.
+// Details that each matter in practice:
+//   - the stop side is hooked, so an app that stops scanning does not keep
+//     receiving synthetic beacons for as long as its binder lives.
 //   - the heartbeat runs only while there is a scanner to serve, and drops to a slow
 //     tick while no simulation is active, instead of waking the Bluetooth process
 //     every 1.2 s forever.

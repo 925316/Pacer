@@ -14,9 +14,8 @@ import org.pacer.motion.StraightLine
 /**
  * Where the stored run says the subject is right now.
  *
- * This used to live inside the map page, which was fine while the map was the only
- * consumer. The joystick recorder needs the same answer once a second, and a second
- * copy of this arithmetic would be a second thing to keep in step with the module -
+ * Both the map and the joystick recorder ask this once a second. A copy of the
+ * arithmetic in each consumer would be a second thing to keep in step with the module -
  * the map would then draw one track while the recorder stored another.
  *
  * The one-run cache lives here too: building a lap means simulating it, and the map

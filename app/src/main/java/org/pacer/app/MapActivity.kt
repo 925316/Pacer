@@ -168,10 +168,9 @@ class MapActivity : Activity() {
 
         // NO START, STOP, PAUSE, SPEED OR LOOP HERE.
         //
-        // This page places points; the control page starts the run. Both used to offer the
-        // same actions, which meant the same run could be started from two places and the
-        // speed shown here could disagree with the speed actually used. One action, one
-        // home is the rule this page now follows.
+        // This page places points; the control page starts the run. Offering the same
+        // actions in two places would let one run be started from either and let the speed
+        // shown here disagree with the speed actually used. One action, one home.
         setContentView(column)
 
         buildStyleRow()

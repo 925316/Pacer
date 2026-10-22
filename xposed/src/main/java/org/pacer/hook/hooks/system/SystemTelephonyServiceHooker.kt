@@ -1,13 +1,12 @@
 // Phone process side of the cell environment.
 //
-// WHY THIS LAYER EXISTS, from field evidence: the mature GPL reference
-// implementation marks cell fabrication as working only in the PHONE process,
-// while its app-process cell hook still carries an open crash report. The app
-// process hooker can only speak for the one app Pacer is scoped into; everything
-// else - system apps, direct binder clients, an app the user did not scope -
-// reaches the telephony stack through PhoneInterfaceManager, which is this
-// process. Answering here is therefore the wider and, per that evidence, the more
-// reliable path.
+// WHY THIS LAYER EXISTS, from field evidence: cell fabrication is reliable only
+// in the PHONE process, while the app-process cell hook has an open crash
+// report. The app process hooker can only speak for the one app Pacer is scoped
+// into; everything else - system apps, direct binder clients, an app the user
+// did not scope - reaches the telephony stack through PhoneInterfaceManager,
+// which is this process. Answering here is therefore the wider and, per that
+// evidence, the more reliable path.
 //
 // Both layers feed the same CellPayload, so the two views describe one device.
 package org.pacer.hook.hooks.system
@@ -103,9 +102,8 @@ object SystemTelephonyServiceHooker {
      *
      * The argument is the app's remote proxy, so invoking its onCellInfo() is
      * itself the reverse IPC that delivers the list to the app: no wrapper is
-     * needed, and none is used. An earlier version of this file claimed a dynamic
-     * proxy was required; that was wrong, and a wrapper would only have to
-     * reimplement binder death and threading for no benefit.
+     * needed, and none is used. A dynamic proxy would be wrong here: a wrapper would
+     * only have to reimplement binder death and threading for no benefit.
      *
      * Returning false leaves the original call in place, so a build whose callback
      * cannot be found or invoked still behaves exactly as it did before.

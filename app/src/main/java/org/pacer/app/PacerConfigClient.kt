@@ -175,6 +175,7 @@ object PacerConfigClient {
                 accuracyWarmup = p.getBoolean("accuracy_warmup", true),
                 satelliteJitter = p.getBoolean("satellite_jitter", true),
                 signalDropout = p.getBoolean("signal_dropout", true),
+                positionNoise = p.getBoolean("position_noise", true),
             ),
             plan = p.getString("plan", "") ?: "",
             loopRoute = p.getBoolean("loop_route", false),
@@ -229,6 +230,7 @@ object PacerConfigClient {
             .putBoolean("accuracy_warmup", realism.accuracyWarmup)
             .putBoolean("satellite_jitter", realism.satelliteJitter)
             .putBoolean("signal_dropout", realism.signalDropout)
+            .putBoolean("position_noise", realism.positionNoise)
             .putString("plan", plan)
             .putBoolean("loop_route", loopRoute)
             .putString("route_json", routeJson)

@@ -1,3 +1,8 @@
+// GNSS satellite-status spoofing. Instead of allocating a whole synthetic
+// GnssStatus (hidden constructors differ per OEM), we sanitise the incoming
+// status object in place: the receiver's own satellite ids, constellations,
+// elevations and azimuths are kept, and only the signal quality is lifted. See
+// spoof() for the invariant that must hold.
 package org.pacer.hook.hooks
 
 import org.pacer.hook.config.PacerRuntimeConfig

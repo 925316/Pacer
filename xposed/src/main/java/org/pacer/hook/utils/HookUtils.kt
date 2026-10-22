@@ -1,3 +1,4 @@
+// Reflection and hook helpers for the LSPosed entry point.
 package org.pacer.hook.utils
 
 import io.github.libxposed.api.XposedInterface

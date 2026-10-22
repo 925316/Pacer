@@ -1,3 +1,20 @@
+// CellLocationShapes is the single place the phone process, system_server and
+// the app process all ask for the same fabricated cell identity, so the three
+// cannot disagree the way separate adaptations did. Its `fit` must also never
+// hand a caller an object the caller's declared type cannot hold: the value
+// crosses a Binder boundary and a mismatch throws at the far end.
+//
+// What this test can and cannot reach:
+//  - It runs on the JVM against the SDK stub jar, whose android.* method bodies
+//    throw. The fakes are therefore plain classes and reflection only.
+//  - The android.os.Bundle branch of `fit` is NOT tested: constructing a Bundle
+//    in an android unit test throws, and the branch is only reachable in a real
+//    process (it is the caller declaring a Bundle type that triggers it). So no
+//    test, only this note, for that branch.
+//  - The android.telephony.CellLocation branch of `fit` is likewise not tested:
+//    entering it requires a declared type naming the CellLocation class, which is
+//    an Android type, and this file stays free of them. It is verified on a
+//    device.
 package org.pacer.hook
 
 import org.junit.Assert.assertNull

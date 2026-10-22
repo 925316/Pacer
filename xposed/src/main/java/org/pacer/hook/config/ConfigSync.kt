@@ -94,6 +94,7 @@ object ConfigSync {
             accuracyWarmup = prefs.getBoolean("accuracy_warmup", true),
             satelliteJitter = prefs.getBoolean("satellite_jitter", true),
             signalDropout = prefs.getBoolean("signal_dropout", true),
+            positionNoise = prefs.getBoolean("position_noise", true),
         )
         PacerRuntimeConfig.routeJson = prefs.getString("route_json", "") ?: ""
         // Parsed here, once per config change, because the engine asks for the plan on

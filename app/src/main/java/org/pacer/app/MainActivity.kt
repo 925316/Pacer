@@ -121,6 +121,7 @@ class MainActivity : Activity() {
     private lateinit var accuracyWarmupToggle: CheckBox
     private lateinit var satelliteJitterToggle: CheckBox
     private lateinit var signalDropoutToggle: CheckBox
+    private lateinit var positionNoiseToggle: CheckBox
 
     private lateinit var routeSummary: TextView
 
@@ -460,6 +461,11 @@ class MainActivity : Activity() {
             strings.signalDropout,
             strings.signalDropoutHint,
         )
+        positionNoiseToggle = option(
+            root,
+            strings.positionNoise,
+            strings.positionNoiseHint,
+        )
 
         previewBtn = action(strings.preview) { previewLocally() }
         root.addView(previewBtn)
@@ -625,6 +631,7 @@ class MainActivity : Activity() {
         accuracyWarmupToggle.isChecked = stored.realism.accuracyWarmup
         satelliteJitterToggle.isChecked = stored.realism.satelliteJitter
         signalDropoutToggle.isChecked = stored.realism.signalDropout
+        positionNoiseToggle.isChecked = stored.realism.positionNoise
         // No message here any more: "a run is active" is what the state line in the pinned
         // bar says, and it says it continuously instead of once when the page resumed.
         updatePauseButton()
@@ -1099,10 +1106,9 @@ class MainActivity : Activity() {
     /**
      * The route in one line.
      *
-     * The per-point rows that used to live here are gone: the points are placed, dragged and
-     * removed on the map, and a second list that also edits them is exactly the duplication
-     * this screen is being cleared of. What is left is the one thing the map cannot say at a
-     * glance - how long the route is.
+     * The points are placed, dragged and removed on the map, so there is no per-point list
+     * here: a second list that also edits them would duplicate the map. What is left is the
+     * one thing the map cannot say at a glance - how long the route is.
      */
     private fun renderRoute() {
         routeSummary.text = String.format(
@@ -1247,6 +1253,7 @@ class MainActivity : Activity() {
         accuracyWarmup = accuracyWarmupToggle.isChecked,
         satelliteJitter = satelliteJitterToggle.isChecked,
         signalDropout = signalDropoutToggle.isChecked,
+        positionNoise = positionNoiseToggle.isChecked,
     )
 
     /**

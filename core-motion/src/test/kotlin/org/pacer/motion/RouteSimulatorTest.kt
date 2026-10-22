@@ -45,8 +45,10 @@ class RouteSimulatorTest {
         val out = sim()
         val minLat = out.minOf { it.point.lat }
         val maxLat = out.maxOf { it.point.lat }
-        assertTrue(minLat in -0.0001..0.0001)
-        assertTrue(maxLat in -0.0001..0.0001)
+        // The route is the equator segment and the reported point now carries up to a few
+        // metres of receiver noise, so the bound is that noise rather than exact zero.
+        assertTrue("minLat=$minLat", minLat in -0.0001..0.0001)
+        assertTrue("maxLat=$maxLat", maxLat in -0.0001..0.0001)
     }
 
     @Test
@@ -137,10 +139,17 @@ class RouteSimulatorTest {
         val nowhere = RoutePath(listOf(GeoPoint(1.0, 2.0), GeoPoint(1.0, 2.0)))
         val fixes = RouteSimulator(nowhere, MotionConfig.run()).simulate(dtSec = 1.0, seed = 3L)
         assertTrue(fixes.isNotEmpty())
-        assertTrue(fixes.all { it.point == GeoPoint(1.0, 2.0) })
         assertTrue(fixes.all { it.speedMps == 0.0 })
         assertTrue(fixes.all { it.phase == MotionPhase.IDLE })
         assertTrue(fixes.all { it.cumulativeSteps == 0L })
+        // Standing still is not the same as reporting the identical double every second:
+        // the fix wanders within a receiver's accuracy, and never teleports away from the
+        // spot it is standing on. A repeated coordinate is the shape a module makes.
+        assertTrue("the standing fix never moved", fixes.map { it.point }.distinct().size > 1)
+        assertTrue(
+            "the standing fix left the spot",
+            fixes.all { GeoMath.haversine(it.point, GeoPoint(1.0, 2.0)) < 5.0 },
+        )
         // The signal side still varies with the clock: a standing subject reports a real
         // fix, and accuracy warming up is what a receiver does.
         assertTrue(fixes.last().accuracyMeters <= fixes.first().accuracyMeters)
@@ -151,5 +160,66 @@ class RouteSimulatorTest {
         val nowhere = RoutePath(listOf(GeoPoint(1.0, 2.0), GeoPoint(1.0, 2.0)))
         fun run(seed: Long) = RouteSimulator(nowhere, MotionConfig.run()).simulate(dtSec = 1.0, seed = seed)
         assertEquals(run(9L), run(9L))
+    }
+
+    // --- position noise -----------------------------------------------------
+
+    private fun offLineMeters(p: GeoPoint): Double {
+        // Distance from the equator segment `route` runs along.
+        return GeoMath.haversine(p, GeoPoint(0.0, p.lon))
+    }
+
+    @Test
+    fun `position noise puts the reported point off the line`() {
+        val fixes = RouteSimulator(route = route, config = MotionConfig.run())
+            .simulate(dtSec = 1.0, seed = 11L)
+        val moving = fixes.filter { it.distanceMeters > 50.0 }
+        assertTrue(moving.isNotEmpty())
+        // Every sample deviating is what a band means; a single lucky sample proves nothing.
+        val off = moving.map { offLineMeters(it.point) }
+        assertTrue("no sample left the line: max=${off.maxOrNull()}", off.count { it > 1e-6 } > moving.size / 2)
+        // And it stays a plausible receiver error, not a coordinate bug.
+        assertTrue("max offset=${off.maxOrNull()}", off.maxOrNull()!! < 5.0)
+    }
+
+    @Test
+    fun `position noise does not change the distance or the speed`() {
+        // The run's own numbers describe the route it claims to have covered; the noise is
+        // where it said it was, not how far it went. Turning it off must not move them.
+        fun run(noise: Boolean) = RouteSimulator(
+            route = route,
+            config = MotionConfig.run(),
+            toggles = RealismToggles(positionNoise = noise),
+        ).simulate(dtSec = 1.0, seed = 12L)
+
+        val noisy = run(true)
+        val clean = run(false)
+        assertEquals(clean.size, noisy.size)
+        for (i in clean.indices) {
+            assertEquals(clean[i].distanceMeters, noisy[i].distanceMeters, 1e-9)
+            assertEquals(clean[i].speedMps, noisy[i].speedMps, 1e-9)
+            assertEquals(clean[i].cumulativeSteps, noisy[i].cumulativeSteps)
+            assertEquals(clean[i].bearingDeg, noisy[i].bearingDeg, 1e-6f)
+        }
+    }
+
+    @Test
+    fun `position noise can be switched off for an exact track`() {
+        val fixes = RouteSimulator(
+            route = route,
+            config = MotionConfig.run(),
+            toggles = RealismToggles(positionNoise = false),
+        ).simulate(dtSec = 1.0, seed = 13L)
+        assertTrue(fixes.all { it.point.lat == 0.0 })
+    }
+
+    @Test
+    fun `position noise is a pure function of the seed`() {
+        // The app's live marker rebuilds this run from the same seed as the module and
+        // expects the same positions; a noise stream that ignored the seed would break it.
+        fun run(seed: Long) = RouteSimulator(route = route, config = MotionConfig.run())
+            .simulate(dtSec = 1.0, seed = seed)
+        assertEquals(run(14L), run(14L))
+        assertTrue(run(14L).map { it.point } != run(15L).map { it.point })
     }
 }

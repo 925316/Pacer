@@ -45,6 +45,22 @@ object GeoMath {
         val f = fraction.coerceIn(0.0, 1.0)
         return GeoPoint(a.lat + (b.lat - a.lat) * f, a.lon + (b.lon - a.lon) * f)
     }
+
+    /**
+     * [point] moved by a local east/north offset in meters.
+     *
+     * The one place meters become degrees: the injected fix, the route simulator's
+     * position noise and the self-check all have to agree on the conversion, and two
+     * copies of these two factors had already drifted apart once.
+     */
+    fun offsetMeters(point: GeoPoint, eastMeters: Double, northMeters: Double): GeoPoint {
+        val lat = point.lat + northMeters / METERS_PER_DEGREE_LAT
+        val lon = point.lon + eastMeters / (METERS_PER_DEGREE_LAT * cos(Math.toRadians(point.lat)))
+        return GeoPoint(lat, lon)
+    }
+
+    /** Metres in one degree of latitude. Good enough over the scale a single fix moves. */
+    const val METERS_PER_DEGREE_LAT = 111_320.0
 }
 
 /**
@@ -105,8 +121,8 @@ class RoutePath(points: List<GeoPoint>) {
             val a = points[i]
             val b = points[i + 1]
             // Approximate the projection in a local flat frame (meters).
-            val lonScale = 111320.0 * Math.cos(Math.toRadians(target.lat))
-            val metersPerDegLat = 111320.0
+            val lonScale = GeoMath.METERS_PER_DEGREE_LAT * Math.cos(Math.toRadians(target.lat))
+            val metersPerDegLat = GeoMath.METERS_PER_DEGREE_LAT
             val ax = (a.lon - target.lon) * lonScale
             val ay = (a.lat - target.lat) * metersPerDegLat
             val bx = (b.lon - target.lon) * lonScale

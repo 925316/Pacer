@@ -58,6 +58,14 @@ class RouteSimulator(
             steadyAccuracyMeters = steadyAccuracyMeters,
             seed = seed xor SKY_SEED_SALT,
         )
+        // A separate stream for the same reason the sky and the cadence have one: a run
+        // rebuilt from its seed must produce the same track, and the app's live marker
+        // rebuilds this very run to show where the module says the subject is.
+        val positionJitter = if (toggles.positionNoise) {
+            PositionJitter(seed = seed xor POSITION_SEED_SALT)
+        } else {
+            null
+        }
         // Cadence needs its own stream for the same reason the sky does: a jitter drawn
         // from the process-wide Random made two builds of one run differ in a field this
         // sample carries, so "the same run" was not the same fix.
@@ -70,7 +78,12 @@ class RouteSimulator(
             val cadence = StrideLinker.cadenceForSpeed(s.speedMps, rng = cadenceRng)
             out += FixSample(
                 tSec = s.tSec,
-                point = p,
+                // The noise rides on the reported point only. Distance, speed, steps and
+                // the bearing stay those of the geometry, so the run's own numbers still
+                // describe the route it claims to have covered.
+                point = positionJitter?.next(dtSec)?.let {
+                    GeoMath.offsetMeters(p, it.eastMeters, it.northMeters)
+                } ?: p,
                 speedMps = s.speedMps,
                 bearingDeg = fx.bearingDeg,
                 distanceMeters = s.distanceMeters,
@@ -104,13 +117,26 @@ class RouteSimulator(
             steadyAccuracyMeters = steadyAccuracyMeters,
             seed = seed xor SKY_SEED_SALT,
         )
+        // A standing subject still reports a wandering fix. This is the only place a
+        // zero-length route gets its position from, so without the walk every sample would
+        // repeat the same double to the last bit - a receiver that never existed.
+        val jitter = if (toggles.positionNoise) {
+            PositionJitter(seed = seed xor POSITION_SEED_SALT)
+        } else {
+            null
+        }
         val out = ArrayList<FixSample>(STATIONARY_SAMPLES)
         var t = 0.0
         while (t <= STATIONARY_SECONDS) {
             val fx = realism.next(t, 0.0, dtSec, 0f)
+            val wander = jitter?.next(dtSec)
             out += FixSample(
                 tSec = t,
-                point = point,
+                point = if (wander != null) {
+                    GeoMath.offsetMeters(point, wander.eastMeters, wander.northMeters)
+                } else {
+                    point
+                },
                 speedMps = 0.0,
                 bearingDeg = fx.bearingDeg,
                 distanceMeters = 0.0,
@@ -161,6 +187,12 @@ class RouteSimulator(
          * the app's marker could not describe the fix the module was sending.
          */
         const val STRIDE_SEED_SALT = 0x5354524944455F4AL
+
+        /**
+         * Same idea for the position noise. Without a salt the walk would consume from the
+         * same stream as something else and two builds of one run would diverge.
+         */
+        const val POSITION_SEED_SALT = 0x504F534954494F4EL
 
         /** How long a stationary run's sample list covers; later moments reuse its last. */
         const val STATIONARY_SECONDS = 60.0

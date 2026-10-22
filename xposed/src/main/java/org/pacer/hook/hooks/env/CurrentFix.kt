@@ -1,12 +1,12 @@
 // The one place that answers "where is the subject now".
 //
-// WHY THIS EXISTS, and it is the fix for a fault that no single file could show: the
-// position used to live in the config holder, advanced by writing back to
-// PacerRuntimeConfig.latitude/longitude from a one-second timer. Two things followed.
+// WHY THIS EXISTS: a position stored in the config holder and advanced by writing back
+// to PacerRuntimeConfig.latitude/longitude from a one-second timer fails in two ways.
 // The config channel re-reads the app's values every few seconds, so a straight-line
-// run was yanked back to its start on that cadence; and route mode never wrote back at
-// all, so the injected location walked the route while the WiFi, cell and BLE views -
-// and every map SDK adapter - described the start point for the whole run.
+// run is yanked back to its start on that cadence; and route mode would have to write
+// back for every reader, or the injected location walks the route while the WiFi, cell
+// and BLE views - and every map SDK adapter - describe the start point for the whole
+// run.
 //
 // So the position is DERIVED here from inputs every layer already has (start point,
 // heading or route, speed, start timestamp) instead of being stored and advanced. Two

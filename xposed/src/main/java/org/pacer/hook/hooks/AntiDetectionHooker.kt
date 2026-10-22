@@ -1,3 +1,7 @@
+// Anti-detection hooker: intercept the system's own mock-location signals
+// (AppOps OP_MOCK_LOCATION, Settings.Secure "mock_location", permission
+// self-checks, system features) and report a clean, non-mocked device to the
+// scoped target app.
 package org.pacer.hook.hooks
 
 import android.content.ContentResolver

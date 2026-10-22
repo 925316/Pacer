@@ -1,3 +1,10 @@
+// Which system process are we inside?
+//
+// This matters because the same hole is in a different place depending on the
+// process: location delivery lives in system_server, cell data is served by the
+// phone process, and Bluetooth scanning by its own process. Field evidence backs
+// the split - cell fabrication only works reliably in the phone process, and the
+// app-process attempt still has an open crash report.
 package org.pacer.hook.hooks.system.vendor
 
 import java.io.File

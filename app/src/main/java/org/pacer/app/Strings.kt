@@ -87,6 +87,8 @@ interface Strings {
     val satelliteJitterHint: String
     val signalDropout: String
     val signalDropoutHint: String
+    val positionNoise: String
+    val positionNoiseHint: String
 
     /** The straight-line run the joystick drives, named for how it is controlled. */
     val startJoystickMode: String
@@ -351,6 +353,10 @@ object EnglishStrings : Strings {
     override val signalDropoutHint =
         "For a few seconds the fix reports 3 to 10 satellites instead of the usual count. " +
             "The position keeps being delivered: this thins the sky, not the fix."
+    override val positionNoise = "Let the position drift off the line"
+    override val positionNoiseHint =
+        "A receiver is only accurate to within a few metres, so a lap is a band rather than " +
+            "one exact line. Off, the track follows the route geometry exactly."
     override val startJoystickMode = "Joystick mode from the first waypoint"
     override val startRoute = "Start humanized route simulation"
     override val pauseRoute = "Pause route"
@@ -618,6 +624,10 @@ object ChineseStrings : Strings {
     override val signalDropoutHint =
         "有几秒钟只报告 3 到 10 颗卫星，而不是平时的数量。定位本身照常下发：这一项只是让" +
             "天上的卫星看起来变少，不是真的中断定位。"
+    override val positionNoise = "位置偏离路线"
+    override val positionNoiseHint =
+        "接收机本身只有几米精度，所以跑一圈留下的是一条有宽度的带，而不是一条精确的线。" +
+            "关掉后轨迹会严格贴合路线几何。"
     override val startJoystickMode = "摇杆模式（从第一个路径点出发）"
     override val startRoute = "开始拟人化路线模拟"
     override val pauseRoute = "暂停路线"

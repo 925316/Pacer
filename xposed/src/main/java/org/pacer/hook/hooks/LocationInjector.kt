@@ -1,3 +1,6 @@
+// Location injection hooker: installs a fabricated android.location.Location
+// into the scoped process's LocationManager reads and scrubs the mock-location
+// flags from every Location the process sees.
 package org.pacer.hook.hooks
 
 import android.location.Location
@@ -15,9 +18,10 @@ import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.CoordinatePolicy
 import org.pacer.motion.CoordinateSystem
 import org.pacer.motion.GeoPoint
+import org.pacer.motion.GeoMath
 import org.pacer.motion.SatelliteStatus
 import org.pacer.motion.SignalRealism
-import org.pacer.motion.StationaryJitter
+import org.pacer.motion.PositionJitter
 import java.util.concurrent.Executor
 import java.util.function.Consumer
 
@@ -61,7 +65,7 @@ object LocationInjector {
     private class RunNoise(
         val key: Any,
         val realism: SignalRealism,
-        val jitter: StationaryJitter,
+        val jitter: PositionJitter,
     )
 
     @Volatile private var noise: RunNoise? = null
@@ -84,7 +88,7 @@ object LocationInjector {
                     steadyAccuracyMeters = cfg.accuracyMeters,
                     seed = seed,
                 ),
-                jitter = StationaryJitter(seed = seed xor 0x5DEECE66DL),
+                jitter = PositionJitter(seed = seed xor 0x5DEECE66DL),
             )
             noise = fresh
             return fresh
@@ -286,8 +290,9 @@ object LocationInjector {
         } else if (cfg.speedMps < 0.3) {
             // Straight-line idle: add micro-movement so the point is not pixel-still.
             val off = engines.jitter.next(dtSec)
-            lat += off.northMeters / 111320.0
-            lon += off.eastMeters / (111320.0 * kotlin.math.cos(Math.toRadians(lat)))
+            val moved = GeoMath.offsetMeters(GeoPoint(lat, lon), off.eastMeters, off.northMeters)
+            lat = moved.lat
+            lon = moved.lon
         }
 
         // A third mock rule, in the SDK that reads this fix: altitude, bearing and

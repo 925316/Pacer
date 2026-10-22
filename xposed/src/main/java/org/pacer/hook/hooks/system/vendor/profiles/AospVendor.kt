@@ -34,9 +34,8 @@ object AospVendor : SystemHookVendor {
             listOf("com.android.server.wifi.scanner.WifiScanningServiceImpl")
 
         // Android 14 moved connectivity into the tethering APEX, where jarjar
-        // renamed the class; a real-device diagnosis (OnePlus, Android 16)
-        // recorded the new spelling after lookups by the old name started
-        // failing. Both spellings are kept, newest first.
+        // renamed the class; a real-device diagnosis (OnePlus, Android 16) found the
+        // new spelling. Both spellings are kept, newest first.
         SystemComponent.CONNECTIVITY_SERVICE -> listOf(
             "android.net.connectivity.com.android.server.ConnectivityService",
             "com.android.server.ConnectivityService",

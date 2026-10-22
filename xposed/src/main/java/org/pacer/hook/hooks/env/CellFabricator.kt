@@ -1,3 +1,34 @@
+// Builds synthetic cell objects from the deterministic tower model so that the
+// cell view agrees with the simulated fix instead of being suppressed.
+//
+// WHY THIS IS BUILT CAREFULLY. CellInfo / CellIdentity / CellSignalStrength have
+// no public constructors (verified in CI by HookTargetContractTest: the compile
+// SDK exposes only a package-private no-arg constructor), so an object can only
+// be produced by reaching for hidden constructors and fields. Their constructor
+// parameter ORDER and their field NAMES both differ between releases and between
+// OEM builds, and none of that can be checked from CI. Three consequences shape
+// this file:
+//
+//   1. Several construction strategies are tried, longest-first, because a
+//      fuller constructor leaves fewer fields at a default value.
+//   2. Every candidate is VALIDATED by reading the value back through the public
+//      API before it is accepted. A wrong parameter order or a renamed field
+//      therefore produces a rejection, not a malformed object: the app never
+//      receives a cell whose fields contradict each other.
+//   3. If nothing can be built, the fabricator disables itself and reports so,
+//      and the caller falls back to suppression. The worst case is exactly the
+//      behaviour Pacer had before, and a host app cannot be crashed by an object
+//      that was never handed out.
+//
+// NR is deliberately served as LTE: CellIdentityNr reports MCC/MNC as strings (a
+// 5G MNC may be three digits) and its shapes churn more, so the extra failure
+// surface buys nothing while the transport type stays consistent anyway, because
+// getNetworkType / getDataNetworkType are answered from the same model.
+//
+// KNOWN LIMIT, from field evidence: cell fabrication is reliable only in the
+// PHONE process; the app-process cell hook has been reported to crash on MIUI.
+// This path exists because it needs no new infrastructure; the phone-process
+// path is the stronger follow-up and belongs with the vendor adapter framework.
 package org.pacer.hook.hooks.env
 
 import org.pacer.hook.utils.HookUtils

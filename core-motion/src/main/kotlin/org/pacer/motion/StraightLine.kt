@@ -1,13 +1,12 @@
 // Straight-line movement: where the simulated subject is after a given time,
 // walking one heading at one speed.
 //
-// DERIVED, NOT ACCUMULATED. This was previously done by adding one second of travel
-// to the stored position on every timer tick, and two things followed from that. The
-// position depended on how many ticks had happened rather than on the clock, and
-// anything that rewrote the stored position yanked the subject back mid-run - which
-// the config channel did every few seconds, because it re-reads the start point the
-// app wrote. Same inputs, same answer, whenever they are asked is the property that
-// removes both.
+// DERIVED, NOT ACCUMULATED. Adding one second of travel to a stored position on every
+// timer tick would tie the position to how many ticks had happened rather than to the
+// clock, and anything that rewrote the stored position would yank the subject back
+// mid-run - which the config channel does every few seconds, because it re-reads the
+// start point the app wrote. Same inputs, same answer, whenever they are asked is the
+// property that removes both.
 package org.pacer.motion
 
 import kotlin.math.cos

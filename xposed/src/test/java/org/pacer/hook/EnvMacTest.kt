@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.pacer.hook.hooks.env.EnvGeo
+import org.pacer.motion.GeoMath
 
 /**
  * The address format is a one-bit test, so it is worth pinning: a scan list in
@@ -13,6 +14,14 @@ import org.pacer.hook.hooks.env.EnvGeo
  * either.
  */
 class EnvMacTest {
+
+    @Test
+    fun `the metres-per-degree factor matches the core one`() {
+        // Two conversions of the same metres happen in different modules now: the radio
+        // environment here and the route jitter in core-motion. A `const val` cannot
+        // reference across that boundary, so the equality is pinned instead of shared.
+        assertEquals(GeoMath.METERS_PER_DEGREE_LAT, EnvGeo.METERS_PER_DEGREE_LAT, 0.0)
+    }
 
     @Test
     fun `access point addresses look vendor assigned and unicast`() {

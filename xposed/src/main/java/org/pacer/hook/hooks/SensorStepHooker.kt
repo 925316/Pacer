@@ -1,3 +1,6 @@
+// Step-counter / step-detector / accelerometer simulation. Waveform shape and
+// cadence band come from core-motion's SensorWaveGenerator / StrideLinker, the
+// pure-math version of the same curve.
 package org.pacer.hook.hooks
 
 import android.hardware.Sensor

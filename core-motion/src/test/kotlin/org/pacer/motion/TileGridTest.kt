@@ -70,11 +70,10 @@ class TileGridTest {
 
     @Test
     fun `the gcj grid asks for a different tile than the plain one once a tile is smaller than the offset`() {
-        // This REPLACES an assertion that could not fail. The old test asserted that the
-        // GCJ-shifted Beijing lands on tile (3372, 1552) - the WGS-84 tile - at zoom 12.
-        // A zoom-12 tile is 7.5 km wide and the offset is 0.55 km, so both datums land in
-        // the same tile for any shift under several kilometres: the assertion held no
-        // matter what the conversion did, which is the opposite of a test.
+        // Asserting which tile the GCJ-shifted Beijing lands on at zoom 12 would prove
+        // nothing: a zoom-12 tile is 7.5 km wide and the offset is 0.55 km, so both datums
+        // land in the same tile for any shift under several kilometres. Such an assertion
+        // holds no matter what the conversion does, which is the opposite of a test.
         //
         // WHAT THIS CATCHES AND WHAT IT DOES NOT: the tile index quantises to 256 pixels,
         // so this detects "the datum was not applied at all" and nothing finer. A bug that

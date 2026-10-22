@@ -7,21 +7,26 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
- * Micro-movement applied to a *stationary* GPS fix so the position does not
- * sit pixel-identical across samples. Uses a small Ornstein-Uhlenbeck walk in
- * a local ENU frame (~0.5 m standard deviation, hard-clamped to [radiusMeters])
- * plus a slow azimuth sweep of the wind-up.
+ * Micro-movement applied to a reported fix so the position does not sit exactly on the
+ * line it is supposed to be following. Uses a small Ornstein-Uhlenbeck walk in a local
+ * ENU frame, hard-clamped to [radiusMeters].
  *
- * The walk's correlation time is 1/[reversion] and the amplitude is held
- * independent of it (the OU step is scaled by sqrt(2 * reversion)), so slowing
- * the drift down does not change how far the fix wanders. A slow drift is
- * deliberate: a faster wobble is averaged away by the fused provider and by a
- * consumer's own smoothing and stops being visible at all.
+ * Two callers, one reason. A stationary fix must not be pixel-identical across samples,
+ * and a fix walking a route must not trace the polyline with zero width: a real receiver
+ * is only accurate to within a few metres, so ten laps of an oval come back as a band a
+ * metre wide, while perfect geometry comes back as one line drawn ten times. That band is
+ * what a track has and a drawing does not.
  *
- * Pure Kotlin, unit-testable: only math. Android location provider wraps this
- * and converts back to lat/lon with the meters-per-degree factors.
+ * The walk's correlation time is 1/[reversion] and the amplitude is held independent of
+ * it (the OU step is scaled by sqrt(2 * reversion)), so slowing the drift down does not
+ * change how far the fix wanders. A slow drift is deliberate: a faster wobble is averaged
+ * away by the fused provider and by a consumer's own smoothing and stops being visible at
+ * all.
+ *
+ * Pure Kotlin, unit-testable: only math. The Android location provider and the route
+ * simulator wrap this and convert back to lat/lon with the meters-per-degree factors.
  */
-class StationaryJitter(
+class PositionJitter(
     private val radiusMeters: Double = 1.5,
     private val reversion: Double = 0.1,
     seed: Long = Random.nextLong(),
