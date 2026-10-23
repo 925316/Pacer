@@ -64,6 +64,20 @@ interface Strings {
 
     /** What the reported-position numbers are, and when a change takes effect. */
     val simulationHint: String
+
+    /**
+     * The standing note at the top of the Settings page.
+     *
+     * The page looks like preferences but writes nothing until Run, and a per-control hint
+     * cannot say that: only one of them used to mention when the value is applied.
+     */
+    val settingsSaveNote: String
+
+    /** Shown while the controls differ from the run that is stored. */
+    val settingsUnsavedCount: String
+
+    /** The Run button while changes are waiting; it carries the count. */
+    val runButtonWithUnsaved: String
     val unitMeters: String
     val unitDegrees: String
     val unitMps: String
@@ -276,9 +290,22 @@ interface Strings {
     val speedMpsLabel: String
     val loopShort: String
     val nothingToCentre: String
+
+    /**
+     * The map's explicit "move the subject" control, plus the two outcomes of using it.
+     *
+     * Replaces the undocumented long press: the action that changes the reported position
+     * now has a label, and arming it says on screen that the next tap is not a waypoint.
+     */
+    val moveSimulationHere: String
+    val moveSimulationCancel: String
+    val moveArmedHint: String
+    val moveNeedsRun: String
     val routeCannotMove: String
     val movedTo: String
-    val longPressIdle: String
+
+    /** What a held finger on the map says now that holding it moves nothing. */
+    val longPressNoMove: String
     val routePausedWhereItStands: String
     val routeResumedFromPoint: String
     val mapGestureHint: String
@@ -352,6 +379,13 @@ object EnglishStrings : Strings {
         "These three numbers are written into the simulated fix, so a target app reads them " +
             "as if the phone had measured them. A change takes effect when the next " +
             "simulation starts, not while one is running."
+    override val settingsSaveNote =
+        "Nothing here is saved as you type. These numbers and switches, and the speed and " +
+            "plan on the Simulate page, are only held by the screen until you tap Run; edits " +
+            "that were never applied are gone once the app is closed. The coordinate table " +
+            "is saved by its own button, and the language switch applies immediately."
+    override val settingsUnsavedCount = "%d change(s) not yet applied. Tap Run to use them."
+    override val runButtonWithUnsaved = "Run (apply %d)"
     override val unitMeters = "m"
     override val unitDegrees = "deg"
     override val unitMps = "m/s"
@@ -587,17 +621,25 @@ object EnglishStrings : Strings {
     override val speedMpsLabel = "Speed m/s"
     override val loopShort = "Loop"
     override val nothingToCentre = "Nothing to centre on yet."
+    override val moveSimulationHere = "Move the simulation..."
+    override val moveSimulationCancel = "Cancel moving"
+    override val moveArmedHint =
+        "Tap a place on the map and the simulation moves there. Tap the button again to cancel."
+    override val moveNeedsRun =
+        "There is no running simulation to move. Start joystick mode or a run with an " +
+            "interval plan first."
     override val routeCannotMove =
-        "This run follows a route, so it cannot be moved with a long press. Edit its " +
-            "waypoints instead, or stop it and switch to joystick mode."
+        "This run follows a route, so its position comes from the route and cannot be moved. " +
+            "Edit its waypoints instead, or stop it and switch to joystick mode."
     override val movedTo = "Simulation moved to %.5f, %.5f."
-    override val longPressIdle =
-        "Long press moves a running joystick-mode simulation here; none is running."
+    override val longPressNoMove =
+        "Holding the map does not move the simulation. Use the move button above the map."
     override val routePausedWhereItStands =
         "Route paused where it stands; the subject reports no speed until it resumes."
     override val routeResumedFromPoint = "Route resumed from the point it stopped at."
     override val mapGestureHint =
-        "Drag to pan, pinch to zoom, tap to append a waypoint, drag a handle to move it."
+        "Drag to pan, pinch to zoom, tap to append a waypoint, drag a handle to move it. " +
+            "The move button changes where the simulation reports itself."
     override val waypointSelected =
         "Waypoint %d of %d selected. Drag it to move, Remove deletes it, tap again to deselect."
     override val centredOnSubject = "Centred on the subject at %.5f, %.5f."
@@ -677,6 +719,12 @@ object ChineseStrings : Strings {
     override val simulationHint =
         "这三项会写进模拟出来的定位结果，目标应用会把它当成手机自己测到的。改完不会立刻" +
             "生效，下一次开始模拟时才用新值。"
+    override val settingsSaveNote =
+        "这一页的改动不会边填边存。这里的数字和开关，还有「模拟」页上的速度和变速计划，" +
+            "都先由界面留着，点「运行」时才写进模拟；没应用的改动在应用关闭后就没了。" +
+            "坐标系表由它自己的按钮保存，语言切过去就生效。"
+    override val settingsUnsavedCount = "有 %d 项改动还没生效，点「运行」才会用上。"
+    override val runButtonWithUnsaved = "运行（应用 %d 项）"
     override val unitMeters = "米"
     override val unitDegrees = "度"
     override val unitMps = "米/秒"
@@ -880,13 +928,18 @@ object ChineseStrings : Strings {
     override val speedMpsLabel = "速度 m/s"
     override val loopShort = "循环"
     override val nothingToCentre = "还没有可以居中的目标。"
+    override val moveSimulationHere = "把模拟移到这里..."
+    override val moveSimulationCancel = "取消移动"
+    override val moveArmedHint = "点地图上的某个位置，模拟就会移过去。再点一次按钮取消。"
+    override val moveNeedsRun = "现在没有正在运行的模拟可以移动。请先开摇杆模式，或开一次带变速计划的运行。"
     override val routeCannotMove =
-        "当前是路线模式，长按无法移动。请改动路径点，或停止后改用摇杆模式。"
+        "当前是路线模式，位置由路线决定，不能移动。请改动路径点，或停止后改用摇杆模式。"
     override val movedTo = "模拟位置已移动到 %.5f, %.5f。"
-    override val longPressIdle = "长按可以把正在跑的摇杆模式模拟移到这里，但当前没有运行中的模拟。"
+    override val longPressNoMove = "按住地图不会移动模拟。请用地图上方的移动按钮。"
     override val routePausedWhereItStands = "路线已在原地暂停，继续之前不再上报速度。"
     override val routeResumedFromPoint = "路线已从暂停处继续。"
-    override val mapGestureHint = "拖动平移，双指缩放，点击追加路径点，拖动圆点移动它。"
+    override val mapGestureHint =
+        "拖动平移，双指缩放，点击追加路径点，拖动圆点移动它。想改变模拟上报的位置，用上面的移动按钮。"
     override val waypointSelected = "已选中第 %d / %d 个路径点。可拖动它，点“删除”移除，再点一次取消选中。"
     override val centredOnSubject = "已居中到模拟位置 %.5f, %.5f。"
     override val centredOnLast = "已居中到最后一个路径点。"

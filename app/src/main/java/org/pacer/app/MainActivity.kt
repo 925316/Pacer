@@ -7,7 +7,9 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
 import android.graphics.Color
+import android.graphics.Typeface
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -110,6 +112,91 @@ internal fun runPageRouteSummary(
         },
     )
 }
+
+/**
+ * The values a Run writes, as the controls currently hold them.
+ *
+ * Text, not parsed numbers: an emptied box is a state the user can really leave behind, and
+ * Run answers it with a documented fallback - which is a change from what was stored even
+ * though there is no number to compare. Keeping the typed text also means the snapshot can
+ * be taken from the screen, so a value the engine would round differently does not read as
+ * a permanent "unsaved change".
+ *
+ * Deliberately excludes the per-app coordinate table and the language: both are written the
+ * moment they are changed, so counting them here would report a pending Run that the user
+ * does not need.
+ */
+internal data class RunSettings(
+    val speed: String,
+    val accuracy: String,
+    val altitude: String,
+    val bearing: String,
+    val plan: String,
+    val loopRoute: Boolean,
+    val stepSimulation: Boolean,
+    val mockBluetooth: Boolean,
+    val bearingHold: Boolean,
+    val altitudeDrift: Boolean,
+    val accuracyWarmup: Boolean,
+    val satelliteJitter: Boolean,
+    val signalDropout: Boolean,
+    val positionNoise: Boolean,
+) {
+    /**
+     * How many values a Run would write differently from [saved].
+     *
+     * Numbers are compared by value, so retyping "5.0" as "5" is not a change. A number
+     * field Run cannot read counts as one: `numberOr` would replace it with a fallback, and
+     * that fallback is not what the last run used.
+     */
+    fun pendingChanges(saved: RunSettings): Int {
+        var count = 0
+        if (numberDiffers(speed, saved.speed)) count++
+        if (numberDiffers(accuracy, saved.accuracy)) count++
+        if (numberDiffers(altitude, saved.altitude)) count++
+        if (numberDiffers(bearing, saved.bearing)) count++
+        if (plan != saved.plan) count++
+        if (loopRoute != saved.loopRoute) count++
+        if (stepSimulation != saved.stepSimulation) count++
+        if (mockBluetooth != saved.mockBluetooth) count++
+        if (bearingHold != saved.bearingHold) count++
+        if (altitudeDrift != saved.altitudeDrift) count++
+        if (accuracyWarmup != saved.accuracyWarmup) count++
+        if (satelliteJitter != saved.satelliteJitter) count++
+        if (signalDropout != saved.signalDropout) count++
+        if (positionNoise != saved.positionNoise) count++
+        return count
+    }
+}
+
+/**
+ * True when two number fields hold different values, or either cannot be read at all.
+ *
+ * Identical text is equal even when neither side parses: otherwise a blank box compared with
+ * the blank box the run itself stored would report a pending change forever. A blank box on
+ * one side only still differs, because Run would write a fallback the other side does not
+ * have.
+ */
+internal fun numberDiffers(current: String, saved: String): Boolean {
+    if (current.trim() == saved.trim()) return false
+    val typed = current.trim().toDoubleOrNull() ?: return true
+    val stored = saved.trim().toDoubleOrNull() ?: return true
+    return typed != stored
+}
+
+/**
+ * The label on the Run button.
+ *
+ * Plain "Run" while the controls match the run that is stored; once they do not, the count
+ * that a tap would write, because the settings page holds edits that only Run can save and
+ * the page has no Save button of its own.
+ */
+internal fun runButtonLabel(pendingChanges: Int, strings: Strings): String =
+    if (pendingChanges <= 0) {
+        strings.startRouteShort
+    } else {
+        String.format(Locale.US, strings.runButtonWithUnsaved, pendingChanges)
+    }
 
 /**
  * The three pages: what a run is, what it runs along, and how it is reported.
@@ -215,6 +302,31 @@ class MainActivity : Activity() {
     private lateinit var positionNoiseToggle: CheckBox
 
     private lateinit var routeSummary: TextView
+
+    /**
+     * What a Run last wrote, as the controls showed it then.
+     *
+     * Null only before the pages are built: once the controls exist, the baseline is a real
+     * snapshot, first of the values the page was built with and then of what a stored run
+     * restored. Without a baseline every control would read as "unsaved", which is noise
+     * rather than information.
+     */
+    private var savedRunSettings: RunSettings? = null
+
+    /**
+     * True while [restoreFromStore] is filling the controls.
+     *
+     * Every restored value fires its own change listener, and the plan editor reports one
+     * from inside `load`. Without this the count would be recomputed against the previous
+     * baseline halfway through the restore.
+     */
+    private var restoringSettings = false
+
+    /** The line under the Settings page's note that counts what Run has not written yet. */
+    private lateinit var settingsPendingLine: TextView
+
+    /** The pinned Run button; its label carries the number of pending changes. */
+    private lateinit var runButton: Button
 
     /**
      * The route line on the run page.
@@ -342,6 +454,12 @@ class MainActivity : Activity() {
         renderRoute()
         renderSavedRoutes()
         updatePauseButton()
+        // Baseline for a device that has never stored a run: the controls as built are what
+        // a Run would write on its first tap. A stored run, if the channel binds, replaces
+        // this in restoreFromStore. Without a baseline every control would read as unsaved,
+        // which is noise rather than information.
+        savedRunSettings = currentRunSettings()
+        refreshPendingChanges()
         // Opens on the stored configuration, not on this screen's defaults: every start
         // writes all of these keys, so touching one switch on defaults would silently
         // restore the others.
@@ -398,11 +516,12 @@ class MainActivity : Activity() {
         // Typing a speed is choosing Custom. The guard stops the radio listener's own
         // write from being read back as typing.
         speedInput.addTextChangedListener(
-            object : android.text.TextWatcher {
+            object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                 override fun afterTextChanged(s: android.text.Editable?) {
                     if (!writingSpeed && !customBtn.isChecked) customBtn.isChecked = true
+                    refreshPendingChanges()
                 }
             },
         )
@@ -423,7 +542,10 @@ class MainActivity : Activity() {
 
         // The editor draws its own heading: it is folded, and the heading doubles as the
         // tap target that opens it.
-        planEditor = PlanEditor(this, strings) { wire -> planWire = wire }
+        planEditor = PlanEditor(this, strings) { wire ->
+            planWire = wire
+            refreshPendingChanges()
+        }
         root.addView(planEditor.view)
         loopToggle = option(
             root,
@@ -441,6 +563,7 @@ class MainActivity : Activity() {
             strings.bluetooth,
             strings.bluetoothHint,
         )
+        watchPendingChecks(loopToggle, stepToggle, bluetoothToggle)
         return root
     }
 
@@ -507,6 +630,25 @@ class MainActivity : Activity() {
         val root = pageBody()
         root.addView(titleView(strings.tabSettings))
 
+        // A standing note, not a hint under one control: this page holds values that are
+        // only written when Run is tapped, and the one Save button far below (coordinate
+        // overrides) was the reason every other control looked saved already.
+        root.addView(
+            TextView(this).apply {
+                text = strings.settingsSaveNote
+                textSize = 13f
+                setLineSpacing(0f, 1.15f)
+                setPadding(0, dp(8), 0, dp(6))
+            },
+        )
+        settingsPendingLine = TextView(this).apply {
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(10))
+            visibility = View.GONE
+        }
+        root.addView(settingsPendingLine)
+
         root.addView(section(strings.simulation))
         root.addView(hint(strings.simulationHint))
         accuracyInput = numberRow(
@@ -533,6 +675,9 @@ class MainActivity : Activity() {
             strings.bearingHint,
             strings.resetToDefault,
         )
+        // Everything on this page that Run writes reports its own edits, so the count is
+        // recomputed from the controls rather than remembered from when the page was built.
+        watchPendingChanges(accuracyInput, altitudeInput, bearingInput)
 
         // --- per-app coordinate systems --------------------------------------
         // One plain text field. The table is a preference that applies to whatever
@@ -578,6 +723,14 @@ class MainActivity : Activity() {
             root,
             strings.positionNoise,
             strings.positionNoiseHint,
+        )
+        watchPendingChecks(
+            bearingHoldToggle,
+            altitudeDriftToggle,
+            accuracyWarmupToggle,
+            satelliteJitterToggle,
+            signalDropoutToggle,
+            positionNoiseToggle,
         )
 
         previewBtn = action(strings.preview) { previewLocally() }
@@ -726,6 +879,21 @@ class MainActivity : Activity() {
 
     /** Shows what is actually configured. */
     private fun restoreFromStore() {
+        // Filling the controls fires their change listeners. A restore is not the user
+        // typing, so the count must not be recomputed halfway through it.
+        restoringSettings = true
+        try {
+            fillFromStore()
+        } finally {
+            restoringSettings = false
+        }
+        // The baseline is taken after the controls are filled and settled: what is on
+        // screen now is exactly what the stored run holds, so nothing is pending.
+        savedRunSettings = currentRunSettings()
+        refreshPendingChanges()
+    }
+
+    private fun fillFromStore() {
         // Read on its own: a table saved before any run was ever started is still applied by
         // the hook side, so the field must show it even when nothing else is stored.
         coordinateInput.setText(PacerConfigClient.coordinateOverrides())
@@ -758,6 +926,107 @@ class MainActivity : Activity() {
         // No message here any more: "a run is active" is what the state line in the pinned
         // bar says, and it says it continuously instead of once when the page resumed.
         updatePauseButton()
+    }
+
+    /**
+     * The settings as the controls hold them now.
+     *
+     * Read from the views rather than from the run: this is the other side of the comparison
+     * that decides whether the Run button has anything to say.
+     */
+    private fun currentRunSettings(): RunSettings = RunSettings(
+        speed = speedInput.text.toString(),
+        accuracy = accuracyInput.text.toString(),
+        altitude = altitudeInput.text.toString(),
+        bearing = bearingInput.text.toString(),
+        plan = planWire,
+        loopRoute = loopToggle.isChecked,
+        stepSimulation = stepToggle.isChecked,
+        mockBluetooth = bluetoothToggle.isChecked,
+        bearingHold = bearingHoldToggle.isChecked,
+        altitudeDrift = altitudeDriftToggle.isChecked,
+        accuracyWarmup = accuracyWarmupToggle.isChecked,
+        satelliteJitter = satelliteJitterToggle.isChecked,
+        signalDropout = signalDropoutToggle.isChecked,
+        positionNoise = positionNoiseToggle.isChecked,
+    )
+
+    /**
+     * Recounts the pending changes and puts the number where a user will see it: the note on
+     * the Settings page, and the Run button itself, which is the control that applies them.
+     *
+     * Guarded because the plan editor reports a value from its constructor, before the
+     * Settings page - and the fields it reads - exist.
+     */
+    private fun refreshPendingChanges() {
+        if (restoringSettings) return
+        if (!::accuracyInput.isInitialized || !::loopToggle.isInitialized) return
+        if (!::settingsPendingLine.isInitialized || !::runButton.isInitialized) return
+        val pending = pendingChangeCount()
+        settingsPendingLine.visibility = if (pending > 0) View.VISIBLE else View.GONE
+        settingsPendingLine.text = if (pending > 0) {
+            String.format(Locale.US, strings.settingsUnsavedCount, pending)
+        } else {
+            ""
+        }
+        runButton.text = runButtonLabel(pending, strings)
+        // The button's own text is not read while a content description is set, and the
+        // description is the one place that still says which run a tap starts.
+        runButton.contentDescription = if (pending > 0) {
+            strings.startRoute + " " + String.format(Locale.US, strings.settingsUnsavedCount, pending)
+        } else {
+            strings.startRoute
+        }
+    }
+
+    /** How many controls a Run would write differently from the stored run. */
+    private fun pendingChangeCount(): Int {
+        val saved = savedRunSettings ?: return 0
+        return currentRunSettings().pendingChanges(saved)
+    }
+
+    /**
+     * Adopts what a successful Run just wrote as the new baseline.
+     *
+     * The baseline is the controls, not the stored keys: the count answers "would a Run write
+     * something different", and a switch a run did not consume (a straight run writes no
+     * laps) is still what the next tap would send. The stored keys are `restoreFromStore`'s
+     * business, not this count's.
+     *
+     * `lastRestoreStartedAt` moves with it, because this page's own Run is now the run the
+     * config holds: without that, the next resume would see a start time it had never seen
+     * and overwrite edits typed since with the values it just stored.
+     */
+    private fun markRunSettingsSaved() {
+        savedRunSettings = currentRunSettings()
+        PacerConfigClient.stored()?.let { lastRestoreStartedAt = it.startedAtMs }
+        refreshPendingChanges()
+    }
+
+    /** Recounts on every keystroke in a number field, including cleared ones. */
+    private fun watchPendingChanges(vararg fields: EditText) {
+        for (field in fields) {
+            field.addTextChangedListener(
+                object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                    override fun afterTextChanged(s: android.text.Editable?) = refreshPendingChanges()
+                },
+            )
+        }
+    }
+
+    /**
+     * Recounts on a switch changing.
+     *
+     * Kept apart from [watchPendingChanges] because a CheckBox has no text watcher, and a
+     * shared name with an overload on a different view type would make the call site read as
+     * something that also watches typed text.
+     */
+    private fun watchPendingChecks(vararg boxes: CheckBox) {
+        for (box in boxes) {
+            box.setOnCheckedChangeListener { _, _ -> refreshPendingChanges() }
+        }
     }
 
     /**
@@ -1001,7 +1270,11 @@ class MainActivity : Activity() {
         // only when the stored run actually changed, so a half-typed value survives a
         // permission dialog.
         val stored = PacerConfigClient.stored()
-        if (stored != null && stored.startedAtMs != lastRestoreStartedAt) restoreFromStore()
+        val changedElsewhere = stored != null && stored.startedAtMs != lastRestoreStartedAt
+        // Never re-fill the controls over edits a Run has not written yet: losing them on a
+        // resume is the exact loss this page now warns about. The count stays on screen
+        // saying they are still waiting, which is the truth about that run.
+        if (changedElsewhere && pendingChangeCount() == 0) restoreFromStore()
         // A pause toggled on the other screen changes nothing this page adopts, so the
         // control has to be refreshed on its own.
         updatePauseButton()
@@ -1452,6 +1725,9 @@ class MainActivity : Activity() {
             },
         )
         updatePauseButton()
+        // The stored run now holds what the controls hold, so nothing is pending any more.
+        // After the start, because only a start that actually wrote may clear the count.
+        markRunSettingsSaved()
         // Last, so the joystick's own notice displaces the start notice rather than being
         // displaced by it. The immediate path kept the same order, because the caller ran
         // showJoystick() only after this had returned true.
@@ -1681,6 +1957,8 @@ class MainActivity : Activity() {
             },
         )
         updatePauseButton()
+        // Same rule as a joystick start: only a start that wrote clears the pending count.
+        markRunSettingsSaved()
     }
 
     private fun showJoystick() {
@@ -1980,21 +2258,22 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         bar.addView(runStateLine)
-        bar.addView(
-            Button(this).apply {
-                text = strings.startRouteShort
-                contentDescription = strings.startRoute
-                textSize = 18f
-                minWidth = 0
-                minimumWidth = 0
-                isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                )
-                setOnClickListener { startRoute() }
-            },
-        )
+        // Named after what a tap does, including the changes it would write: the Settings
+        // page holds edits that only this button saves, and it has no Save of its own.
+        runButton = Button(this).apply {
+            text = strings.startRouteShort
+            contentDescription = strings.startRoute
+            textSize = 18f
+            minWidth = 0
+            minimumWidth = 0
+            isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            setOnClickListener { startRoute() }
+        }
+        bar.addView(runButton)
 
         val secondary = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         pauseBtn = weightedButton(strings.pauseRoute, strings.pauseRoute) { toggleRoutePause() }

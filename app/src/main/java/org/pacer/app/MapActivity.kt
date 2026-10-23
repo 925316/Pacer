@@ -16,6 +16,21 @@ import org.pacer.motion.RouteDraft
 import java.util.Locale
 
 /**
+ * What the map's move control can do with the run that is stored.
+ *
+ * A route owns its position, so moving it would only change an anchor nothing reads; a plan
+ * can be moved because moving re-anchors the clock and the plan continues from the new
+ * point. Kept as a pure decision so the button and the tap cannot disagree about the rule.
+ */
+internal enum class MoveVerdict { ALLOWED, ROUTE_OWNS_POSITION, NO_RUN }
+
+internal fun moveVerdict(owner: MotionOwner): MoveVerdict = when (owner) {
+    MotionOwner.PLAN, MotionOwner.HAND -> MoveVerdict.ALLOWED
+    MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED -> MoveVerdict.ROUTE_OWNS_POSITION
+    MotionOwner.NONE -> MoveVerdict.NO_RUN
+}
+
+/**
  * The operation page: a map, the waypoints placed on it, and the run's own controls.
  *
  * A route is made by dragging the map, tapping to append and dragging a handle to move one;
@@ -39,6 +54,19 @@ class MapActivity : Activity() {
 
     /** Deletes the tail waypoint; disabled while there is none to delete. */
     private lateinit var deleteLastButton: Button
+
+    /**
+     * Arms the next tap as "put the subject here" instead of "add a waypoint".
+     *
+     * The map used to move a running simulation on a 500 ms long press, with no gesture in
+     * the hint and no confirmation: holding the map still while aiming teleported the
+     * position the target app was reporting. Moving is a button now, so the one gesture
+     * that changes where the phone says it is has a name on screen before it happens.
+     */
+    private lateinit var moveButton: Button
+
+    /** True while the next tap on the map places the subject instead of a waypoint. */
+    private var moveArmed = false
 
     private var style: MapStyle = MapStyle.DEFAULT
     private var layer: MapLayer = MapLayer.ROAD
@@ -159,6 +187,19 @@ class MapActivity : Activity() {
         viewRow.addView(button(strings.centre) { centreOnSubject() })
         column.addView(viewRow)
 
+        // Moving the subject is its own control, not a press-and-hold on the map. The map's
+        // one tap already means "add a waypoint", so a second meaning for a held finger was
+        // both undocumented and unconfirmed; this one says what it will do, and the tap it
+        // arms happens after that sentence is on screen.
+        moveButton = button(strings.moveSimulationHere) { toggleMoveArmed() }
+        column.addView(
+            moveButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
         // The map gets the remaining height. It is the point of the page, and a map that
         // shares its space with the controls ends up too short to place a point on.
         mapHolder = LinearLayout(this).apply {
@@ -213,8 +254,25 @@ class MapActivity : Activity() {
             initialCenter = center ?: draft.points.lastOrNull() ?: MapDefaults.CENTER,
             initialZoom = previous?.zoom ?: MapDefaults.ZOOM,
         )
-        created.onTap = { point -> editDraft { draft.add(point) } }
-        created.onWaypointTap = { index -> selectWaypoint(index) }
+        created.onTap = { point ->
+            if (moveArmed) moveSubjectTo(point) else editDraft { draft.add(point) }
+        }
+        created.onWaypointTap = { index ->
+            // Armed, the map means one thing everywhere: a dot is a place too, and treating
+            // the tap as a selection would leave the arming silently still waiting.
+            if (moveArmed) {
+                draft.points.getOrNull(index)?.let { moveSubjectTo(it) }
+            } else {
+                selectWaypoint(index)
+            }
+        }
+        // Holding the map no longer moves the subject. The callback stays set because the
+        // view still buzzes on a hold (and swallows the release that follows), and a haptic
+        // with no consequence is worse than one that names the control that replaced it.
+        // It deliberately changes no state; armed, it repeats the instruction it interrupted.
+        created.onLongPress = {
+            setNotice(if (moveArmed) strings.moveArmedHint else strings.longPressNoMove)
+        }
         created.onWaypointMoving = { index, point ->
             // Nothing saved here: a save per motion event would write prefs hundreds of
             // times a second. The drop is the moment the route changed.
@@ -230,7 +288,6 @@ class MapActivity : Activity() {
             // difference check would find nothing to save. The drop is what makes it real.
             editDraft(force = true) { if (index < draft.size) draft.replaceAt(index, point) }
         }
-        created.onLongPress = { point -> relocate(point) }
         created.setRoute(draft.points.toList(), draft.points.toList())
         mapHolder.removeAllViews()
         mapHolder.addView(
@@ -324,6 +381,13 @@ class MapActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // An arming from before the trip to another screen would make the first tap after
+        // returning mean "move the subject" instead of "add a waypoint", and the sentence
+        // that explained the arming is no longer on screen either.
+        if (moveArmed) {
+            setMoveArmed(false)
+            setNotice(null)
+        }
         // Reload in case another screen changed the draft while we were away.
         draft = store.load()
         // A waypoint index from before the reload no longer names the same point when the
@@ -485,28 +549,64 @@ class MapActivity : Activity() {
     }
 
     /**
-     * Moves a running straight-line simulation to the point under a long press.
+     * Arms the map for one tap that moves the subject, or cancels that arming.
+     */
+    private fun toggleMoveArmed() {
+        if (moveArmed) {
+            setMoveArmed(false)
+            setNotice(null)
+            return
+        }
+        // Refused up front rather than armed and then refused on the tap: a button that turns
+        // into "tap the map" and then answers "this run follows a route" has wasted the tap
+        // and taught the user that the control is unreliable.
+        when (moveVerdict(PacerConfigClient.owner())) {
+            MoveVerdict.ROUTE_OWNS_POSITION -> setNotice(strings.routeCannotMove)
+            MoveVerdict.NO_RUN -> setNotice(strings.moveNeedsRun)
+            MoveVerdict.ALLOWED -> {
+                setMoveArmed(true)
+                setNotice(strings.moveArmedHint)
+            }
+        }
+    }
+
+    /** One label for the button and one sentence for the state line, from one flag. */
+    private fun setMoveArmed(armed: Boolean) {
+        moveArmed = armed
+        if (::moveButton.isInitialized) {
+            // Armed, the button is the way out: it says so, and the tap target that would
+            // otherwise add a waypoint is a way to change one's mind, not a trap.
+            moveButton.text = if (armed) strings.moveSimulationCancel else strings.moveSimulationHere
+        }
+    }
+
+    /**
+     * Moves a running straight-line simulation to the point under the tap.
      *
      * A route run is refused: its position comes from its geometry, so moving the anchor
-     * would change nothing.
+     * would change nothing. The refusal names the waypoints as the next step, because the
+     * user asked to change where the subject is and the route is what decides that.
      */
-    private fun relocate(point: GeoPoint) {
-        when (PacerConfigClient.owner()) {
-            MotionOwner.ROUTE, MotionOwner.ROUTE_PAUSED -> setNotice(strings.routeCannotMove)
-            MotionOwner.PLAN, MotionOwner.HAND -> {
-                PacerConfigClient.teleport(point.lat, point.lon)
-                setNotice(
-                    String.format(
-                        Locale.US,
-                        strings.movedTo,
-                        point.lat,
-                        point.lon,
-                    ),
-                )
-                updateLivePosition()
+    private fun moveSubjectTo(point: GeoPoint) {
+        setMoveArmed(false)
+        // The run can end between arming and the tap, and a stored position with no run
+        // behind it would leave the target app reading a place nobody is simulating.
+        when (moveVerdict(PacerConfigClient.owner())) {
+            MoveVerdict.ROUTE_OWNS_POSITION -> {
+                setNotice(strings.routeCannotMove)
+                return
             }
-            else -> setNotice(strings.longPressIdle)
+            MoveVerdict.NO_RUN -> {
+                setNotice(strings.moveNeedsRun)
+                return
+            }
+            MoveVerdict.ALLOWED -> Unit
         }
+        PacerConfigClient.teleport(point.lat, point.lon)
+        setNotice(
+            String.format(Locale.US, strings.movedTo, point.lat, point.lon),
+        )
+        updateLivePosition()
     }
 
     // ---------------------------------------------------------------------
