@@ -43,9 +43,12 @@ data class MotionConfig(
     /**
      * Optional pace curve indexed by distance, for a session prescribed per kilometre.
      *
-     * Separate from [plan] because they answer different questions: a timed plan says what
-     * speed to hold at a moment, a pace curve says what speed to hold at a place. Only one
-     * may be set, so nothing has to decide which of two answers to believe.
+     * Separate from [plan] because a timed plan says what speed to hold at a moment and a pace
+     * curve says what to hold at a place. Only one may be set.
+     *
+     * [fatiguePerKm] and [pausesPerMinute] do not apply on top of it: the splits already carry
+     * the runner's own slowdown, and unrequested stops would break the totals the editor shows.
+     * Cruise noise and the acquire ramp still apply.
      */
     val pacePlan: PacePlan? = null,
 ) {

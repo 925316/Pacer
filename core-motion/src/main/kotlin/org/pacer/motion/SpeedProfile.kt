@@ -26,7 +26,8 @@ data class SpeedSample(
  * - ACQUIRE ramp: smooth S-curve 0 -> base over [MotionConfig.acquireDurationSec]
  * - CRUISE: Ornstein-Uhlenbeck noise around a slowly fatiguing base, where the base
  *   comes from [MotionConfig.plan] when an interval session is configured and from
- *   [MotionConfig.baseSpeedMps] otherwise
+ *   [MotionConfig.baseSpeedMps] otherwise. A prescribed pace curve supplies the base
+ *   too, but fatigue and pauses are suspended for it; see [prescribedPace].
  * - PAUSE: exponential inter-arrival, uniform duration, DECEL ramp in/out
  * - distance is integrated with the trapezoidal rule so steps stay consistent
  *
@@ -40,6 +41,17 @@ class SpeedProfile(
 
     /** Current value of the mean-reverting cruise-noise process. */
     private var noise = 0.0
+
+    /**
+     * Whether this run is a session the user prescribed per kilometre.
+     *
+     * Such a curve already states the speed at every metre, fatigue included: the runner typed
+     * the slower later kilometres himself, so applying [MotionConfig.fatiguePerKm] again
+     * charges the same slowdown twice. Unrequested stops are excluded for the same reason, and
+     * no control in the UI can switch them off. The acquire ramp and cruise noise stay: those
+     * are facts about a runner, not about the syllabus.
+     */
+    private val prescribedPace: Boolean = config.pacePlan != null
 
     /**
      * @param speedCapAtDistance optional multiplier in (0, 1] for the cruise speed at a
@@ -156,6 +168,7 @@ class SpeedProfile(
     }
 
     private fun fatigued(speedMps: Double, distanceMeters: Double): Double {
+        if (prescribedPace) return speedMps
         val factor = 1.0 - config.fatiguePerKm * (distanceMeters / 1000.0)
         return (speedMps * factor).coerceAtLeast(speedMps * 0.5)
     }
@@ -170,6 +183,9 @@ class SpeedProfile(
     }
 
     private fun drawNextPauseAt(): Double {
+        // Returning infinity rather than drawing and discarding keeps the pause stream from
+        // advancing, so a seed still rebuilds this run bit for bit.
+        if (prescribedPace) return Double.POSITIVE_INFINITY
         if (config.pausesPerMinute <= 0) return Double.POSITIVE_INFINITY
         val ratePerSec = config.pausesPerMinute / 60.0
         return -kotlin.math.ln(1 - rng.nextDouble()) / ratePerSec
