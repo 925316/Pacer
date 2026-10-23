@@ -241,14 +241,17 @@ data class PacePlan(
             return PacePlan(points.distinctBy { it.distanceMeters })
         }
 
-        /** Time the plan takes in seconds, for the totals line. */
+        /**
+         * Round-trips without losing the pace that produced the value.
+         *
+         * TWO decimals used to mean a typed 5:00/km came back as 5:00.3, and a slow split of
+         * 30:00/km was off by 0.8%. Distinct splits collided onto one stored speed, so the
+         * editor showed a change the engine never received. [trim] keeps whole numbers short
+         * because distance marks read better that way.
+         */
         private fun trim(value: Double): String {
-            val rounded = kotlin.math.round(value * 100.0) / 100.0
-            return if (rounded == rounded.toLong().toDouble()) {
-                rounded.toLong().toString()
-            } else {
-                rounded.toString()
-            }
+            if (value == value.toLong().toDouble()) return value.toLong().toString()
+            return value.toString()
         }
 
         /**

@@ -73,13 +73,13 @@ class PaceDeliveryTest {
         val samples = prescribed(target, 3000.0, seed = 1L, noiseFraction = 0.0)
         val times = splitTimes(samples, target.size)
 
-        assertEquals("whole session", 930.0, times.sum(), 9.3)
-        assertTrue("first kilometre ${times[0]}", times[0] in 297.0..305.0)
-        assertEquals("kilometre 2", 310.0, times[1], 3.1)
-        assertEquals("kilometre 3", 320.0, times[2], 3.2)
+        assertEquals("whole session", 930.0, times.sum(), 3.0)
+        assertTrue("first kilometre ${times[0]}", times[0] in 299.0..304.0)
+        assertEquals("kilometre 2", 310.0, times[1], 1.5)
+        assertEquals("kilometre 3", 320.0, times[2], 1.5)
 
         val flat = prescribed(List(5) { 300.0 }, 5000.0, seed = 1L, noiseFraction = 0.0)
-        assertEquals("flat 5 km", 1500.0, splitTimes(flat, 5).sum(), 15.0)
+        assertEquals("flat 5 km", 1500.0, splitTimes(flat, 5).sum(), 5.0)
     }
 
     @Test
@@ -104,18 +104,20 @@ class PaceDeliveryTest {
 
         // The cruise noise is deliberately kept, so a single seed is a sample of the
         // delivery rather than the delivery: averaging is what separates the systematic
-        // error from the wobble that is supposed to be there.
+        // error from the wobble that is supposed to be there. The band is 0.3% because the
+        // measured delivery is within 0.11%, and a looser one would let the double-counted
+        // fatigue (1.3%/km at the default) creep back in.
         val expectedTotal = target.sum()
         assertEquals(
             "finish time over $SEEDS seeds",
             expectedTotal,
             mean(totals),
-            expectedTotal * 0.01,
+            expectedTotal * 0.003,
         )
-        // Starting from rest is real and costs about 2.5 s in the first kilometre, so
-        // that kilometre is allowed the extra five seconds the other two are not.
+        // Starting from rest is real and costs about 1.5 s in the first kilometre, so that
+        // kilometre is allowed the extra the other two are not.
         val first = mean(perKm[0])
-        assertTrue("first kilometre $first", first in 297.0..305.0)
+        assertTrue("first kilometre $first", first in 299.0..304.0)
         for (i in 1 until target.size) {
             assertEquals(
                 "kilometre ${i + 1}",
