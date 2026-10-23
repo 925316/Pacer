@@ -427,7 +427,7 @@ class MainActivity : Activity() {
         // package it names, and it is saved on its own rather than only at Start.
         root.addView(section(strings.coordinateSystem))
         coordinateInput = EditText(this).apply {
-            hint = "com.autonavi.minimap=GCJ02"
+            hint = strings.coordinateSystemExample
             setInputType(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
         }
         root.addView(coordinateInput)
@@ -897,13 +897,23 @@ class MainActivity : Activity() {
             setSelection(text.length)
         }
         android.app.AlertDialog.Builder(this)
-            .setTitle(if (existing != null) "Save over \"${existing.name}\"?" else "Save route as")
+            .setTitle(
+                if (existing != null) {
+                    String.format(Locale.US, strings.saveOverTitle, existing.name)
+                } else {
+                    strings.saveRouteTitle
+                },
+            )
             .setView(field)
-            .setPositiveButton("Save") { _, _ -> commitSave(field.text.toString(), existing?.id) }
-            .setNegativeButton("Cancel", null)
+            .setPositiveButton(strings.saveConfirm) { _, _ ->
+                commitSave(field.text.toString(), existing?.id)
+            }
+            .setNegativeButton(strings.cancel, null)
             // "Save as new" exists because the only other way to avoid overwriting a
             // loaded route would be to edit it first, which is not an answer.
-            .setNeutralButton("Save as new") { _, _ -> commitSave(field.text.toString(), null) }
+            .setNeutralButton(strings.saveAsNew) { _, _ ->
+                commitSave(field.text.toString(), null)
+            }
             .show()
     }
 
@@ -929,9 +939,19 @@ class MainActivity : Activity() {
                 renderSavedRoutes()
             }
             is SavedRoutes.SaveResult.InvalidName ->
-                setNotice(result.reason, NoticeKind.FAILURE)
+                // The engine's own reason is English, and this notice is on screen in
+                // whichever language the user picked; the two cases it covers (blank, too
+                // long) are one sentence here.
+                setNotice(
+                    String.format(
+                        Locale.US,
+                        strings.nameRequiredWithLimit,
+                        SavedRoutes.MAX_NAME_LENGTH,
+                    ),
+                    NoticeKind.FAILURE,
+                )
             is SavedRoutes.SaveResult.InvalidRoute ->
-                setNotice(result.reason, NoticeKind.FAILURE)
+                setNotice(strings.routeNeedsTwoPoints, NoticeKind.FAILURE)
         }
     }
 
@@ -993,20 +1013,20 @@ class MainActivity : Activity() {
             val label = TextView(this).apply {
                 text = String.format(
                     Locale.US,
-                    "%s  (%d points, %.0f m)%s",
+                    strings.savedRouteRow,
                     route.name,
                     route.points.size,
                     route.lengthMeters,
-                    if (route.id == currentId) "  *" else "",
+                    if (route.id == currentId) strings.savedRouteCurrentMark else "",
                 )
                 textSize = 14f
                 setPadding(0, 8, 0, 8)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             row.addView(label)
-            row.addView(smallAction("Load") { loadSavedRoute(route.id) })
-            row.addView(smallAction("Rename") { renameSavedRoute(route.id) })
-            row.addView(smallAction("x") { deleteSavedRoute(route.id) })
+            row.addView(smallAction(strings.loadConfirm) { loadSavedRoute(route.id) })
+            row.addView(smallAction(strings.renameConfirm) { renameSavedRoute(route.id) })
+            row.addView(smallAction(strings.deleteShort) { deleteSavedRoute(route.id) })
             savedRouteBox.addView(row)
         }
     }
@@ -1046,13 +1066,12 @@ class MainActivity : Activity() {
             return
         }
         android.app.AlertDialog.Builder(this)
-            .setTitle("Replace the current draft?")
+            .setTitle(strings.loadRouteTitle)
             .setMessage(
-                "Loading \"${route.name}\" discards the current ${draft.size} waypoints. " +
-                    "Save them first if they are worth keeping.",
+                String.format(Locale.US, strings.loadRouteMessage, route.name, draft.size),
             )
-            .setPositiveButton("Load") { _, _ -> apply() }
-            .setNegativeButton("Cancel", null)
+            .setPositiveButton(strings.loadConfirm) { _, _ -> apply() }
+            .setNegativeButton(strings.cancel, null)
             .show()
     }
 
@@ -1064,9 +1083,9 @@ class MainActivity : Activity() {
             setSelection(text.length)
         }
         android.app.AlertDialog.Builder(this)
-            .setTitle("Rename route")
+            .setTitle(strings.renameRouteTitle)
             .setView(field)
-            .setPositiveButton("Rename") { _, _ ->
+            .setPositiveButton(strings.renameConfirm) { _, _ ->
                 if (routes.rename(id, field.text.toString())) {
                     store.saveNamedRoutes(routes)
                     renderSavedRoutes()
@@ -1082,16 +1101,16 @@ class MainActivity : Activity() {
                     )
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(strings.cancel, null)
             .show()
     }
 
     private fun deleteSavedRoute(id: Long) {
         val route = store.savedRoutes().find(id) ?: return
         android.app.AlertDialog.Builder(this)
-            .setTitle("Delete \"${route.name}\"?")
-            .setMessage("The route is removed from the list. The map draft is not affected.")
-            .setPositiveButton("Delete") { _, _ ->
+            .setTitle(String.format(Locale.US, strings.deleteRouteTitle, route.name))
+            .setMessage(strings.deleteRouteMessage)
+            .setPositiveButton(strings.deleteConfirm) { _, _ ->
                 val routes = store.savedRoutes()
                 routes.remove(id)
                 store.saveNamedRoutes(routes)
@@ -1100,7 +1119,7 @@ class MainActivity : Activity() {
                 renderSavedRoutes()
                 setNotice(strings.deleted)
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(strings.cancel, null)
             .show()
     }
 
@@ -1245,7 +1264,7 @@ class MainActivity : Activity() {
         val total = parsed.totalMeters
             ?.let { String.format(Locale.US, strings.planTotalSummary, it) }
             ?: strings.planTotalForever
-        return " Plan: $pass$total."
+        return String.format(Locale.US, strings.planNotice, "$pass$total")
     }
 
     /** `5:00` for 300 seconds; a runner reads a split as minutes and seconds. */
@@ -1305,7 +1324,7 @@ class MainActivity : Activity() {
         subject.point(stored)?.let { recording.offer(it) }
         recordBtn.text = String.format(
             Locale.US,
-            "%s (%d pts, %.0f m)",
+            strings.recordingStatus,
             strings.stopRecording,
             recording.size,
             recording.distanceMeters,

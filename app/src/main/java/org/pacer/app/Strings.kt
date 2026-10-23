@@ -73,6 +73,9 @@ interface Strings {
     val bluetooth: String
     val bluetoothHint: String
     val coordinateSystem: String
+
+    /** A sample entry in the field itself, so the format is readable at a glance. */
+    val coordinateSystemExample: String
     val coordinateSystemHint: String
     val saveOverrides: String
     val signalRealism: String
@@ -152,6 +155,34 @@ interface Strings {
     val routeLoadedAs: String
     val nameRequiredWithLimit: String
 
+    /**
+     * The saved-route dialogs: one title per question, the body that warns about lost work,
+     * and the button that confirms it. Saving over an existing name asks a different
+     * question from saving under a new one, so the two titles are separate.
+     */
+    val saveRouteTitle: String
+    val saveOverTitle: String
+    val saveConfirm: String
+    val saveAsNew: String
+    val loadRouteTitle: String
+    val loadRouteMessage: String
+    val loadConfirm: String
+    val renameRouteTitle: String
+    val renameConfirm: String
+    val deleteRouteTitle: String
+    val deleteRouteMessage: String
+    val deleteConfirm: String
+
+    /** One saved route in the list: its name and size, then the marker on the edited one. */
+    val savedRouteRow: String
+    val savedRouteCurrentMark: String
+
+    /** The list row's delete control: one character, so three controls fit on one line. */
+    val deleteShort: String
+
+    /** The record button while recording; [stopRecording] plus how far it has got. */
+    val recordingStatus: String
+
     /** Writing copies out to Download/Pacer, where a file manager can reach them. */
     val exportRoutes: String
     val exported: String
@@ -164,6 +195,9 @@ interface Strings {
     val startedJoystickModeWithPlan: String
     val startedRoute: String
     val startedRouteWithPlan: String
+
+    /** The interval-plan sentence appended to a start notice that names the plan. */
+    val planNotice: String
     val planPassSummary: String
     val planTotalSummary: String
     val planTotalForever: String
@@ -330,6 +364,7 @@ object EnglishStrings : Strings {
         "Without this, Bluetooth scans still report the real surroundings while WiFi and " +
             "cells are simulated."
     override val coordinateSystem = "Per-app coordinate system"
+    override val coordinateSystemExample = "Example: com.autonavi.minimap=GCJ02"
     override val coordinateSystemHint =
         "Format: package=datum, several entries separated by semicolons. The datum is one of " +
             "AUTO, WGS84, GCJ02 or BD09. A fix carries no datum of its own, so an app drawing " +
@@ -421,6 +456,25 @@ object EnglishStrings : Strings {
     override val routeSavedAs = "Saved \"%s\" (%d waypoints, %.0f m)."
     override val routeLoadedAs = "\"%s\" (%d %s)"
     override val nameRequiredWithLimit = "A route name is required, %d characters at most."
+    override val saveRouteTitle = "Save route as"
+    override val saveOverTitle = "Save over \"%s\"?"
+    override val saveConfirm = "Save"
+    override val saveAsNew = "Save as new"
+    override val loadRouteTitle = "Replace the current draft?"
+    override val loadRouteMessage =
+        "Loading \"%s\" discards the current %d waypoints. Save them first if they are " +
+            "worth keeping."
+    override val loadConfirm = "Load"
+    override val renameRouteTitle = "Rename route"
+    override val renameConfirm = "Rename"
+    override val deleteRouteTitle = "Delete \"%s\"?"
+    override val deleteRouteMessage =
+        "The route is removed from the list. The map draft is not affected."
+    override val deleteConfirm = "Delete"
+    override val savedRouteRow = "%s  (%d points, %.0f m)%s"
+    override val savedRouteCurrentMark = "  *"
+    override val deleteShort = "×"
+    override val recordingStatus = "%s (%d pts, %.0f m)"
     override val exportRoutes = "Export every route to Download/Pacer"
     override val exported = "Wrote %d file(s) to Download/%s."
     override val exportFailed = "Wrote %d file(s), then stopped: %s"
@@ -432,6 +486,7 @@ object EnglishStrings : Strings {
     override val startedRoute = "Following %d waypoints (%.0f m) at %.2f m/s."
     override val startedRouteWithPlan =
         "Following %d waypoints (%.0f m); the plan sets the speed on top of %.2f m/s.%s"
+    override val planNotice = " Plan: %s."
     override val planPassSummary = "%.0f s / %.0f m per pass"
     override val planTotalSummary = ", %.0f m in total"
     override val planTotalForever = ", repeating for the whole route"
@@ -614,6 +669,7 @@ object ChineseStrings : Strings {
     override val bluetooth = "模拟蓝牙环境"
     override val bluetoothHint = "关闭时，WiFi 和基站仍然被模拟，但蓝牙扫描会报告真实周边。"
     override val coordinateSystem = "按应用指定坐标系"
+    override val coordinateSystemExample = "例：com.autonavi.minimap=GCJ02"
     override val coordinateSystemHint =
         "格式：包名=坐标系，多项用分号隔开。坐标系可填 AUTO、WGS84、GCJ02 或 BD09。" +
             "定位数据本身不带基准，画在中国底图上的应用会当成 GCJ-02、画在谷歌底图上的会" +
@@ -694,6 +750,23 @@ object ChineseStrings : Strings {
     override val routeSavedAs = "已保存「%s」（%d 个路径点，%.0f 米）。"
     override val routeLoadedAs = "「%s」（%d %s）"
     override val nameRequiredWithLimit = "需要填写路线名，最多 %d 个字符。"
+    override val saveRouteTitle = "保存路线"
+    override val saveOverTitle = "覆盖「%s」？"
+    override val saveConfirm = "保存"
+    override val saveAsNew = "另存为新路线"
+    override val loadRouteTitle = "替换当前草稿？"
+    override val loadRouteMessage =
+        "载入「%s」会丢弃当前 %d 个路径点。想留着就先保存。"
+    override val loadConfirm = "载入"
+    override val renameRouteTitle = "重命名路线"
+    override val renameConfirm = "重命名"
+    override val deleteRouteTitle = "删除「%s」？"
+    override val deleteRouteMessage = "只从已保存列表里移除，地图上的草稿不受影响。"
+    override val deleteConfirm = "删除"
+    override val savedRouteRow = "%s（%d 个路径点，%.0f 米）%s"
+    override val savedRouteCurrentMark = "  *"
+    override val deleteShort = "×"
+    override val recordingStatus = "%s（%d 个点，%.0f 米）"
     override val exportRoutes = "导出全部路线到下载/Pacer"
     override val exported = "已写入 %d 个文件到下载/%s。"
     override val exportFailed = "已写入 %d 个文件，然后中断：%s"
@@ -705,6 +778,7 @@ object ChineseStrings : Strings {
     override val startedRoute = "正在沿 %d 个路径点（%.0f 米）以 %.2f m/s 前进。"
     override val startedRouteWithPlan =
         "正在沿 %d 个路径点（%.0f 米）前进；速度在 %.2f m/s 的基础上由计划调整。%s"
+    override val planNotice = "计划：%s。"
     override val planPassSummary = "每趟 %.0f 秒 / %.0f 米"
     override val planTotalSummary = "，合计 %.0f 米"
     override val planTotalForever = "，沿整条路线循环"

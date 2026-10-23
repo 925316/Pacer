@@ -110,6 +110,12 @@ class StringsFormatTest {
                 strings.routeSavedAs,
                 strings.routeLoadedAs,
                 strings.nameRequiredWithLimit,
+                strings.saveOverTitle,
+                strings.loadRouteMessage,
+                strings.deleteRouteTitle,
+                strings.savedRouteRow,
+                strings.recordingStatus,
+                strings.planNotice,
             )
             for (template in templates) {
                 assertTrue("no specifiers in \"$template\"", specifiers(template).isNotEmpty())
@@ -117,4 +123,48 @@ class StringsFormatTest {
             }
         }
     }
+
+    /**
+     * The saved-route row and the two lines built around it are formatted from one call
+     * site, so a language that listed the same specifiers in another order would put the
+     * length where the name belongs. The order is part of the check, not just the count.
+     */
+    @Test
+    fun `the saved route lines keep their argument order`() {
+        for (strings in both) {
+            assertEquals(listOf("%s", "%d", "%.0f", "%s"), specifiers(strings.savedRouteRow))
+            assertEquals(listOf("%s", "%d"), specifiers(strings.loadRouteMessage))
+            assertEquals(listOf("%s", "%d", "%.0f"), specifiers(strings.recordingStatus))
+            assertEquals(listOf("%s"), specifiers(strings.planNotice))
+        }
+    }
+
+    /**
+     * These are plain sentences with no specifiers, so nothing formats them and nothing
+     * fails if the Chinese table was left holding the English text. Requiring a Han
+     * character is what catches that copy-paste.
+     */
+    @Test
+    fun `the saved route dialogs are written in Chinese`() {
+        val chinese = listOf(
+            ChineseStrings.saveRouteTitle,
+            ChineseStrings.saveOverTitle,
+            ChineseStrings.saveConfirm,
+            ChineseStrings.saveAsNew,
+            ChineseStrings.loadRouteTitle,
+            ChineseStrings.loadRouteMessage,
+            ChineseStrings.loadConfirm,
+            ChineseStrings.renameRouteTitle,
+            ChineseStrings.renameConfirm,
+            ChineseStrings.deleteRouteTitle,
+            ChineseStrings.deleteRouteMessage,
+            ChineseStrings.deleteConfirm,
+            ChineseStrings.coordinateSystemExample,
+        )
+        for (text in chinese) {
+            assertTrue("\"$text\" is not Chinese", hasChinese(text))
+        }
+    }
+
+    private fun hasChinese(text: String): Boolean = text.any { it in '\u4E00'..'\u9FFF' }
 }
