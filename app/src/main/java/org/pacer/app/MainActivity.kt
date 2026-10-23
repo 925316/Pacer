@@ -67,6 +67,51 @@ internal fun reportedSpeedMps(
 }
 
 /**
+ * A labelled action offered by a notice, e.g. the button that opens the map when a start is
+ * refused because there is nothing to run.
+ *
+ * A notice that names a next step is only useful if that step is one tap away: the route is
+ * on another page and its points are placed in another activity, so plain text saying "on the
+ * map" is a hint the user has to translate into navigation.
+ */
+internal class NoticeAction(val label: String, val onChosen: () -> Unit)
+
+/**
+ * The route line at the top of the run page.
+ *
+ * The run page is where the app opens, and it used to say nothing about the line a run would
+ * follow: the route was one tab away and only the route page mentioned it. This line answers
+ * "which line, how long" where the Start button is, and names the next step when there is
+ * nothing to run yet.
+ *
+ * [complete] is [RouteDraft.isValid] as the caller already computes it, rather than a second
+ * copy of "two distinct points" here. A single waypoint is not an error state: it still
+ * cannot be a route, and saying so is what points the user at either the second point or
+ * joystick mode.
+ *
+ * Top-level so a JVM test can pin the three cases without an Android runtime.
+ */
+internal fun runPageRouteSummary(
+    waypointCount: Int,
+    lengthMeters: Double,
+    complete: Boolean,
+    strings: Strings,
+): String = when {
+    waypointCount <= 0 -> strings.runPageNoRoute
+    else -> String.format(
+        Locale.US,
+        strings.routeSummary,
+        waypointCount,
+        lengthMeters,
+        if (complete) {
+            strings.routeSummaryOpenMapHint
+        } else {
+            strings.routeSummaryIncomplete + strings.routeSummaryOpenMapHint
+        },
+    )
+}
+
+/**
  * The three pages: what a run is, what it runs along, and how it is reported.
  *
  * Split because the alternative was one column of fourteen sections where reaching Start
@@ -95,6 +140,7 @@ class MainActivity : Activity() {
     private lateinit var noticeStrip: LinearLayout
     private lateinit var noticeText: TextView
     private lateinit var noticeDismiss: Button
+    private lateinit var noticeAction: Button
 
     /**
      * When the current notice should disappear, on [SystemClock.elapsedRealtime]; null means
@@ -169,6 +215,16 @@ class MainActivity : Activity() {
     private lateinit var positionNoiseToggle: CheckBox
 
     private lateinit var routeSummary: TextView
+
+    /**
+     * The route line on the run page.
+     *
+     * Tappable and coloured like a link, because it is one: it opens the map where the
+     * waypoints are actually placed. The route page's own summary is plain text beside an
+     * explicit Open-map button, but here there is no button to lean on, so the line has to
+     * look like something that can be tapped instead of being silently clickable.
+     */
+    private lateinit var runPageRouteLine: TextView
 
     /** One row per saved route: name, length, and the three actions on it. */
     private lateinit var savedRouteBox: LinearLayout
@@ -307,6 +363,17 @@ class MainActivity : Activity() {
     private fun buildRunPage(): LinearLayout {
         val root = pageBody()
         root.addView(titleView(strings.tabRun))
+
+        // The line this page would run. First, because it is the one thing a user who just
+        // opened the app has to decide about before the speed or the plan matters.
+        runPageRouteLine = TextView(this).apply {
+            textSize = 15f
+            setTextColor(TAB_ACTIVE)
+            setPadding(0, 0, 0, 12)
+            isClickable = true
+            setOnClickListener { openRouteMap() }
+        }
+        root.addView(runPageRouteLine)
 
         root.addView(section(strings.speed))
         val speedGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
@@ -647,6 +714,16 @@ class MainActivity : Activity() {
         startActivity(Intent(this, MapActivity::class.java))
     }
 
+    /**
+     * Where the route line on the run page sends the user: the route tab, with the map on
+     * top of it, because the waypoints are placed in that activity and nothing on the run
+     * page can add one.
+     */
+    private fun openRouteMap() {
+        selectPage(Page.ROUTE)
+        openMap()
+    }
+
     /** Shows what is actually configured. */
     private fun restoreFromStore() {
         // Read on its own: a table saved before any run was ever started is still applied by
@@ -790,12 +867,16 @@ class MainActivity : Activity() {
      * matters: a user who looked away at the wrong moment must not come back to a screen
      * that looks like the run started.
      */
-    private fun setNotice(text: String, kind: NoticeKind = NoticeKind.INFO) {
+    private fun setNotice(
+        text: String,
+        kind: NoticeKind = NoticeKind.INFO,
+        action: NoticeAction? = null,
+    ) {
         if (!::noticeStrip.isInitialized) return
-        showNotice(text, kind)
+        showNotice(text, kind, action)
     }
 
-    private fun showNotice(text: String, kind: NoticeKind) {
+    private fun showNotice(text: String, kind: NoticeKind, action: NoticeAction? = null) {
         handler.removeCallbacks(hideNoticeTask)
         noticeText.text = text
         noticeStrip.visibility = View.VISIBLE
@@ -807,6 +888,19 @@ class MainActivity : Activity() {
             },
         )
         noticeDismiss.visibility = if (kind == NoticeKind.FAILURE) View.VISIBLE else View.GONE
+        // The action is offered only by the caller that has somewhere to send the user, so a
+        // plain failure must not keep the previous one's button or its old target.
+        noticeAction.visibility = if (action != null) View.VISIBLE else View.GONE
+        noticeAction.text = action?.label.orEmpty()
+        noticeAction.setOnClickListener(null)
+        if (action != null) {
+            noticeAction.setOnClickListener {
+                // The notice describes a refusal that the action answers, so it goes with the
+                // tap: coming back from the map to "there is no route" would be a stale claim.
+                hideNotice()
+                action.onChosen()
+            }
+        }
         // A failure is the one thing worth interrupting a screen reader for; the rest can
         // wait for the reader to reach them.
         noticeStrip.accessibilityLiveRegion = if (kind == NoticeKind.FAILURE) {
@@ -825,6 +919,10 @@ class MainActivity : Activity() {
         noticeDeadlineAtMs = null
         noticeStrip.visibility = View.GONE
         noticeText.text = ""
+        // The action belongs to the text above it; leaving it armed would let a stale "Open
+        // the map" fire from a strip the user has already dismissed.
+        noticeAction.visibility = View.GONE
+        noticeAction.setOnClickListener(null)
     }
 
     /**
@@ -865,12 +963,27 @@ class MainActivity : Activity() {
             noticeText,
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
         )
+        // Between the sentence and dismiss, and only when the caller offered one: the strip
+        // is the one place a failure can put the next step next to the reason it was refused.
+        noticeAction = Button(this).apply {
+            textSize = 13f
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            setTextColor(NOTICE_TEXT_COLOR)
+            setPadding(dp(8), 0, dp(8), 0)
+            visibility = View.GONE
+        }
+        noticeStrip.addView(noticeAction)
         noticeDismiss = Button(this).apply {
             text = strings.dismissNotice
             textSize = 13f
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
+            // The strip is a dark panel in every notice kind, so the label has to be the
+            // strip's text colour rather than the framework's dark-on-light default.
+            setTextColor(NOTICE_TEXT_COLOR)
             setPadding(dp(8), 0, dp(8), 0)
             setOnClickListener { hideNotice() }
         }
@@ -1220,6 +1333,9 @@ class MainActivity : Activity() {
      * The points are placed, dragged and removed on the map, so there is no per-point list
      * here: a second list that also edits them would duplicate the map. What is left is the
      * one thing the map cannot say at a glance - how long the route is.
+     *
+     * The run page shows the same line, because starting is done there and the route is
+     * drawn on the other page; both are refreshed from here so they cannot disagree.
      */
     private fun renderRoute() {
         routeSummary.text = String.format(
@@ -1229,6 +1345,14 @@ class MainActivity : Activity() {
             draft.totalLengthMeters(),
             if (draft.isValid) "" else strings.routeSummaryIncomplete,
         )
+        if (::runPageRouteLine.isInitialized) {
+            runPageRouteLine.text = runPageRouteSummary(
+                waypointCount = draft.size,
+                lengthMeters = draft.totalLengthMeters(),
+                complete = draft.isValid,
+                strings = strings,
+            )
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -1499,7 +1623,18 @@ class MainActivity : Activity() {
             return
         }
         if (!draft.isValid) {
-            setNotice(strings.needTwoWaypoints)
+            // Two different next steps, so two sentences. Neither reuses needTwoWaypoints:
+            // that one is shared with the audit and the preview, which really do need a
+            // polyline and must not suggest that the joystick would do instead.
+            setNotice(
+                if (draft.size == 1) {
+                    strings.startNeedsAnotherWaypoint
+                } else {
+                    strings.startNeedsRouteOnMap
+                },
+                NoticeKind.FAILURE,
+                NoticeAction(strings.openMapAction) { openRouteMap() },
+            )
             return
         }
         // The road path when one was planned on the map screen, the plain polyline otherwise.
@@ -1541,7 +1676,6 @@ class MainActivity : Activity() {
                     strings.startedRouteWithPlan,
                     geometry.size,
                     route.totalLengthMeters,
-                    speed,
                     planSummary(plan),
                 )
             },

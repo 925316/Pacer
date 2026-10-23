@@ -45,7 +45,16 @@ interface Strings {
     val routeHint: String
     val routeSummary: String
     val routeSummaryIncomplete: String
+
+    /** What the route line on the run page appends to say that tapping it opens the map. */
+    val routeSummaryOpenMapHint: String
+
+    /** The run page's route line when there is nothing to run: it has to name the next step. */
+    val runPageNoRoute: String
     val openMap: String
+
+    /** The short label on the notice button that goes to the map. */
+    val openMapAction: String
     val loadSample: String
     val startRecording: String
     val stopRecording: String
@@ -244,6 +253,13 @@ interface Strings {
     val recording: String
     val nothingRecorded: String
     val needTwoWaypoints: String
+
+    /**
+     * Start refused because the draft is not a route. Separate from [needTwoWaypoints],
+     * which the audit and the preview share and which must not suggest joystick mode.
+     */
+    val startNeedsRouteOnMap: String
+    val startNeedsAnotherWaypoint: String
     val grantOverlay: String
     val auditing: String
     val simulating: String
@@ -321,7 +337,11 @@ object EnglishStrings : Strings {
             "handle to move it. This list is what the map has drawn."
     override val routeSummary = "Waypoints: %d   Length: %.0f m%s"
     override val routeSummaryIncomplete = "   (need two distinct points to run a route)"
+    override val routeSummaryOpenMapHint = "   Tap to open the map"
+    override val runPageNoRoute =
+        "No route yet. Tap to draw one on the map; one waypoint is enough for joystick mode."
     override val openMap = "Open the map and controls"
+    override val openMapAction = "Open the map"
     override val loadSample = "Load sample route (Urumqi)"
     override val startRecording = "Start recording from the joystick"
     override val stopRecording = "Stop recording"
@@ -487,7 +507,7 @@ object EnglishStrings : Strings {
         "Joystick mode started at %.5f, %.5f, heading %.0f deg; the speed comes from the plan.%s"
     override val startedRoute = "Following %d waypoints (%.0f m) at %.2f m/s."
     override val startedRouteWithPlan =
-        "Following %d waypoints (%.0f m); the plan sets the speed on top of %.2f m/s.%s"
+        "Following %d waypoints (%.0f m); the plan decides the speed for this run.%s"
     override val planNotice = " Plan: %s."
     override val planPassSummary = "%.0f s / %.0f m per pass"
     override val planTotalSummary = ", %.0f m in total"
@@ -547,6 +567,12 @@ object EnglishStrings : Strings {
     override val nothingRecorded = "Nothing was recorded: the subject did not move far enough."
     override val needTwoWaypoints =
         "Add at least two waypoints that are not the same place before starting a route."
+    override val startNeedsRouteOnMap =
+        "There is no route to run yet. Open the map on the Route page and tap two different " +
+            "places."
+    override val startNeedsAnotherWaypoint =
+        "A route needs two waypoints. Add a second one on the map, or start joystick mode " +
+            "from the one you have."
     override val grantOverlay = "Grant overlay permission, then tap again."
     override val auditing = "Auditing the track..."
     override val simulating = "Simulating..."
@@ -637,7 +663,11 @@ object ChineseStrings : Strings {
         "路径点在地图上放置：拖动到目标位置，点击追加一个点，拖动圆点可以移动它。这里只是列出地图上已画好的点。"
     override val routeSummary = "路径点：%d   长度：%.0f 米%s"
     override val routeSummaryIncomplete = "   （需要两个不同的点才能跑路线）"
+    override val routeSummaryOpenMapHint = "   点一下打开地图"
+    override val runPageNoRoute =
+        "还没有路线。点一下在地图上画一条；只有一个点也能用摇杆模式。"
     override val openMap = "打开地图与控制器"
+    override val openMapAction = "打开地图"
     override val loadSample = "载入示例路线（乌鲁木齐）"
     override val startRecording = "用摇杆开始录制"
     override val stopRecording = "停止录制"
@@ -779,7 +809,7 @@ object ChineseStrings : Strings {
         "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度；速度由变速计划提供。%s"
     override val startedRoute = "正在沿 %d 个路径点（%.0f 米）以 %.2f m/s 前进。"
     override val startedRouteWithPlan =
-        "正在沿 %d 个路径点（%.0f 米）前进；速度在 %.2f m/s 的基础上由计划调整。%s"
+        "正在沿 %d 个路径点（%.0f 米）前进；这一趟的速度完全由变速计划决定。%s"
     override val planNotice = "计划：%s。"
     override val planPassSummary = "每趟 %.0f 秒 / %.0f 米"
     override val planTotalSummary = "，合计 %.0f 米"
@@ -832,6 +862,10 @@ object ChineseStrings : Strings {
     override val recording = "录制中。用悬浮摇杆操控方向，停止时保存路线。"
     override val nothingRecorded = "没有录制到内容：移动距离不够。"
     override val needTwoWaypoints = "开始路线前请至少添加两个不同的路径点。"
+    override val startNeedsRouteOnMap =
+        "现在还没有可以跑的路线。去「路线」页打开地图，点两个不同的位置画一条。"
+    override val startNeedsAnotherWaypoint =
+        "路线至少要两个路径点。在地图上再加一个；或者就用现在这个点开摇杆模式。"
     override val grantOverlay = "请先授予悬浮窗权限，然后重试。"
     override val auditing = "正在审查轨迹..."
     override val simulating = "模拟中..."

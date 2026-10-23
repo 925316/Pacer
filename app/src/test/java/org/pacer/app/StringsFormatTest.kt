@@ -97,6 +97,7 @@ class StringsFormatTest {
                 strings.startedJoystickModeWithPlan,
                 strings.startedRoute,
                 strings.startedRouteWithPlan,
+                strings.routeSummary,
                 strings.planPassSummary,
                 strings.planTotalSummary,
                 strings.mapRouteSummary,
@@ -121,6 +122,21 @@ class StringsFormatTest {
                 assertTrue("no specifiers in \"$template\"", specifiers(template).isNotEmpty())
                 fill(template)
             }
+        }
+    }
+
+    /**
+     * The start notice for a plan-driven route.
+     *
+     * It used to promise that the plan adjusted a speed the user had chosen, and printed that
+     * number, although the engine hands the whole speed curve to the plan and never reads the
+     * chosen one. The template now carries the plan's own summary and nothing about the old
+     * speed; the count matters because a leftover `%.2f` would throw on the call site.
+     */
+    @Test
+    fun `a route started with a plan names two numbers and the plan`() {
+        for (strings in both) {
+            assertEquals(listOf("%d", "%.0f", "%s"), specifiers(strings.startedRouteWithPlan))
         }
     }
 
