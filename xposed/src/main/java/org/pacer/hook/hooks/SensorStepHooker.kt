@@ -15,6 +15,7 @@ import org.pacer.hook.utils.CallScope
 import org.pacer.hook.utils.HookUtils
 import org.pacer.hook.utils.PacerLog
 import org.pacer.motion.SensorWaveGenerator
+import org.pacer.motion.StrideLinker
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.util.concurrent.ConcurrentHashMap
@@ -32,6 +33,15 @@ object SensorStepHooker {
     @Volatile private var stepBase = INITIAL_BOOT_STEPS
     @Volatile private var lastSteps = INITIAL_BOOT_STEPS
     @Volatile private var lastInitTime = 0L
+
+    /**
+     * When [lastSteps] was last advanced, for the straight-line counter.
+     *
+     * The counter is integrated one call at a time, so it needs the interval since the
+     * previous call rather than the run's total elapsed time. Zero means "not started", and
+     * a new run resets it to the run's own start.
+     */
+    @Volatile private var lastStepTickMs = 0L
 
     /**
      * The last REAL step-counter reading this process saw, before the module
@@ -468,17 +478,29 @@ object SensorStepHooker {
         }
     }
 
-    /** Cumulative steps since [startTimestampMs] at the configured speed. */
+    /**
+     * Cumulative steps since [startTimestampMs].
+     *
+     * Accumulated from the distance covered rather than from `cadence(now) * elapsed`. That
+     * product only equals the integral while the speed is constant, and a plan makes it vary:
+     * with a decreasing speed the product itself decreases, so the counter ran BACKWARDS - up
+     * to several hundred steps in one second, a shape no device produces. Using the stride
+     * instead of the jittered cadence also keeps this deterministic, matching the route
+     * branch's own `cumulativeSteps`.
+     */
     fun currentSteps(startTimestampMs: Long, speedMps: Double, now: Long = System.currentTimeMillis()): Long {
         // Route mode: steps come straight from the humanized run so they stay
         // consistent with the injected coordinates.
         RouteEngine.sampleAt(now)?.let { return routeSteps(startTimestampMs, it.cumulativeSteps) }
         val start = startOf(startTimestampMs, now)
         resetBaseIfNewRun(start)
-        if (speedMps <= 0.05) return lastSteps.toLong()
-        val elapsedSec = ((now - start).coerceAtLeast(0L)) / 1000.0
-        val cadence = autoCadenceSpm(speedMps)
-        lastSteps = stepBase + cadence / 60.0 * elapsedSec
+        // One increment per call, sized by the interval since the previous one, so the series
+        // continues the device's own count instead of restarting at zero.
+        if (lastStepTickMs == 0L) lastStepTickMs = start
+        val dtSec = ((now - lastStepTickMs).coerceAtLeast(0L)) / 1000.0
+        lastStepTickMs = now
+        if (speedMps <= 0.05 || dtSec <= 0.0) return lastSteps.toLong()
+        lastSteps += speedMps * dtSec / StrideLinker.strideForSpeed(speedMps)
         return lastSteps.toLong()
     }
 
@@ -519,6 +541,7 @@ object SensorStepHooker {
         lastInitTime = start
         stepBase = if (realStepBase >= 0f) realStepBase.toDouble() else lastSteps
         lastSteps = stepBase
+        lastStepTickMs = start
     }
 
     /** Cadence used for the accelerometer phase: route-aware when available. */
