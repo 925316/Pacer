@@ -34,6 +34,17 @@ interface Strings {
     val tabRun: String
     val tabRoute: String
     val tabSettings: String
+
+    /**
+     * The map page's own heading and the control that leaves it.
+     *
+     * The page is a separate activity under a NoActionBar theme, so nothing in the system
+     * chrome says where the user is or how to go back: both have to be on the page. The
+     * back label is neutral because the page is opened from the run page as well as from
+     * the route page, and it returns to whichever one sent the user here.
+     */
+    val mapTitle: String
+    val mapBack: String
     val speed: String
     val walk: String
     val run: String
@@ -245,6 +256,14 @@ interface Strings {
     val statusIdle: String
     val statusRunning: String
     val statusPaused: String
+
+    /**
+     * The pinned state line: state, elapsed time, position, speed and the unit.
+     *
+     * The unit is a specifier rather than a literal so the line says "米/秒" wherever the
+     * speed field beside it does, instead of the two spellings the same value used to get.
+     */
+    val statusLine: String
     val language: String
     val continueLabel: String
     val dontShowAgain: String
@@ -353,6 +372,8 @@ object EnglishStrings : Strings {
     override val tabRun = "Simulate"
     override val tabRoute = "Route"
     override val tabSettings = "Settings"
+    override val mapTitle = "Map"
+    override val mapBack = "Back"
     override val speed = "Steady speed"
     override val walk = "Walk 1.4"
     override val run = "Run 3.0"
@@ -575,6 +596,7 @@ object EnglishStrings : Strings {
     override val statusIdle = "Idle: no simulation is running."
     override val statusRunning = "Running"
     override val statusPaused = "Paused"
+    override val statusLine = "%s   %d:%02d   %s   %.1f %s"
     override val language = "Language"
     override val continueLabel = "Continue"
     override val dontShowAgain = "Don't show this again"
@@ -692,6 +714,8 @@ object ChineseStrings : Strings {
     override val tabRun = "模拟"
     override val tabRoute = "路线"
     override val tabSettings = "设置"
+    override val mapTitle = "地图"
+    override val mapBack = "返回"
     override val speed = "常规速度"
     override val walk = "步行 1.4"
     override val run = "跑步 3.0"
@@ -699,7 +723,7 @@ object ChineseStrings : Strings {
     override val custom = "自定义"
     override val customSpeed = "自定义速度"
     override val customSpeedHint =
-        "只在选中「自定义」时使用。低于 0.3 m/s 会被当作原地静止，只在原地微动。"
+        "只在选中「自定义」时使用。低于 0.3 米/秒会被当作原地静止，只在原地微动。"
     override val route = "路线"
     override val routeHint =
         "路径点在地图上放置：拖动到目标位置，点击追加一个点，拖动圆点可以移动它。这里只是列出地图上已画好的点。"
@@ -852,10 +876,10 @@ object ChineseStrings : Strings {
     override val exportFailed = "已写入 %d 个文件，然后中断：%s"
     override val nothingToExport = "没有已保存的路线，也没有画好的路线可导出。"
     override val currentDraftFileName = "当前草稿"
-    override val startedJoystickMode = "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度，%.2f m/s。"
+    override val startedJoystickMode = "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度，%.2f 米/秒。"
     override val startedJoystickModeWithPlan =
         "摇杆模式已在 %.5f, %.5f 启动，方向 %.0f 度；速度由变速计划提供。%s"
-    override val startedRoute = "正在沿 %d 个路径点（%.0f 米）以 %.2f m/s 前进。"
+    override val startedRoute = "正在沿 %d 个路径点（%.0f 米）以 %.2f 米/秒前进。"
     override val startedRouteWithPlan =
         "正在沿 %d 个路径点（%.0f 米）前进；这一趟的速度完全由变速计划决定。%s"
     override val planNotice = "计划：%s。"
@@ -888,6 +912,7 @@ object ChineseStrings : Strings {
     override val statusIdle = "空闲：没有正在运行的模拟。"
     override val statusRunning = "运行中"
     override val statusPaused = "已暂停"
+    override val statusLine = "%s   %d:%02d   %s   %.1f %s"
     override val language = "语言"
     override val continueLabel = "继续"
     override val dontShowAgain = "不再显示此页"
@@ -925,7 +950,7 @@ object ChineseStrings : Strings {
     override val centre = "居中"
     override val start = "开始"
     override val stop = "停止"
-    override val speedMpsLabel = "速度 m/s"
+    override val speedMpsLabel = "速度 米/秒"
     override val loopShort = "循环"
     override val nothingToCentre = "还没有可以居中的目标。"
     override val moveSimulationHere = "把模拟移到这里..."
@@ -944,7 +969,7 @@ object ChineseStrings : Strings {
     override val centredOnSubject = "已居中到模拟位置 %.5f, %.5f。"
     override val centredOnLast = "已居中到最后一个路径点。"
     override val simulatingWithPlan = "正在按变速计划模拟 %d 个路径点%s。"
-    override val simulatingAtSpeed = "正以 %.1f m/s 模拟 %d 个路径点%s。"
+    override val simulatingAtSpeed = "正以 %.1f 米/秒模拟 %d 个路径点%s。"
     override val repeatingSuffix = "，循环"
     override val noTilesForLayer = "%s 没有 %s 图层。"
     override val simControlChannel = "模拟控制"

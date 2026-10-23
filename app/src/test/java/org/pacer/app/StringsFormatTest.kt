@@ -117,6 +117,7 @@ class StringsFormatTest {
                 strings.savedRouteRow,
                 strings.recordingStatus,
                 strings.planNotice,
+                strings.statusLine,
             )
             for (template in templates) {
                 assertTrue("no specifiers in \"$template\"", specifiers(template).isNotEmpty())
@@ -180,6 +181,19 @@ class StringsFormatTest {
         for (text in chinese) {
             assertTrue("\"$text\" is not Chinese", hasChinese(text))
         }
+    }
+
+    /**
+     * The map page's own heading and its way out.
+     *
+     * The page is a separate activity under a NoActionBar theme, so these two strings are
+     * the only thing that says which page this is and how to leave it. Nothing formats them,
+     * so a Chinese table still holding the English text would fail no other check.
+     */
+    @Test
+    fun `the map page heading and its back control are translated`() {
+        assertTrue(hasChinese(ChineseStrings.mapTitle))
+        assertTrue(hasChinese(ChineseStrings.mapBack))
     }
 
     private fun hasChinese(text: String): Boolean = text.any { it in '\u4E00'..'\u9FFF' }

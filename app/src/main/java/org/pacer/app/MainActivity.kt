@@ -69,6 +69,34 @@ internal fun reportedSpeedMps(
 }
 
 /**
+ * The pinned state line: state, elapsed time, position, speed and that speed's unit.
+ *
+ * Top-level and formatted from the template rather than assembled from pieces, so the unit
+ * can come from [Strings.unitMps] - the same field the speed box beside it shows. The line
+ * used to hard-code "m/s", which left a Chinese user reading "3.0 米/秒" in the box and
+ * "3.0 m/s" in the bar for the same value.
+ *
+ * [elapsedSeconds] is a Long because the caller already divided the run's clock into Long
+ * seconds, and narrowing it here would be a lossy step with no reason behind it.
+ */
+internal fun statusLineText(
+    strings: Strings,
+    label: String,
+    elapsedSeconds: Long,
+    where: String,
+    speedMps: Double,
+): String = String.format(
+    Locale.US,
+    strings.statusLine,
+    label,
+    elapsedSeconds / 60,
+    elapsedSeconds % 60,
+    where,
+    speedMps,
+    strings.unitMps,
+)
+
+/**
  * A labelled action offered by a notice, e.g. the button that opens the map when a start is
  * refused because there is nothing to run.
  *
@@ -1111,14 +1139,12 @@ class MainActivity : Activity() {
             val where = sample?.point
                 ?.let { String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon) }
                 ?: String.format(Locale.US, "%.5f, %.5f", stored.lat, stored.lon)
-            String.format(
-                Locale.US,
-                "%s   %d:%02d   %s   %.1f m/s",
-                label,
-                seconds / 60,
-                seconds % 60,
-                where,
-                reportedSpeedMps(
+            statusLineText(
+                strings = strings,
+                label = label,
+                elapsedSeconds = seconds,
+                where = where,
+                speedMps = reportedSpeedMps(
                     sampleMps = sample?.speedMps,
                     configuredMps = stored.speed,
                     paused = paused,

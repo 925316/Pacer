@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -14,6 +15,7 @@ import org.pacer.motion.MapDefaults
 import org.pacer.motion.MotionOwner
 import org.pacer.motion.RouteDraft
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * What the map's move control can do with the run that is stored.
@@ -147,6 +149,7 @@ class MapActivity : Activity() {
         }
 
         info = TextView(this).apply { textSize = 14f }
+        column.addView(buildTitleRow())
         column.addView(info)
 
         // Basemaps are a row of buttons rather than a spinner: there are three, and a tap is
@@ -669,11 +672,50 @@ class MapActivity : Activity() {
         return total
     }
 
+    /**
+     * The page's own heading, and the only way out of it.
+     *
+     * The activity runs under a NoActionBar theme like the rest of the app, so the system
+     * draws no title and no up arrow: without this row the page looks like a different app
+     * and leaving it means knowing that the system back gesture exists.
+     *
+     * No separate "Done": it would call [finish] exactly like the back control, and two
+     * controls for one outcome only make the user pick.
+     */
+    private fun buildTitleRow(): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(TITLE_ROW_MIN_HEIGHT_DP)
+        }
+        row.addView(
+            button(strings.mapBack) { finish() }.apply {
+                minimumHeight = dp(TITLE_ROW_MIN_HEIGHT_DP)
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        // Left-aligned beside the back control: centred in what the back control leaves, the
+        // title would sit off the screen's middle by half that control's width.
+        row.addView(
+            titleView(strings.mapTitle).apply {
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                setPadding(dp(TITLE_GAP_DP), 0, 0, 0)
+            },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        return row
+    }
+
     private fun button(label: String, onClick: () -> Unit): Button =
         Button(this).apply {
             text = label
             setOnClickListener { onClick() }
         }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     /**
      * An equal-share button for the edit row.
@@ -695,6 +737,12 @@ class MapActivity : Activity() {
     private companion object {
         /** How often the live marker is moved; the simulation advances in seconds. */
         const val LIVE_POLL_MS = 1000L
+
+        /** The title row's tap targets are at least this tall, as the platform guidance asks. */
+        const val TITLE_ROW_MIN_HEIGHT_DP = 48
+
+        /** Space between the back control and the heading beside it. */
+        const val TITLE_GAP_DP = 12
 
         /**
          * A sample loop in Urumqi, the same place the map opens on.
