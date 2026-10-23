@@ -367,8 +367,9 @@ class MainActivity : Activity() {
         root.addView(
             action(strings.startJoystickMode) {
                 // Only when the run really started: on a refusal there is nothing to steer,
-                // and a floating window over an idle subject explains nothing.
-                if (startStraight()) showJoystick()
+                // and a floating window over an idle subject explains nothing. The callback
+                // covers the confirmed start, which returns before the run exists.
+                startStraight(onStarted = { showJoystick() })
             },
         )
         recordBtn = action(strings.startRecording) { toggleRecording() }
@@ -1155,12 +1156,15 @@ class MainActivity : Activity() {
      * the first waypoint is the one the user placed first, and a run that ignored it would
      * be a run from nowhere in particular.
      *
+     * @param onStarted Runs only on the success path. A deferred confirmation returns before
+     *   the run exists, so a caller that needs to react to the start cannot rely on the
+     *   return value alone; this is invoked for both the immediate and the confirmed start.
      * @return true when a run was actually written, so the caller knows whether showing the
      *   joystick now would point at something real. Every refusal path returns false.
      */
-    private fun startStraight(confirmed: Boolean = false): Boolean {
+    private fun startStraight(confirmed: Boolean = false, onStarted: () -> Unit = {}): Boolean {
         if (!confirmed && PacerConfigClient.owner() != MotionOwner.NONE) {
-            confirmReplace { startStraight(true) }
+            confirmReplace { startStraight(true, onStarted) }
             return false
         }
         val start = draft.points.firstOrNull()
@@ -1214,6 +1218,10 @@ class MainActivity : Activity() {
             },
         )
         updatePauseButton()
+        // Last, so the joystick's own notice displaces the start notice rather than being
+        // displaced by it. The immediate path kept the same order, because the caller ran
+        // showJoystick() only after this had returned true.
+        onStarted()
         return true
     }
 

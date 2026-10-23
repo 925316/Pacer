@@ -36,11 +36,11 @@ class StartupActivity : Activity() {
         strings = stringsFor(settings.language)
         // Asked before drawing, or the screen always claims "not connected".
         PacerConfigClient.init()
-        PacerConfigClient.onReady { runOnUiThread { if (!isFinishing) render() } }
+        PacerConfigClient.onReady { runOnUiThread { if (alive()) render() } }
         // Before the skip-startup shortcut: a user who hides this screen still needs the
         // permissions, and asking from a page they will never see again would only show up
         // much later as an empty self-check.
-        AppPermissions.request(this) { if (!isFinishing) render() }
+        AppPermissions.request(this) { if (alive()) render() }
         if (settings.skipStartup) {
             openMain()
             return
@@ -56,8 +56,12 @@ class StartupActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == AppPermissions.REQUEST_CODE) render()
+        if (requestCode == AppPermissions.REQUEST_CODE && alive()) render()
     }
+
+    /** Whether a callback that outlived the screen may still touch its views. */
+    private fun alive(): Boolean =
+        AppPermissions.canModifyUi(isFinishing, isDestroyed)
 
     private fun render() {
         val root = LinearLayout(this)
@@ -157,6 +161,7 @@ class StartupActivity : Activity() {
         render()
         RootCheck.check { result ->
             runOnUiThread {
+                if (!alive()) return@runOnUiThread
                 rootResult = result
                 rootChecking = false
                 render()

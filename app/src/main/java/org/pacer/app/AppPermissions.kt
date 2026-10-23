@@ -58,6 +58,17 @@ object AppPermissions {
         }
 
     /**
+     * Whether the activity still owns a window a dialog can be attached to.
+     *
+     * Neither flag implies the other: a configuration change destroys the activity with
+     * `isFinishing` still false, and `finish()` alone leaves the window valid until
+     * `onDestroy`. Takes booleans rather than the activity so the rule stays testable on a
+     * plain JVM.
+     */
+    internal fun canModifyUi(isFinishing: Boolean, isDestroyed: Boolean): Boolean =
+        !isFinishing && !isDestroyed
+
+    /**
      * Grants what it can without a dialog, then asks for what is left.
      *
      * `pm grant` through `su` is the only way to satisfy a runtime permission without the
@@ -111,13 +122,24 @@ object AppPermissions {
     }
 
     private fun ask(activity: Activity, wanted: List<String>, onDone: (List<String>) -> Unit) {
+        // A dialog needs the activity's window token, which is gone once it is finishing or
+        // destroyed: show() would throw BadTokenException. The answer still has to travel
+        // back, because the caller redraws from it, and an empty list would claim these
+        // permissions were granted when nobody was asked.
+        if (!canModifyUi(activity.isFinishing, activity.isDestroyed)) {
+            onDone(wanted)
+            return
+        }
         val strings = stringsFor(AppSettings(activity).language)
         AlertDialog.Builder(activity)
             .setTitle(strings.permissionTitle)
             .setMessage(strings.permissionBody)
             .setPositiveButton(strings.permissionGrant) { _, _ ->
+                // The answer to this dialog is the request, not the grant: [onDone] carries
+                // what is still missing, and reporting an empty list here claimed success
+                // before the user had answered the system prompt.
                 activity.requestPermissions(wanted.toTypedArray(), REQUEST_CODE)
-                onDone(emptyList())
+                onDone(wanted)
             }
             .setNegativeButton(strings.permissionLater) { _, _ -> onDone(wanted) }
             .show()
