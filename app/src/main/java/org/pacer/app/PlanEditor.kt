@@ -26,7 +26,10 @@ class PlanEditor(
     private val onChange: (String) -> Unit,
 ) {
 
-    private val draft = PlanDraft(steps = emptyList())
+    /** Both drafts and the choice between them; the one-speed-source rule lives there. */
+    private val state = PlanSourceState()
+
+    private val draft: PlanDraft get() = state.draft
 
     /**
      * The per-kilometre curve, which is the other shape this editor can express.
@@ -35,12 +38,19 @@ class PlanEditor(
      * ("what speed, when"), a run may use only one of them, and giving each its own screen
      * would mean two entry points for one decision.
      */
-    private val paceDraft = PaceDraft()
-    private var paceEnabled = false
+    private val paceDraft: PaceDraft get() = state.pace
+
+    private val paceEnabled: Boolean get() = state.paceEnabled
 
     private val paceColumn = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private val paceTotals = TextView(activity).apply { textSize = 13f }
     private val paceToggle = Button(activity).apply { textSize = 13f; isAllCaps = false }
+
+    /** The curve's presets, shown with the curve and filled in [buildBody]. */
+    private val pacePresets = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        visibility = View.GONE
+    }
 
     /** Rebuilt whole on every change: there are at most a handful of steps. */
     private val stepsColumn = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -124,7 +134,9 @@ class PlanEditor(
                 textSize = 13f
                 isAllCaps = false
                 setOnClickListener {
-                    draft.add()
+                    // Adding a step also makes the steps the shape that runs: a step the
+                    // curve would displace is a button that appears to do nothing.
+                    state.addStep()
                     refresh()
                 }
             },
@@ -154,12 +166,32 @@ class PlanEditor(
                 // Turning the curve on has to displace the steps, because a run has one
                 // speed source. Refusing instead would leave the user with a button that
                 // does nothing and no explanation.
-                draft.steps.clear()
+                state.usePace()
+            } else {
+                state.stopPace()
             }
-            paceEnabled = !paceEnabled
             refresh()
         }
         body.addView(paceToggle)
+        // Above the rows, not below: a five-kilometre preset would otherwise push its own
+        // grid off the screen it just grew.
+        pacePresets.addView(
+            TextView(activity).apply {
+                text = strings.pacePresets
+                textSize = 12f
+                setPadding(0, dp(2), 0, 0)
+            },
+        )
+        pacePresets.addView(
+            presetGrid(
+                PaceDraft.PRESETS.map { preset ->
+                    val caption = strings.pacePresetNames[preset.id] ?: preset.name
+                    val action: () -> Unit = { applyPacePreset(preset) }
+                    caption to action
+                },
+            ),
+        )
+        body.addView(pacePresets)
         body.addView(paceColumn)
         body.addView(paceTotals)
 
@@ -170,7 +202,15 @@ class PlanEditor(
                 setPadding(0, dp(6), 0, 0)
             },
         )
-        body.addView(presetGrid())
+        body.addView(
+            presetGrid(
+                PlanDraft.PRESETS.map { preset ->
+                    val caption = strings.planPresetNames[preset.id] ?: preset.name
+                    val action: () -> Unit = { applyPreset(preset) }
+                    caption to action
+                },
+            ),
+        )
 
         repeatRow.addView(
             TextView(activity).apply {
@@ -206,34 +246,26 @@ class PlanEditor(
     /** Opens the editor, so a start that needs a plan can show what is wrong with it. */
     fun open() = setShow(true)
 
-    /** Loads a stored plan; a blank or unreadable string leaves the editor as it is. */
+    /**
+     * Loads a stored plan; a blank or unreadable string leaves the editor as it is.
+     *
+     * The prefix decides which shape is stored, and [PlanSourceState.load] clears the other
+     * draft so a stored curve cannot keep a stale step plan behind it.
+     */
     fun load(wire: String) {
-        if (wire.isBlank()) {
-            refresh()
-            return
-        }
-        // A stored pace curve and a stored step plan are different kinds of value; reading
-        // the wrong one as "no plan" would silently downgrade a run to a steady speed.
-        if (wire.trim().startsWith(PacePlan.WIRE_PREFIX)) {
-            if (paceDraft.load(wire)) {
-                paceEnabled = true
-                draft.steps.clear()
-                refresh()
-            }
-            return
-        }
-        if (draft.load(wire)) {
-            paceEnabled = false
-        }
+        state.load(wire)
         refresh()
     }
 
-    /** Adopts a preset, so a plan can be built without touching a stepper. */
+    /** Adopts a step preset as the shape that runs, not merely as rows on screen. */
     fun applyPreset(preset: PlanDraft.Preset) {
-        val next = preset.intoDraft()
-        draft.steps.clear()
-        draft.steps.addAll(next.steps)
-        draft.repeats = next.repeats
+        state.adoptSteps(preset)
+        refresh()
+    }
+
+    /** Adopts a pace preset, which also makes the curve the shape that runs. */
+    private fun applyPacePreset(preset: PaceDraft.Preset) {
+        state.adoptPace(preset)
         refresh()
     }
 
@@ -250,23 +282,25 @@ class PlanEditor(
     }
 
     /** The folded label: what will run, without opening anything. */
-    private fun headerSummary(): String = when {
-        expanded -> ""
-        !isValid -> strings.planInvalidShort
-        paceEnabled -> String.format(
-            Locale.US,
-            strings.paceSummary,
-            paceDraft.splits.size,
-            formatPace(paceDraft.averageSplit),
-        )
-        draft.steps.isEmpty() -> strings.planNone
-        else -> String.format(
-            Locale.US,
-            strings.planSummary,
-            draft.steps.size,
-            // Repeats 0 means "for the whole route", and "x0" would read as a mistake.
-            if (draft.repeats == 0) strings.planForever else draft.repeats.toString(),
-        )
+    private fun headerSummary(): String {
+        if (expanded) return ""
+        if (!isValid) return strings.planInvalidShort
+        return when (state.source) {
+            PlanSource.PACE -> String.format(
+                Locale.US,
+                strings.paceSummary,
+                paceDraft.splits.size,
+                formatPace(paceDraft.averageSplit),
+            )
+            PlanSource.STEADY -> strings.planNone
+            PlanSource.STEPS -> String.format(
+                Locale.US,
+                strings.planSummary,
+                draft.steps.size,
+                // Repeats 0 means "for the whole route", and "x0" would read as a mistake.
+                if (draft.repeats == 0) strings.planForever else draft.repeats.toString(),
+            )
+        }
     }
 
     private fun rebuild() {
@@ -322,6 +356,7 @@ class PlanEditor(
     private fun rebuildPace() {
         paceColumn.removeAllViews()
         paceColumn.visibility = if (paceEnabled) View.VISIBLE else View.GONE
+        pacePresets.visibility = if (paceEnabled) View.VISIBLE else View.GONE
         paceTotals.visibility = if (paceEnabled) View.VISIBLE else View.GONE
         if (!paceEnabled) return
 
@@ -460,22 +495,11 @@ class PlanEditor(
      * deciding it afterwards would show the warning one edit behind.
      */
     private fun refresh() {
-        // An empty list means "no plan, steady speed", which is a state the run supports; it
-        // is not a broken plan. Only a list that exists and would not run is invalid.
-        val stepsValid = draft.steps.isEmpty() || draft.toPlan() != null
-        val paceValid = !paceEnabled || paceDraft.toPlan() != null
-        isValid = stepsValid && paceValid
+        // Validity, the send and the header all read the same derived source, so they cannot
+        // disagree about which shape is in effect.
+        isValid = state.isValid
         rebuild()
-        // Handing the wire form to the caller is what actually configures the run, so the
-        // pace curve has to travel through the same channel as the steps. A pace curve sends
-        // an empty step plan: the two are mutually exclusive, and MotionConfig refuses both.
-        onChange(
-            when {
-                !isValid -> ""
-                paceEnabled -> paceDraft.toWireFormat()
-                else -> draft.toWireFormat()
-            },
-        )
+        onChange(state.toWireFormat())
         summary.text = headerSummary()
     }
 
@@ -492,15 +516,20 @@ class PlanEditor(
         gravity = Gravity.CENTER
     }
 
-    /** Presets in rows of three: one per line buried them under the page. */
-    private fun presetGrid(): LinearLayout {
+    /**
+     * Presets in rows of three: one per line buried them under the page.
+     *
+     * [presets] is label-to-action rather than a list of presets so the same grid serves the
+     * step presets and the curve presets, which are different types.
+     */
+    private fun presetGrid(presets: List<Pair<String, () -> Unit>>): LinearLayout {
         val grid = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        for (group in PlanDraft.PRESETS.chunked(PRESETS_PER_ROW)) {
+        for (group in presets.chunked(PRESETS_PER_ROW)) {
             val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-            for (preset in group) {
+            for ((caption, action) in group) {
                 row.addView(
                     Button(activity).apply {
-                        text = strings.planPresetNames[preset.id] ?: preset.name
+                        text = caption
                         textSize = 12f
                         isAllCaps = false
                         minWidth = 0
@@ -511,7 +540,7 @@ class PlanEditor(
                             LinearLayout.LayoutParams.WRAP_CONTENT,
                             1f,
                         )
-                        setOnClickListener { applyPreset(preset) }
+                        setOnClickListener { action() }
                     },
                 )
             }
@@ -576,4 +605,116 @@ internal fun formatPlanTotals(
         totalSeconds / 60.0,
         totalMeters / 1000.0,
     )
+}
+
+/** Which of the editor's speed sources a run would actually be configured with. */
+internal enum class PlanSource {
+    STEADY,
+    STEPS,
+    PACE,
+    ;
+
+    companion object {
+        /**
+         * The shape a run is configured with, from the two facts the editor holds.
+         *
+         * The precedence itself is not a policy worth having - it is what the old send path
+         * applied on its own. [PlanSourceState] never lets the pair arise, so this only has to
+         * give the screen, the send and the tests one answer.
+         */
+        fun of(paceEnabled: Boolean, stepCount: Int): PlanSource = when {
+            paceEnabled -> PACE
+            stepCount > 0 -> STEPS
+            else -> STEADY
+        }
+    }
+}
+
+/**
+ * The editor's two drafts and the flag that says which one runs, without an Android view.
+ *
+ * Both facts being true at once - the curve enabled and a non-empty step list - is the state
+ * in which the rows on screen are not the plan being run. Every method that selects a shape
+ * unselects the other, so that state cannot be produced.
+ */
+internal class PlanSourceState(
+    val draft: PlanDraft = PlanDraft(steps = emptyList()),
+    val pace: PaceDraft = PaceDraft(),
+) {
+
+    var paceEnabled: Boolean = false
+        private set
+
+    val source: PlanSource
+        get() = PlanSource.of(paceEnabled, draft.steps.size)
+
+    /** An absent plan is a valid choice; only a plan that exists and would not run is not. */
+    val isValid: Boolean
+        get() = when (source) {
+            PlanSource.STEADY -> true
+            PlanSource.STEPS -> draft.toPlan() != null
+            PlanSource.PACE -> pace.toPlan() != null
+        }
+
+    /** The one wire string the run is configured from. */
+    fun toWireFormat(): String = when (source) {
+        PlanSource.STEADY -> ""
+        PlanSource.STEPS -> draft.toWireFormat()
+        PlanSource.PACE -> pace.toWireFormat()
+    }
+
+    /** Makes the curve the shape that runs, displacing the steps. */
+    fun usePace() {
+        draft.steps.clear()
+        paceEnabled = true
+    }
+
+    /** Leaves the curve without choosing another shape: the run falls back to steady speed. */
+    fun stopPace() {
+        paceEnabled = false
+    }
+
+    /** Adding a step also selects the steps, or the curve would keep the run. */
+    fun addStep() {
+        paceEnabled = false
+        draft.add()
+    }
+
+    /** Adopts [preset] as the step plan, which also makes it the shape that runs. */
+    fun adoptSteps(preset: PlanDraft.Preset) {
+        val next = preset.intoDraft()
+        draft.steps.clear()
+        draft.steps.addAll(next.steps)
+        draft.repeats = next.repeats
+        paceEnabled = false
+    }
+
+    /** Adopts [preset] as the curve, which also makes it the shape that runs. */
+    fun adoptPace(preset: PaceDraft.Preset) {
+        val next = preset.intoDraft()
+        draft.steps.clear()
+        pace.splits.clear()
+        pace.splits.addAll(next.splits)
+        paceEnabled = true
+    }
+
+    /**
+     * Loads a stored wire string and selects the shape it describes; false when unreadable.
+     *
+     * The prefix decides which draft is read, because a curve and a step plan are different
+     * kinds of value and reading the wrong one as "no plan" would downgrade the run to a
+     * steady speed.
+     */
+    fun load(wire: String): Boolean {
+        if (wire.isBlank()) return false
+        if (wire.trim().startsWith(PacePlan.WIRE_PREFIX)) {
+            if (!pace.load(wire)) return false
+            draft.steps.clear()
+            paceEnabled = true
+            return true
+        }
+        if (!draft.load(wire)) return false
+        paceEnabled = false
+        return true
+    }
 }

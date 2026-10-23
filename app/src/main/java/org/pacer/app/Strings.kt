@@ -133,6 +133,10 @@ interface Strings {
     val paceInvalid: String
     val paceSummary: String
 
+    /** Heading over the curve's presets, and their labels keyed by [PaceDraft.Preset.id]. */
+    val pacePresets: String
+    val pacePresetNames: Map<String, String>
+
     /** The floating strip's dismiss button, which only a failure shows. */
     val dismissNotice: String
 
@@ -400,6 +404,13 @@ object EnglishStrings : Strings {
     override val paceTotals = "%.0f s over %.1f km, mean %s"
     override val paceInvalid = "Every kilometre needs a pace between 2:00 and 60:00."
     override val paceSummary = "%d km, mean %s"
+    override val pacePresets = "Start from a pace preset"
+    override val pacePresetNames = mapOf(
+        "pace-even" to "Even 5:00",
+        "pace-negative" to "Negative",
+        "pace-positive" to "Positive",
+        "pace-5k" to "5 km even",
+    )
     override val dismissNotice = "OK"
     override val overridesCleared = "Coordinate overrides cleared; AUTO applies."
     override val overridesUnreadable = "Nothing in that text was a valid entry, so nothing was saved."
@@ -534,7 +545,7 @@ object EnglishStrings : Strings {
     override val planDuration = "Duration"
     override val planRepeats = "Repeat"
     override val planForever = "forever"
-    override val planPresets = "Start from a preset"
+    override val planPresets = "Start from a step preset"
     override val planInvalid = "This plan does not run: every step needs a speed above zero."
     override val planNone = "steady speed"
     override val planSummary = "%d steps x%s"
@@ -667,6 +678,13 @@ object ChineseStrings : Strings {
     override val paceTotals = "共 %.0f 秒 / %.1f 公里，平均 %s"
     override val paceInvalid = "每一公里都要有配速，范围 2:00 到 60:00。"
     override val paceSummary = "%d 公里，平均 %s"
+    override val pacePresets = "从配速预设开始"
+    override val pacePresetNames = mapOf(
+        "pace-even" to "匀速 5:00",
+        "pace-negative" to "前慢后快",
+        "pace-positive" to "前快后慢",
+        "pace-5k" to "5 公里匀速",
+    )
     override val dismissNotice = "知道了"
     override val overridesCleared = "坐标系覆盖已清空，改为 AUTO。"
     override val overridesUnreadable = "那段文字里没有一条有效记录，什么也没保存。"
@@ -785,7 +803,7 @@ object ChineseStrings : Strings {
     override val planDuration = "时长"
     override val planRepeats = "重复"
     override val planForever = "无限"
-    override val planPresets = "从预设开始"
+    override val planPresets = "从步骤预设开始"
     override val planInvalid = "这个计划跑不了：每一步的速度都必须大于零。"
     override val planNone = "匀速"
     override val planSummary = "%d 步 x%s"

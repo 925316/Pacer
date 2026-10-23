@@ -89,4 +89,68 @@ class PaceDraftTest {
         assertTrue(!draft.load("3.0@180;1.4@60#5"))
         assertEquals("a refused load must not touch the draft", 1, draft.splits.size)
     }
+
+    @Test
+    fun `every pace preset is a plan the engine accepts`() {
+        for (preset in PaceDraft.PRESETS) {
+            val draft = preset.intoDraft()
+            assertNotNull("preset '${preset.name}' must be runnable", draft.toPlan())
+            assertEquals(
+                "preset '${preset.name}' must describe one kilometre per split",
+                preset.splits.size * 1000.0,
+                draft.distanceMeters,
+                1e-9,
+            )
+            for (split in preset.splits) {
+                assertTrue(
+                    "preset '${preset.name}' has $split outside the allowed range",
+                    split >= PaceDraft.MIN_SPLIT_SEC && split <= PaceDraft.MAX_SPLIT_SEC,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the pace presets cover even, negative, positive, and a longer run`() {
+        val even = PaceDraft.PRESETS.firstOrNull { it.id == "pace-even" } ?: error("no even preset")
+        assertEquals("an even preset holds one pace", 1, even.splits.distinct().size)
+        assertEquals(3, even.splits.size)
+
+        val negative = PaceDraft.PRESETS.firstOrNull { it.id == "pace-negative" }
+            ?: error("no negative split preset")
+        // Faster later means FEWER seconds per kilometre later.
+        assertTrue(
+            "negative split must speed up",
+            negative.splits.zipWithNext().all { (a, b) -> b < a },
+        )
+
+        val positive = PaceDraft.PRESETS.firstOrNull { it.id == "pace-positive" }
+            ?: error("no positive split preset")
+        assertTrue(
+            "positive split must slow down",
+            positive.splits.zipWithNext().all { (a, b) -> b > a },
+        )
+
+        val long = PaceDraft.PRESETS.firstOrNull { it.id == "pace-5k" }
+            ?: error("no longer preset")
+        assertEquals(5, long.splits.size)
+        assertEquals(5000.0, long.intoDraft().distanceMeters, 1e-9)
+    }
+
+    @Test
+    fun `a preset is adopted through the splits the editor already edits`() {
+        // The preset must not introduce a second way to describe a curve: it fills the same
+        // list the steppers move, so the plan and the rows cannot disagree.
+        val preset = PaceDraft.PRESETS.first()
+        val draft = preset.intoDraft()
+        assertEquals(preset.splits, draft.splits.toList())
+        assertEquals(1000.0 / preset.splits[0], draft.speedOf(0), 1e-9)
+        assertTrue(draft.toWireFormat().startsWith(PacePlan.WIRE_PREFIX))
+    }
+
+    @Test
+    fun `every pace preset has a distinct id`() {
+        val ids = PaceDraft.PRESETS.map { it.id }
+        assertEquals(ids.size, ids.distinct().size)
+    }
 }

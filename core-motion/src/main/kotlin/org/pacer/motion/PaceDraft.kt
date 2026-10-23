@@ -83,6 +83,20 @@ class PaceDraft(
         /** 5:00 / 5:10 / 5:20 per kilometre: a three-kilometre run that fades. */
         val DEFAULT_SPLITS = listOf(300.0, 310.0, 320.0)
 
+        /**
+         * Starting points for the curve, shaped like [PlanDraft.PRESETS].
+         *
+         * A flat preset is deliberate here even though the step presets refuse one: there a
+         * speed radio already states a steady speed, while here the same intention is a number
+         * in another unit that no radio can show, and the default curve fades.
+         */
+        val PRESETS: List<Preset> = listOf(
+            Preset("pace-even", "Even", listOf(300.0, 300.0, 300.0)),
+            Preset("pace-negative", "Negative split", listOf(310.0, 300.0, 290.0)),
+            Preset("pace-positive", "Positive split", listOf(290.0, 300.0, 310.0)),
+            Preset("pace-5k", "5 km", listOf(300.0, 300.0, 300.0, 300.0, 300.0)),
+        )
+
         /** Slower than this is walking pace; the field is for running sessions. */
         const val MIN_SPLIT_SEC = 120.0
 
@@ -113,5 +127,19 @@ class PaceDraft(
             }
             return out
         }
+    }
+
+    /**
+     * A named starting point for the curve.
+     *
+     * [id] is a stable key rather than the label, so the translated button text cannot be
+     * mistaken for the preset itself. [splits] are seconds per kilometre, one per kilometre.
+     */
+    data class Preset(
+        val id: String,
+        val name: String,
+        val splits: List<Double>,
+    ) {
+        fun intoDraft(): PaceDraft = PaceDraft(splits)
     }
 }
