@@ -17,6 +17,7 @@ package org.pacer.hook.hooks.env
 import org.pacer.hook.config.PacerRuntimeConfig
 import org.pacer.hook.hooks.RouteEngine
 import org.pacer.motion.GeoPoint
+import org.pacer.motion.PlanDistance
 import org.pacer.motion.StraightLine
 
 object CurrentFix {
@@ -33,11 +34,7 @@ object CurrentFix {
      */
     fun of(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): GeoPoint {
         RouteEngine.sampleAt(nowMs)?.let { return GeoPoint(it.point.lat, it.point.lon) }
-        val elapsed = elapsedSeconds(cfg, nowMs)
-        // With an interval plan the distance is the plan's own integral rather than
-        // speed x time, so the position stays a pure function of the clock either way
-        // and the reported speed can follow the plan without contradicting it.
-        val meters = cfg.plan?.metersAt(elapsed) ?: (cfg.speedMps * elapsed)
+        val meters = planDistance(cfg, elapsedSeconds(cfg, nowMs))
         return StraightLine.byDistance(
             start = GeoPoint(cfg.latitude, cfg.longitude),
             bearingDeg = cfg.bearingDeg.toDouble(),
@@ -70,12 +67,23 @@ object CurrentFix {
     fun speedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double =
         RouteEngine.sampleAt(nowMs)?.speedMps ?: linearSpeedAt(cfg, nowMs)
 
-    /**
-     * The straight-line speed at [nowMs]: the interval plan's current step, or the flat
-     * configured speed. Route mode answers a different question, so a caller that has
-     * already asked the route engine for a sample uses this rather than paying for a
-     * second lookup.
-     */
-    fun linearSpeedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double =
-        cfg.plan?.speedAt(elapsedSeconds(cfg, nowMs)) ?: cfg.speedMps
+    /** The straight-line speed at [nowMs]: the plan's own answer, or the configured speed. */
+    fun linearSpeedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double {
+        val elapsed = elapsedSeconds(cfg, nowMs)
+        return PlanDistance.speedAt(
+            pace = cfg.pacePlan,
+            timed = cfg.plan,
+            elapsedSec = elapsed,
+            meters = planDistance(cfg, elapsed),
+            speedMps = cfg.speedMps,
+        )
+    }
+
+    private fun planDistance(cfg: PacerRuntimeConfig.Snapshot, elapsedSec: Double): Double =
+        PlanDistance.metersAt(
+            pace = cfg.pacePlan,
+            timed = cfg.plan,
+            elapsedSec = elapsedSec,
+            speedMps = cfg.speedMps,
+        )
 }

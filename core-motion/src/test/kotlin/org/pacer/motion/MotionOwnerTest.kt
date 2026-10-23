@@ -61,6 +61,19 @@ class MotionOwnerTest {
     }
 
     @Test
+    fun `a straight run with a pace curve is automatic too`() {
+        // The curve is indexed by distance rather than by the clock, but the hook still
+        // derives the position from it, so hand steering would move the anchor and leave the
+        // subject on the curve's own track. It was only the timed parser being asked here,
+        // which reported HAND for a run nobody could steer.
+        val curve = PacePlan.fromKilometreSplits(listOf(300.0, 310.0))
+        val owner = MotionOwner.of(active = true, onRoute = false, paused = false, plan = curve.format())
+        assertEquals(MotionOwner.PLAN, owner)
+        assertFalse(owner.acceptsHandSteering)
+        assertTrue(owner.isAutomatic)
+    }
+
+    @Test
     fun `a blank plan counts as no plan`() {
         // The app writes "" for "no plan"; a whitespace-only field must not silently
         // switch the run to automatic either.

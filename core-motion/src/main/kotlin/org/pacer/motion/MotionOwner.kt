@@ -71,7 +71,9 @@ enum class MotionOwner {
             !active -> NONE
             onRoute && paused -> ROUTE_PAUSED
             onRoute -> ROUTE
-            SpeedPlan.parse(plan) != null -> PLAN
+            // A pace curve is a prescription too, and the hook derives the position from it.
+            // Asking only the timed parser reported HAND for a run nobody could steer.
+            SpeedPlan.parse(plan) != null || PacePlan.parse(plan) != null -> PLAN
             else -> HAND
         }
     }

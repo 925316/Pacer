@@ -5,6 +5,7 @@ import org.pacer.motion.MotionConfig
 import org.pacer.motion.MotionSamples
 import org.pacer.motion.MotionSeed
 import org.pacer.motion.PacePlan
+import org.pacer.motion.PlanDistance
 import org.pacer.motion.RouteJson
 import org.pacer.motion.RoutePath
 import org.pacer.motion.RouteSimulator
@@ -80,26 +81,22 @@ class LiveSubject {
             )
         }
         val elapsed = stored.straightSeconds(nowMs)
-        // A pace curve is indexed by distance, so it cannot answer "how far at time t" the
-        // way a timed plan can. Invert it instead: the curve knows how long a distance
-        // takes, so walk to the moment and read the distance off that inverse.
         val pace = PacePlan.parse(stored.plan)
-        val meters = if (pace != null) {
-            pace.metersAt(elapsed)
-        } else {
-            SpeedPlan.parse(stored.plan)?.metersAt(elapsed) ?: (stored.speed * elapsed)
-        }
+        val timed = SpeedPlan.parse(stored.plan)
+        val meters = PlanDistance.metersAt(pace, timed, elapsed, stored.speed)
         val point = StraightLine.byDistance(
             GeoPoint(stored.lat, stored.lon),
             stored.bearing.toDouble(),
             meters,
         )
-        // A straight run reports the configured values; only a route owns a speed curve and
-        // a drift of its own. satellites and steps are not part of this comparison.
+        // The speed that produced this displacement, not the configured flat one: reporting
+        // the latter failed a plan-driven run that was moving correctly.
+        val speed = PlanDistance.speedAt(pace, timed, elapsed, meters, stored.speed)
+        // satellites and steps are not part of this comparison.
         return org.pacer.motion.FixSample(
             tSec = elapsed,
             point = point,
-            speedMps = stored.speed,
+            speedMps = speed,
             bearingDeg = stored.bearing,
             distanceMeters = meters,
             phase = org.pacer.motion.MotionPhase.CRUISE,

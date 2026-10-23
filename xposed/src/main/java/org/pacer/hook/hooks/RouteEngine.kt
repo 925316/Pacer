@@ -78,9 +78,12 @@ object RouteEngine {
         //
         // The route is named by its length and hash, not by its text: a road route is
         // thousands of points, and this key is rebuilt on every sensor callback.
+        // Both plan shapes are in the key: leaving the curve out meant editing a pace reused
+        // the previous build, so the run kept the old speeds the editor no longer showed.
         val key = cfg.routeJson.length.toString() + ":" + cfg.routeJson.hashCode() + "|" +
             cfg.speedMps + "|" + cfg.startTimestamp + "|" +
             cfg.realism + "|" + cfg.accuracyMeters + "|" + (cfg.plan?.format() ?: "") +
+            "|" + (cfg.pacePlan?.format() ?: "") +
             "|loop=" + cfg.loopRoute + "|lap=" + lap.index
         if (key != cacheKey) {
             // The seed is a function of (start timestamp, lap), not a fresh random value:
