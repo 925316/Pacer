@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.graphics.Color
 import android.text.InputType
@@ -68,6 +69,24 @@ class MainActivity : Activity() {
     private lateinit var noticeStrip: LinearLayout
     private lateinit var noticeText: TextView
     private lateinit var noticeDismiss: Button
+
+    /**
+     * When the current notice should disappear, on [SystemClock.elapsedRealtime]; null means
+     * no timer, i.e. it is a failure or a progress line and only its result removes it.
+     *
+     * A deadline rather than a "time left" field, as the hint suggested: the life belongs to
+     * the text, so a trip to the background only has to ask how much of it remains, and
+     * "already overdue" cannot be confused with "show it again for a moment". A stored
+     * remainder would be a second number able to disagree with the timer that was armed.
+     *
+     * elapsedRealtime rather than uptime, because the requirement is about time spent in the
+     * background: uptime stops during sleep, so a phone left in a pocket would come back
+     * still showing a four-second confirmation from hours ago. Handler counts delays on
+     * uptime, but the two clocks advance at the same rate while awake, so the difference
+     * handed to postDelayed still lands correctly; a sleep in between is caught by the
+     * deadline check on the next resume.
+     */
+    private var noticeDeadlineAtMs: Long? = null
 
     /** The run's state, inside the pinned bar where Start and Stop already are. */
     private lateinit var runStateLine: TextView
@@ -763,14 +782,30 @@ class MainActivity : Activity() {
             View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         val ms = noticeDurationMs(text, kind)
+        noticeDeadlineAtMs = noticeDeadlineMs(SystemClock.elapsedRealtime(), ms)
         if (ms > 0L) handler.postDelayed(hideNoticeTask, ms)
     }
 
     /** Hides the strip; the text goes too so a screen reader cannot still find it. */
     private fun hideNotice() {
         if (!::noticeStrip.isInitialized) return
+        noticeDeadlineAtMs = null
         noticeStrip.visibility = View.GONE
         noticeText.text = ""
+    }
+
+    /**
+     * Removes the floating joystick, if any.
+     *
+     * Only the activity knows that the user asked to stop; the service only hears about it
+     * when its own knob is tapped. Without this the overlay outlives the run it steers and
+     * keeps a foreground notification for something that is no longer happening.
+     *
+     * Deliberately not called from onPause: a paused run resumes, and the overlay is still
+     * the control for it.
+     */
+    private fun hideJoystick() {
+        stopService(Intent(this, JoystickOverlayService::class.java))
     }
 
     private val hideNoticeTask = Runnable { hideNotice() }
@@ -825,20 +860,43 @@ class MainActivity : Activity() {
         // control has to be refreshed on its own.
         updatePauseButton()
         updateStatus()
+        resumeNoticeTimer()
         handler.removeCallbacks(statusTick)
         handler.post(statusTick)
+    }
+
+    /**
+     * Restarts the strip's timer with what is left of the notice's original life.
+     *
+     * Without this the callbacks removed in onPause are never re-armed, so an INFO notice
+     * with no dismiss button stays over the page for the rest of the session. Deadline
+     * arithmetic makes the answer independent of how long the page was away: an overdue
+     * notice is hidden now, never shown again for another few seconds.
+     */
+    private fun resumeNoticeTimer() {
+        handler.removeCallbacks(hideNoticeTask)
+        val remaining = noticeRemainingMs(SystemClock.elapsedRealtime(), noticeDeadlineAtMs) ?: return
+        if (remaining <= 0L) {
+            hideNotice()
+        } else {
+            handler.postDelayed(hideNoticeTask, remaining)
+        }
     }
 
     override fun onPause() {
         super.onPause()
         handler.removeCallbacks(statusTick)
-        // The strip's own timer must not fire while the page is behind another one; it would
-        // hide a message the user has not seen yet on their way back.
-        handler.removeCallbacks(hideNoticeTask)
         // A recording cannot outlive the page that owns the draft: the tick would keep
         // collecting points nobody can see or stop. Ending it here keeps the promise the
         // button makes - what was walked is what gets saved.
+        //
+        // Before the notice timer is cancelled, because finishing writes a notice of its own
+        // and that one must not be armed to fire while the page is behind another one.
         recorder?.let { finishRecording(it) }
+        // The strip's timer must not fire while the page is behind another one; it would
+        // hide a message the user has not seen yet on their way back. The deadline survives,
+        // so onResume resumes the same life instead of restarting it.
+        handler.removeCallbacks(hideNoticeTask)
     }
 
     // ---------------------------------------------------------------------
@@ -1781,6 +1839,8 @@ class MainActivity : Activity() {
                 // them, because otherwise the screen would look exactly like success.
                 if (!PacerConfigClient.stop()) {
                     setNotice(strings.configNotReady, NoticeKind.FAILURE)
+                } else {
+                    hideJoystick()
                 }
                 updatePauseButton()
             },

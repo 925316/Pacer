@@ -41,6 +41,28 @@ private const val INFO_PER_CHAR_MS = 40L
 private const val INFO_MAX_MS = 12_000L
 
 /**
+ * When a notice shown at [startedAtMs] should disappear, on the same monotonic clock
+ * [startedAtMs] came from; null means it has no timer and only its result can remove it.
+ *
+ * A deadline rather than a "time left" field: the lifetime belongs to the text, not to the
+ * window being visible, so leaving the page and coming back only has to ask how much of the
+ * original life remains. A deadline also makes an overdue notice impossible to mistake for
+ * one that should be shown again, which a stored remainder can be.
+ */
+internal fun noticeDeadlineMs(startedAtMs: Long, durationMs: Long): Long? =
+    if (durationMs <= 0L) null else startedAtMs + durationMs
+
+/**
+ * What is left of a notice at [nowMs]; 0 means it is already overdue and should be hidden
+ * now, null means it has no timer at all.
+ *
+ * Clamped at zero so an overdue deadline can never turn into a negative delay, and so the
+ * caller cannot mistake "already gone" for "show it again for no time".
+ */
+internal fun noticeRemainingMs(nowMs: Long, deadlineMs: Long?): Long? =
+    deadlineMs?.let { (it - nowMs).coerceAtLeast(0L) }
+
+/**
  * What the one status line can say, derived only from what is stored.
  *
  * Deliberately takes plain values rather than the stored config: this must stay a pure

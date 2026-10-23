@@ -18,6 +18,123 @@ import android.view.WindowManager
 import android.widget.Toast
 import org.pacer.motion.JoystickMath
 import org.pacer.motion.MotionOwner
+import kotlin.math.roundToInt
+
+/** Knob radius as a fraction of the ring radius. At 0.39 a 144 dp ring gives a 56 dp knob,
+ * comfortably past the 48 dp minimum target, while leaving a ring wide enough to grab. */
+private const val KNOB_FRACTION = 0.39f
+
+/**
+ * Diameter of the outer ring, and the transparent padding around it.
+ *
+ * Internal rather than private so the geometry test pins the numbers that actually ship;
+ * the window is the two added together, which is why the whole overlay measures 160 dp.
+ */
+internal const val JOYSTICK_RING_DP = 144f
+internal const val JOYSTICK_INSET_DP = 8f
+
+/**
+ * Space from the screen edges when the overlay first appears.
+ *
+ * Dragging still lets the user put it anywhere; this only decides where it first lands, and
+ * a margin keeps the ring off the system gesture strip at the screen edge.
+ */
+private const val JOYSTICK_MARGIN_DP = 24
+
+/**
+ * Height reserved for the status bar when the overlay first appears.
+ *
+ * The service cannot read real insets - see [screenFrame] - so the starting position keeps a
+ * generous allowance clear of both bars. Only the first position is affected; dragging lets
+ * the user put the ring anywhere.
+ */
+private const val STATUS_BAR_ALLOWANCE_DP = 32
+
+/** Height reserved for the navigation bar or gesture area, below the ring. */
+private const val NAV_BAR_ALLOWANCE_DP = 48
+
+/** Below the top inset but above the middle: reachable and out of the way. */
+private const val START_VERTICAL_FRACTION = 0.18f
+
+/**
+ * The overlay's three pixel measurements, all derived from dp and the display density.
+ *
+ * One function for the window size, the ring and the knob is the point: the drawing, the
+ * hit test and the layout params all read this, so the disc the user sees and the disc that
+ * responds cannot be derived differently.
+ */
+internal data class JoystickGeometry(
+    /** Side of the square overlay window, in px. */
+    val windowSizePx: Int,
+    /** Centre to the outer ring, in px. */
+    val baseRadiusPx: Float,
+    /** Radius of the draggable knob, in px. */
+    val knobRadiusPx: Float,
+)
+
+/**
+ * Geometry for an overlay window of [windowSizePx] square, with [insetDp] of transparent
+ * padding on each side.
+ *
+ * The inset is excluded from [JoystickGeometry.baseRadiusPx], so the ring is exactly the
+ * diameter that fits inside the padding; and because the radius is derived from the window
+ * that was really laid out, the circle can never reach past the view's bounds.
+ */
+internal fun joystickGeometry(
+    windowSizePx: Int,
+    insetDp: Float,
+    density: Float,
+): JoystickGeometry {
+    val baseRadius = (windowSizePx / 2f - insetDp * density).coerceAtLeast(1f)
+    return JoystickGeometry(
+        windowSizePx = windowSizePx,
+        baseRadiusPx = baseRadius,
+        knobRadiusPx = baseRadius * KNOB_FRACTION,
+    )
+}
+
+/**
+ * The window side needed to hold a [ringDiameterDp] ring plus [insetDp] of padding.
+ *
+ * Rounding happens here, once, and [joystickGeometry] is then given the rounded result: the
+ * two cannot disagree by a pixel about how large the ring is.
+ */
+internal fun joystickWindowPx(ringDiameterDp: Float, insetDp: Float, density: Float): Int =
+    ((ringDiameterDp + 2f * insetDp) * density).roundToInt().coerceAtLeast(4)
+
+/** Window position for a [sizePx] overlay on a screen of the given size, in px. */
+internal data class JoystickPlacement(val x: Int, val y: Int)
+
+/**
+ * Where the overlay starts: left edge, below the status bar, well clear of the navigation
+ * bar, and always fully on screen.
+ *
+ * Screen coordinates, because a TYPE_APPLICATION_OVERLAY window is positioned against the
+ * whole display rather than an app's content area. The insets are passed in so this stays a
+ * pure function: a test can pin that a short screen still yields an on-screen position.
+ */
+internal fun joystickPlacement(
+    screenWidthPx: Int,
+    screenHeightPx: Int,
+    sizePx: Int,
+    marginPx: Int,
+    topInsetPx: Int,
+    bottomInsetPx: Int,
+    verticalFraction: Float,
+): JoystickPlacement {
+    // Each bound is clamped at 0 by itself: a screen narrower or shorter than the overlay
+    // plus its margins is not a reason to return a negative coordinate, which the window
+    // manager would interpret as an offset from the far edge.
+    val maxX = (screenWidthPx - sizePx - marginPx).coerceAtLeast(0)
+    val lowY = topInsetPx + marginPx
+    val highY = (screenHeightPx - bottomInsetPx - sizePx - marginPx).coerceAtLeast(0)
+    val y = if (highY <= lowY) {
+        highY
+    } else {
+        lowY + ((highY - lowY) * verticalFraction).toInt()
+    }
+    return JoystickPlacement(x = marginPx.coerceAtMost(maxX), y = y.coerceIn(0, highY))
+}
 
 /**
  * Floating joystick overlay.
@@ -38,6 +155,9 @@ class JoystickOverlayService : Service() {
     private var joystick: JoystickView? = null
     private lateinit var params: WindowManager.LayoutParams
 
+    /** Owns the deferred stop, so onDestroy can drop it instead of racing a removed view. */
+    private val overlayHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -46,16 +166,36 @@ class JoystickOverlayService : Service() {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
 
+        // dp, not px: the same number of pixels is a thumb-sized target on a low-density
+        // phone and an untouchable dot on a 3x screen.
+        val density = resources.displayMetrics.density
+        val geometry = joystickGeometry(
+            joystickWindowPx(JOYSTICK_RING_DP, JOYSTICK_INSET_DP, density),
+            JOYSTICK_INSET_DP,
+            density,
+        )
+        val marginPx = dp(JOYSTICK_MARGIN_DP)
+        val screen = screenFrame()
+        val at = joystickPlacement(
+            screenWidthPx = screen.widthPx,
+            screenHeightPx = screen.heightPx,
+            sizePx = geometry.windowSizePx,
+            marginPx = marginPx,
+            topInsetPx = screen.topInsetPx,
+            bottomInsetPx = screen.bottomInsetPx,
+            verticalFraction = START_VERTICAL_FRACTION,
+        )
+
         params = WindowManager.LayoutParams(
-            SIZE,
-            SIZE,
+            geometry.windowSizePx,
+            geometry.windowSizePx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             android.graphics.PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = android.view.Gravity.TOP or android.view.Gravity.START
-            x = 120
-            y = 400
+            x = at.x
+            y = at.y
         }
 
         val view = JoystickView(this)
@@ -63,10 +203,64 @@ class JoystickOverlayService : Service() {
         wm.addView(view, params)
     }
 
+    /**
+     * Removes everything this service put on screen.
+     *
+     * Both halves matter: a removed view with a live foreground notification leaves a
+     * permanent entry for a control that no longer exists, and a removed notification with
+     * a live view leaves an overlay the user cannot account for.
+     */
     override fun onDestroy() {
-        joystick?.let { windowManager?.removeView(it) }
+        overlayHandler.removeCallbacksAndMessages(null)
+        joystick?.let { view ->
+            try {
+                windowManager?.removeView(view)
+            } catch (t: Throwable) {
+                // Already detached by the window being torn down; nothing left to remove.
+                Log.w(TAG, "overlay view was already gone", t)
+            }
+        }
         joystick = null
+        // The service is gone, so the ongoing notification must go with it; leaving it would
+        // advertise a control that no longer exists and cannot be dismissed by the user.
+        stopForeground(Service.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).roundToInt()
+
+    private data class ScreenFrame(
+        val widthPx: Int,
+        val heightPx: Int,
+        val topInsetPx: Int,
+        val bottomInsetPx: Int,
+    )
+
+    /**
+     * Display size and system-bar heights, in screen coordinates.
+     *
+     * An overlay window is positioned against the whole display, so the insets have to be
+     * subtracted from that frame rather than from an app's content area.
+     *
+     * The size comes from the real display metrics because a Service is not a visual
+     * context, which is what getCurrentWindowMetrics requires; the only metric a Service may
+     * ask for is the maximum one, and that describes the largest area the display can ever
+     * have - in portrait it is the landscape frame, with width and height swapped. The bar
+     * heights are therefore fixed allowances too: this only decides where the ring first
+     * lands, and joystickPlacement clamps whatever it is given into the frame.
+     */
+    @Suppress("DEPRECATION")
+    private fun screenFrame(): ScreenFrame {
+        val wm = windowManager ?: getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val metrics = android.util.DisplayMetrics()
+        wm.defaultDisplay.getRealMetrics(metrics)
+        return ScreenFrame(
+            widthPx = metrics.widthPixels,
+            heightPx = metrics.heightPixels,
+            topInsetPx = dp(STATUS_BAR_ALLOWANCE_DP),
+            bottomInsetPx = dp(NAV_BAR_ALLOWANCE_DP),
+        )
     }
 
     /**
@@ -195,7 +389,7 @@ class JoystickOverlayService : Service() {
                                 // overlay that outlives it can only be removed by stopping
                                 // the whole app. The tap is the close control; deferred so
                                 // the view is not removed mid-gesture.
-                                post { stopSelf() }
+                                overlayHandler.post { stopSelf() }
                             } else {
                                 Toast.makeText(
                                     this@JoystickOverlayService,
@@ -226,10 +420,22 @@ class JoystickOverlayService : Service() {
 
         /** The knob is drawn at its current offset, so the hit test uses that offset too. */
         private fun isOnKnob(x: Float, y: Float): Boolean {
-            val knobRadius = (width / 2f - 8f) * KNOB_FRACTION
+            val knobRadius = geometry().knobRadiusPx
             val dx = x - (width / 2f + knobX)
             val dy = y - (height / 2f + knobY)
             return dx * dx + dy * dy <= knobRadius * knobRadius
+        }
+
+        /** One source for drawing, hit testing and the steering range; derived from the
+         * view's real width so a density change cannot desynchronise them. */
+        private fun geometry(): JoystickGeometry {
+            val density = resources.displayMetrics.density
+            val windowPx = if (width > 0) {
+                width
+            } else {
+                joystickWindowPx(JOYSTICK_RING_DP, JOYSTICK_INSET_DP, density)
+            }
+            return joystickGeometry(windowPx, JOYSTICK_INSET_DP, density)
         }
 
         private fun moveOverlay(dx: Float, dy: Float) {
@@ -239,7 +445,11 @@ class JoystickOverlayService : Service() {
         }
 
         private fun steer(dx: Float, dy: Float) {
-            val maxOffset = width / 2f - 16f
+            // How far the knob's CENTRE may travel, which is not the ring radius: allowing
+            // it to reach the ring would draw half the knob outside the window and clip it.
+            // Full speed is then reached exactly when the knob touches the ring.
+            val geometry = geometry()
+            val maxOffset = (geometry.baseRadiusPx - geometry.knobRadiusPx).coerceAtLeast(1f)
             knobX = (knobX + dx).coerceIn(-maxOffset, maxOffset)
             knobY = (knobY + dy).coerceIn(-maxOffset, maxOffset)
             invalidate()
@@ -254,18 +464,14 @@ class JoystickOverlayService : Service() {
         override fun onDraw(canvas: Canvas) {
             val cx = width / 2f
             val cy = height / 2f
-            val radius = width / 2f - 8f
-            canvas.drawCircle(cx, cy, radius, basePaint)
-            canvas.drawCircle(cx + knobX, cy + knobY, radius * KNOB_FRACTION, knobPaint)
+            val geometry = geometry()
+            canvas.drawCircle(cx, cy, geometry.baseRadiusPx, basePaint)
+            canvas.drawCircle(cx + knobX, cy + knobY, geometry.knobRadiusPx, knobPaint)
         }
     }
 
     private companion object {
-        const val SIZE = 220
         const val SPEED_INPUT = 6.0
-
-        /** Knob size as a fraction of the base radius, shared by drawing and hit testing. */
-        const val KNOB_FRACTION = 0.32f
 
         const val CHANNEL_ID = "pacer-joystick"
         const val NOTIFICATION_ID = 1
