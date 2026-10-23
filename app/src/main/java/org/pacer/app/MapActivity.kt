@@ -37,6 +37,9 @@ class MapActivity : Activity() {
     private lateinit var styleRow: LinearLayout
     private lateinit var layerRow: LinearLayout
 
+    /** Deletes the tail waypoint; disabled while there is none to delete. */
+    private lateinit var deleteLastButton: Button
+
     private var style: MapStyle = MapStyle.DEFAULT
     private var layer: MapLayer = MapLayer.ROAD
     private var map: TileMapView? = null
@@ -129,11 +132,13 @@ class MapActivity : Activity() {
         column.addView(layerRow)
 
         val editRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        editRow.addView(button(strings.undo) {
-            editDraft { if (draft.size > 0) draft.removeAt(draft.size - 1) }
-        })
-        editRow.addView(button(strings.clear) { clearDraftRoute() })
-        removeButton = button(strings.remove) { removeSelectedWaypoint() }
+        // Named for what it does. It was called "Undo", which promised to reverse the last
+        // action and delivered "drop the tail point" - after a wrong drag that lost a point
+        // instead of restoring one.
+        deleteLastButton = editButton(strings.deleteLastPoint) { deleteLastWaypoint() }
+        editRow.addView(deleteLastButton)
+        editRow.addView(editButton(strings.clear) { clearDraftRoute() })
+        removeButton = editButton(strings.remove) { removeSelectedWaypoint() }
         removeButton.isEnabled = false
         editRow.addView(removeButton)
         column.addView(editRow)
@@ -367,6 +372,9 @@ class MapActivity : Activity() {
     private fun render() {
         val geometry = draft.points.toList()
         map?.setRoute(geometry, geometry)
+        // A control that would do nothing must look like it does nothing; the same rule the
+        // map-style buttons follow.
+        deleteLastButton.isEnabled = geometry.isNotEmpty()
         updateInfo()
         updateLivePosition()
     }
@@ -429,6 +437,18 @@ class MapActivity : Activity() {
         if (index < 0 || index >= draft.size) return
         clearSelection()
         editDraft { draft.removeAt(index) }
+    }
+
+    /**
+     * Drops the last placed waypoint.
+     *
+     * The edit row's first control is named after this action rather than after "undo":
+     * the draft has no history, so it can only remove from the tail, and a label that
+     * promised to reverse a drag would be wrong in exactly the case users try it.
+     */
+    private fun deleteLastWaypoint() {
+        if (draft.size <= 0) return
+        editDraft { draft.removeAt(draft.size - 1) }
     }
 
     // ---------------------------------------------------------------------
@@ -553,6 +573,23 @@ class MapActivity : Activity() {
         Button(this).apply {
             text = label
             setOnClickListener { onClick() }
+        }
+
+    /**
+     * An equal-share button for the edit row.
+     *
+     * The row carries three controls, and the honest "Delete last point" label is long
+     * enough to push the third one off a phone screen under the default sizing. Same
+     * treatment the layer row already uses.
+     */
+    private fun editButton(label: String, onClick: () -> Unit): Button =
+        button(label, onClick).apply {
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f,
+            )
         }
 
     private companion object {

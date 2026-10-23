@@ -248,7 +248,9 @@ interface Strings {
     val auditing: String
     val simulating: String
     val statusConfigIdle: String
-    val undo: String
+
+    /** Deletes the waypoint at the end of the draft; the draft keeps no history to undo. */
+    val deleteLastPoint: String
     val clear: String
     val remove: String
     val fit: String
@@ -549,7 +551,7 @@ object EnglishStrings : Strings {
     override val auditing = "Auditing the track..."
     override val simulating = "Simulating..."
     override val statusConfigIdle = "Idle: simulation stopped."
-    override val undo = "Undo"
+    override val deleteLastPoint = "Delete last point"
     override val clear = "Clear"
     override val remove = "Remove"
     override val fit = "Fit"
@@ -834,7 +836,7 @@ object ChineseStrings : Strings {
     override val auditing = "正在审查轨迹..."
     override val simulating = "模拟中..."
     override val statusConfigIdle = "空闲：模拟已停止。"
-    override val undo = "撤销"
+    override val deleteLastPoint = "删除最后一点"
     override val clear = "清空"
     override val remove = "删除"
     override val fit = "全览"

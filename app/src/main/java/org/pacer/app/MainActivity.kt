@@ -41,6 +41,32 @@ import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 
 /**
+ * The speed the state line reports, in m/s.
+ *
+ * [sampleMps] is the instantaneous speed of the run as the engine computes it - the same
+ * figure the map marker and the self-check read. The configured speed is not that: a route
+ * carries its own speed curve and an interval plan walks through its steps, so printing
+ * the configured number made a plan-driven run look like the plan had not taken effect.
+ *
+ * A paused route reports zero: the design is that a frozen run reports no speed, and
+ * [SelfCheckRunner] substitutes zero in exactly the same place.
+ *
+ * [configuredMps] is the fallback when no sample exists (a stored route that cannot be
+ * simulated). Approximate, but better than leaving the only speed on screen blank.
+ *
+ * A top-level function rather than a method so a JVM test can pin the rule.
+ */
+internal fun reportedSpeedMps(
+    sampleMps: Double?,
+    configuredMps: Double,
+    paused: Boolean,
+): Double = when {
+    paused -> 0.0
+    sampleMps != null -> sampleMps
+    else -> configuredMps
+}
+
+/**
  * The three pages: what a run is, what it runs along, and how it is reported.
  *
  * Split because the alternative was one column of fourteen sections where reaching Start
@@ -733,8 +759,11 @@ class MainActivity : Activity() {
             } else {
                 stored.straightSeconds(now)
             }.toLong()
-            val point = subject.point(stored)
-            val where = point?.let { String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon) }
+            // One sample for both the position and the speed: point() would take a second one,
+            // and the two numbers on the same line must describe the same instant.
+            val sample = subject.sample(stored, now)
+            val where = sample?.point
+                ?.let { String.format(Locale.US, "%.5f, %.5f", it.lat, it.lon) }
                 ?: String.format(Locale.US, "%.5f, %.5f", stored.lat, stored.lon)
             String.format(
                 Locale.US,
@@ -743,7 +772,11 @@ class MainActivity : Activity() {
                 seconds / 60,
                 seconds % 60,
                 where,
-                stored.speed,
+                reportedSpeedMps(
+                    sampleMps = sample?.speedMps,
+                    configuredMps = stored.speed,
+                    paused = paused,
+                ),
             )
         }
     }
