@@ -415,20 +415,21 @@ object PacerConfigClient {
         val start = GeoPoint(readDouble(p, "lat", 0.0), readDouble(p, "lon", 0.0))
         val anchor = p.getLong("anchor_ts", p.getLong("start_ts", nowMs))
         val elapsed = ((nowMs - anchor).coerceAtLeast(0L)) / 1000.0
-        // An interval plan supplies the distance directly: speed x time would describe a
-        // different track from the one the hook side derives from the same plan. A pace
-        // curve is the other shape of the same key, so the shared reader handles both.
+        // Reachable only through updateMotion, which refuses unless the run is HAND-steered -
+        // so no plan can be set here and the distance is speed times time. It is computed
+        // through the shared reader anyway: if that equivalence ever changes, this must
+        // follow the same rule rather than quietly revert to a flat-speed track.
         val planText = p.getString("plan", "") ?: ""
-        val meters = PlanDistance.metersAt(
+        val step = PlanDistance.at(
             pace = PacePlan.parse(planText),
             timed = SpeedPlan.parse(planText),
             elapsedSec = elapsed,
-            speedMps = readDouble(p, "speed_mps", 0.0),
+            flatSpeedMps = readDouble(p, "speed_mps", 0.0),
         )
         val here = StraightLine.byDistance(
             start = start,
             bearingDeg = p.getFloat("bearing", 0f).toDouble(),
-            meters = meters,
+            meters = step.meters,
         )
         edit.putLong("lat", java.lang.Double.doubleToRawLongBits(here.lat))
             .putLong("lon", java.lang.Double.doubleToRawLongBits(here.lon))

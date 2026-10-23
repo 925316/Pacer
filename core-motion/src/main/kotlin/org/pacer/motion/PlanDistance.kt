@@ -1,38 +1,38 @@
 package org.pacer.motion
 
 /**
- * The one place that decides which plan shape a straight run is driven by.
+ * Where a straight run is at a moment, under whichever plan shape is configured.
  *
  * A timed [SpeedPlan] answers "how fast at this moment" and a [PacePlan] answers "how fast at
  * this place"; both travel in one stored key, so every caller that picks between them is a
- * second copy of the choice. Two such copies already existed and drifted - both read the
- * timed plan, only one read the curve - so a per-kilometre session moved at the flat speed.
+ * second copy of the choice. Two such copies existed and drifted - both read the timed plan,
+ * only one read the curve - so a per-kilometre session moved at the flat speed.
  */
 object PlanDistance {
 
-    /** Metres covered after [elapsedSec]; a pace curve supplies its integral's inverse. */
-    fun metersAt(
-        pace: PacePlan?,
-        timed: SpeedPlan?,
-        elapsedSec: Double,
-        speedMps: Double,
-    ): Double = pace?.metersAt(elapsedSec)
-        ?: timed?.metersAt(elapsedSec)
-        ?: (speedMps * elapsedSec)
-
     /**
-     * Speed at the moment that reached [meters].
+     * Distance covered and the speed that produced it, at one moment.
      *
-     * Both arguments name one moment: the curve is read at the distance, the timed plan at the
-     * clock. Reading a distance-indexed curve by time would report the speed of another metre.
+     * Both answers come out of one call because they belong to the same instant: a caller that
+     * could pass a distance from one moment and a time from another would report a speed its
+     * own displacement contradicts.
      */
-    fun speedAt(
+    data class Step(val meters: Double, val speedMps: Double)
+
+    fun at(
         pace: PacePlan?,
         timed: SpeedPlan?,
         elapsedSec: Double,
-        meters: Double,
-        speedMps: Double,
-    ): Double = pace?.speedAtDistance(meters)
-        ?: timed?.speedAt(elapsedSec)
-        ?: speedMps
+        flatSpeedMps: Double,
+    ): Step {
+        val meters = pace?.metersAt(elapsedSec)
+            ?: timed?.metersAt(elapsedSec)
+            ?: (flatSpeedMps * elapsedSec)
+        // The curve is read at the distance and the timed plan at the clock, so whichever shape
+        // is set answers for this metre rather than for another one.
+        val speed = pace?.speedAtDistance(meters)
+            ?: timed?.speedAt(elapsedSec)
+            ?: flatSpeedMps
+        return Step(meters, speed)
+    }
 }

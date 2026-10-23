@@ -183,8 +183,8 @@ class SpeedProfile(
     }
 
     private fun drawNextPauseAt(): Double {
-        // Returning infinity rather than drawing and discarding keeps the pause stream from
-        // advancing, so a seed still rebuilds this run bit for bit.
+        // Checked before the draw, so a prescribed run consumes no random numbers for pauses
+        // and its noise sequence is identical to one with pauses switched off.
         if (prescribedPace) return Double.POSITIVE_INFINITY
         if (config.pausesPerMinute <= 0) return Double.POSITIVE_INFINITY
         val ratePerSec = config.pausesPerMinute / 60.0

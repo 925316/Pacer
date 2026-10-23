@@ -81,24 +81,27 @@ class LiveSubject {
             )
         }
         val elapsed = stored.straightSeconds(nowMs)
-        val pace = PacePlan.parse(stored.plan)
-        val timed = SpeedPlan.parse(stored.plan)
-        val meters = PlanDistance.metersAt(pace, timed, elapsed, stored.speed)
+        val step = PlanDistance.at(
+            pace = PacePlan.parse(stored.plan),
+            timed = SpeedPlan.parse(stored.plan),
+            elapsedSec = elapsed,
+            flatSpeedMps = stored.speed,
+        )
         val point = StraightLine.byDistance(
             GeoPoint(stored.lat, stored.lon),
             stored.bearing.toDouble(),
-            meters,
+            step.meters,
         )
         // The speed that produced this displacement, not the configured flat one: reporting
         // the latter failed a plan-driven run that was moving correctly.
-        val speed = PlanDistance.speedAt(pace, timed, elapsed, meters, stored.speed)
+        val speed = step.speedMps
         // satellites and steps are not part of this comparison.
         return org.pacer.motion.FixSample(
             tSec = elapsed,
             point = point,
             speedMps = speed,
             bearingDeg = stored.bearing,
-            distanceMeters = meters,
+            distanceMeters = step.meters,
             phase = org.pacer.motion.MotionPhase.CRUISE,
             accuracyMeters = stored.accuracy,
             altitudeMeters = 0.0,

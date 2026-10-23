@@ -34,11 +34,11 @@ object CurrentFix {
      */
     fun of(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): GeoPoint {
         RouteEngine.sampleAt(nowMs)?.let { return GeoPoint(it.point.lat, it.point.lon) }
-        val meters = planDistance(cfg, elapsedSeconds(cfg, nowMs))
+        val step = stepAt(cfg, elapsedSeconds(cfg, nowMs))
         return StraightLine.byDistance(
             start = GeoPoint(cfg.latitude, cfg.longitude),
             bearingDeg = cfg.bearingDeg.toDouble(),
-            meters = meters,
+            meters = step.meters,
         )
     }
 
@@ -68,22 +68,14 @@ object CurrentFix {
         RouteEngine.sampleAt(nowMs)?.speedMps ?: linearSpeedAt(cfg, nowMs)
 
     /** The straight-line speed at [nowMs]: the plan's own answer, or the configured speed. */
-    fun linearSpeedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double {
-        val elapsed = elapsedSeconds(cfg, nowMs)
-        return PlanDistance.speedAt(
-            pace = cfg.pacePlan,
-            timed = cfg.plan,
-            elapsedSec = elapsed,
-            meters = planDistance(cfg, elapsed),
-            speedMps = cfg.speedMps,
-        )
-    }
+    fun linearSpeedAt(cfg: PacerRuntimeConfig.Snapshot, nowMs: Long = System.currentTimeMillis()): Double =
+        stepAt(cfg, elapsedSeconds(cfg, nowMs)).speedMps
 
-    private fun planDistance(cfg: PacerRuntimeConfig.Snapshot, elapsedSec: Double): Double =
-        PlanDistance.metersAt(
+    private fun stepAt(cfg: PacerRuntimeConfig.Snapshot, elapsedSec: Double): PlanDistance.Step =
+        PlanDistance.at(
             pace = cfg.pacePlan,
             timed = cfg.plan,
             elapsedSec = elapsedSec,
-            speedMps = cfg.speedMps,
+            flatSpeedMps = cfg.speedMps,
         )
 }

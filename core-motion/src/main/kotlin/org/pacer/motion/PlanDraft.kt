@@ -58,7 +58,13 @@ class PlanDraft(
         null
     }
 
-    /** The storage form, or the last valid text when the draft is mid-edit. */
+    /**
+     * The storage form, or empty when the draft would not run.
+     *
+     * Empty rather than the last valid text: `PlanEditor` sends this straight to the config
+     * channel, so an invalid draft has to reach it as "no plan" instead of as the previous
+     * (now stale) plan while the screen says the plan will not start.
+     */
     fun toWireFormat(): String = toPlan()?.format() ?: ""
 
     /**
