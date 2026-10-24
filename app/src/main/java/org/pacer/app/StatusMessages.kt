@@ -1,5 +1,7 @@
 package org.pacer.app
 
+import org.pacer.motion.RouteClock
+
 /**
  * What kind of thing the app is telling the user, which decides how long it stays.
  *
@@ -99,4 +101,46 @@ internal fun runStateOf(
     // An unbound channel is worth a permanent line; a bound idle app is not.
     bound -> RunState.HIDDEN
     else -> RunState.UNBOUND
+}
+
+/**
+ * The elapsed seconds the state line prints at [nowMs].
+ *
+ * This is a separate question from where the subject is. A straight run's position is
+ * measured from [anchorAtMs], which every steering write moves forward, while the run itself
+ * began at [startedAtMs] and has not restarted since. Printing the anchor difference made
+ * dragging the joystick reset the stopwatch on every frame, so the line counted backwards.
+ *
+ * A route keeps its own clock, because only [RouteClock] knows how a pause freezes it.
+ *
+ * [anchorAtMs] is accepted and deliberately never read. It is the value that must not decide
+ * this answer, and a test pins exactly that rather than trusting the caller to pick the right
+ * field; keeping it in the signature also makes the mistake obvious at the call site instead
+ * of silent. Plain values rather than the stored config, so the choice is reachable from a
+ * JVM test, matching [runStateOf].
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun runElapsedSeconds(
+    onRoute: Boolean,
+    startedAtMs: Long,
+    anchorAtMs: Long,
+    routeOffsetMs: Long,
+    routeResumedAtMs: Long,
+    routePaused: Boolean,
+    nowMs: Long,
+): Long {
+    if (!onRoute) {
+        // A run is always stored with a start, so this only fires on a hand-edited table.
+        // Returning the age since the epoch would print "29437729:xx" instead of a stopwatch.
+        if (startedAtMs <= 0L) return 0L
+        return RouteClock.secondsSinceStart(startedAtMs, nowMs).toLong()
+    }
+    // A route that was never resumed reads its start; the same fallback Stored.routeSeconds
+    // uses, so the line and the marker cannot describe different seconds.
+    return RouteClock.secondsAt(
+        offsetSec = routeOffsetMs / 1000.0,
+        resumedAtMs = if (routeResumedAtMs > 0L) routeResumedAtMs else startedAtMs,
+        nowMs = nowMs,
+        paused = routePaused,
+    ).toLong()
 }

@@ -1125,14 +1125,18 @@ class MainActivity : Activity() {
         runStateLine.text = if (!active || stored == null) {
             label
         } else {
-            // A route advances on its own clock; a straight run on its anchor, which hand
-            // steering moves without restarting the run.
+            // A route advances on its own clock, which a pause freezes; a straight run keeps
+            // counting from its start even while steering moves the line's anchor.
             val now = System.currentTimeMillis()
-            val seconds = if (stored.onRoute) {
-                stored.routeSeconds(now)
-            } else {
-                stored.straightSeconds(now)
-            }.toLong()
+            val seconds = runElapsedSeconds(
+                onRoute = stored.onRoute,
+                startedAtMs = stored.startedAtMs,
+                anchorAtMs = stored.anchorAtMs,
+                routeOffsetMs = stored.routeOffsetMs,
+                routeResumedAtMs = stored.routeResumedAtMs,
+                routePaused = stored.routePaused,
+                nowMs = now,
+            )
             // One sample for both the position and the speed: point() would take a second one,
             // and the two numbers on the same line must describe the same instant.
             val sample = subject.sample(stored, now)
