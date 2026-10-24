@@ -5,6 +5,8 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+# base64 dump of the release key, made to feed the CI secret.
+*.b64
 local.yml
 .idea/
 *.iml

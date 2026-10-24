@@ -1,15 +1,27 @@
+# Every push to master refreshes a rolling "latest" release; nothing is tagged by hand.
 name: release
-
-on:
-  push:
-    tags: ["v*"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [master]
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # Literal, not ${{ runner.temp }}: that context is unavailable in a job-level env,
+      # and referencing it makes GitHub reject the entire workflow.
+      RELEASE_KEYSTORE_PATH: /tmp/pacer-release.jks
+      RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -24,15 +36,96 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore signing key
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+        run: |
+          MISSING=""
+          # Plain ifs, not `[ -z x ] && ...`: under set -e the latter returns non-zero on a
+          # present secret and aborts the step.
+          if [ -z "$RELEASE_KEYSTORE_B64" ]; then MISSING="$MISSING RELEASE_KEYSTORE_B64"; fi
+          if [ -z "$RELEASE_KEYSTORE_PASSWORD" ]; then MISSING="$MISSING RELEASE_KEYSTORE_PASSWORD"; fi
+          if [ -z "$RELEASE_KEY_ALIAS" ]; then MISSING="$MISSING RELEASE_KEY_ALIAS"; fi
+          if [ -z "$RELEASE_KEY_PASSWORD" ]; then MISSING="$MISSING RELEASE_KEY_PASSWORD"; fi
+          if [ -n "$MISSING" ]; then
+            echo "empty repository secrets:$MISSING" >&2
+            echo "'gh secret set NAME' with no value and no terminal stores an empty string." >&2
+            exit 1
+          fi
+          printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$RELEASE_KEYSTORE_PATH"
+          FIRST=$(od -An -tx1 -N1 "$RELEASE_KEYSTORE_PATH" | tr -d ' ')
+          if [ "$FIRST" != "30" ]; then
+            echo "decoded keystore is not PKCS12 (first byte 0x$FIRST, expected 0x30)" >&2
+            exit 1
+          fi
+
       - name: Test
         run: gradle :core-motion:test :xposed:testDebugUnitTest :app:testDebugUnitTest
+
+      # Release, not debug: a debug key is generated per runner, so installs could not upgrade.
       - name: Build
-        run: gradle :app:assembleDebug
-      - name: Rename APK
+        run: gradle :app:assembleRelease
+
+      - name: Verify the APK
         run: |
-          VERSION=$(grep APP_VERSION_NAME gradle.properties | cut -d= -f2)
-          cp app/build/outputs/apk/debug/app-debug.apk "pacer-${VERSION}.apk"
-      - name: Publish release
+          COUNT=$(find app/build/outputs/apk/release -name '*.apk' | wc -l)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "expected one release apk, found $COUNT" >&2
+            find app/build/outputs/apk/release -name '*.apk' >&2
+            exit 1
+          fi
+          APK=$(find app/build/outputs/apk/release -name '*.apk')
+
+          # Checked before apksigner, whose "Missing META-INF/MANIFEST.MF" means unsigned here.
+          case "$APK" in
+            *-unsigned.apk)
+              echo "release APK is unsigned; one of the RELEASE_* secrets is wrong" >&2
+              exit 1
+              ;;
+          esac
+
+          # Absent these libxposed never lists the module, though the APK still installs.
+          for entry in META-INF/xposed/module.prop META-INF/xposed/java_init.list META-INF/xposed/scope.list; do
+            unzip -l "$APK" "$entry" > /dev/null || {
+              echo "missing $entry" >&2
+              exit 1
+            }
+          done
+
+          # v1 is off because minSdk 26; apksigner exits non-zero for that, so read the report.
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" > /tmp/verify.txt 2>&1 || true
+          cat /tmp/verify.txt
+          grep -qE '^Verified using .*: true' /tmp/verify.txt || {
+            echo "release apk carries no signature scheme" >&2
+            exit 1
+          }
+
+      - name: Package
+        id: package
+        run: |
+          cp "$(find app/build/outputs/apk/release -name '*.apk')" pacer.apk
+          echo "sha256=$(sha256sum pacer.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to the rolling latest release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" pacer-*.apk --title "Pacer $GITHUB_REF_NAME" --generate-notes
+          SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          NOTES=$(printf 'Built from commit %s\nSHA256: %s' \
+            "$(echo "$GITHUB_SHA" | cut -c1-7)" "$SHA256")
+          # The else branch bootstraps the release; testing $? instead is unreachable because
+          # set -e exits on the failed upload.
+          if gh release upload latest pacer.apk --clobber; then
+            gh release edit latest --target "$GITHUB_SHA" --notes "$NOTES"
+          else
+            gh release create latest pacer.apk --title "Pacer latest" \
+              --target "$GITHUB_SHA" --notes "$NOTES" --latest
+          fi
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin latest
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RELEASE_KEYSTORE_PATH"

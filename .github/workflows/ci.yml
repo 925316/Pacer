@@ -1,9 +1,10 @@
 name: ci
 
+# Publishing lives in release.yml. This artefact is signed with a per-runner debug key, so it
+# can never upgrade a released install.
 on:
-  push:
-    branches: [master]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,11 +23,16 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+
+      # Named instead of `test`, which skips the app and hook suites.
       - name: Test
         run: gradle :core-motion:test :xposed:testDebugUnitTest :app:testDebugUnitTest
+
       - name: Build
         run: gradle :app:assembleDebug
+
       - uses: actions/upload-artifact@v4
         with:
           name: pacer-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
