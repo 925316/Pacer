@@ -12,9 +12,10 @@ import kotlin.math.abs
  * 2. speed vs cadence: moving speed implies cadence inside [MIN, MAX] band
  * 3. step events vs curve: event count ~= integral of cadence over time (<= 12%).
  *    Note: expected events are integrated from cadence (the same source that
- *    drives the step stream), NOT from distance/stride, because the constant
- *    stride model and the clamped cadence band disagree at high running
- *    speeds (3 m/s at 0.7 m stride implies 257 SPM, clamped to 220).
+ *    drives the step stream), NOT from distance/stride. The two agree everywhere the
+ *    reported cadence is the raw speed/stride value, and differ only where the band
+ *    clamps it, which is below [MOVING_SPEED_MPS] at the bottom and above the speed
+ *    implied by [StrideLinker.MAX_CADENCE_SPM] at the top.
  * 4. timestamps are monotonic across every stream
  */
 object ConsistencyChecker {
@@ -45,7 +46,11 @@ object ConsistencyChecker {
 
         var violations = 0
         for (f in fixes) {
-            if (f.speedMps > 0.5) {
+            // The band check only applies once the subject is moving fast enough that the
+            // cadence is read off the speed model rather than from the floor. Below
+            // [MOVING_SPEED_MPS] the raw cadence is legitimately under the floor (a walk at
+            // 0.8 m/s is about 84 SPM), so flagging it would report a violation for walking.
+            if (f.speedMps > MOVING_SPEED_MPS) {
                 if (f.cadenceSpm < StrideLinker.MIN_CADENCE_SPM || f.cadenceSpm > StrideLinker.MAX_CADENCE_SPM) {
                     violations++
                 }
@@ -92,4 +97,14 @@ object ConsistencyChecker {
         }
         return acc.toLong().coerceAtLeast(1)
     }
+
+    /**
+     * Speed above which the cadence band applies.
+     *
+     * Must sit above the speed at which the stride taper lifts the raw cadence over
+     * [StrideLinker.MIN_CADENCE_SPM] - that crossover is about 1.016 m/s - or the checker
+     * would flag a walk for a cadence the model is right to produce. Kept at 1.1 for margin
+     * rather than at the crossover itself, where floating point decides the answer.
+     */
+    private const val MOVING_SPEED_MPS = 1.1
 }

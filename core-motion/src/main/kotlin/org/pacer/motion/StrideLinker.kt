@@ -11,7 +11,7 @@ import kotlin.random.Random
  */
 object StrideLinker {
     const val DEFAULT_STRIDE_METERS = 0.7
-    const val MIN_CADENCE_SPM = 140.0
+    const val MIN_CADENCE_SPM = 100.0
     const val MAX_CADENCE_SPM = 220.0
     const val CADENCE_JITTER_SPM = 5.0
 
@@ -19,9 +19,17 @@ object StrideLinker {
      * Stride length grows with speed (walking shuffles, running strides out).
      * Without this, a 3 m/s run at a fixed 0.7 m stride implies 257 SPM, gets
      * clamped to 220 and steps stop matching distance.
+     *
+     * Below 1.5 m/s the stride keeps shrinking instead of holding at 0.70. A constant
+     * stride there implied absurd cadences: 0.5 m/s at 0.70 m is 43 SPM, which no adult
+     * produces, so the counter was floored at 140 and the reported speed/cadence/stride
+     * triangle stopped agreeing below about 1.6 m/s - exactly the first step of the
+     * human-run preset. Tapering the stride down to 0.42 m at standstill lifts the raw
+     * cadence to 58 SPM at 0.5 m/s and 99 at 1.0, so across the running band the floor
+     * no longer has to intervene.
      */
     fun strideForSpeed(speedMps: Double): Double = when {
-        speedMps <= 1.5 -> 0.70
+        speedMps <= 1.5 -> 0.42 + (speedMps / 1.5) * 0.28 // 0.42 -> 0.70
         speedMps <= 2.8 -> 0.70 + (speedMps - 1.5) / 1.3 * 0.20 // 0.70 -> 0.90
         speedMps <= 4.0 -> 0.90 + (speedMps - 2.8) / 1.2 * 0.20 // 0.90 -> 1.10
         else -> 1.10 + ((speedMps - 4.0) / 1.5 * 0.20).coerceAtMost(0.20) // up to 1.30

@@ -289,7 +289,10 @@ object LocationInjector {
             speed = sample.speedMps
         } else if (cfg.speedMps < 0.3) {
             // Straight-line idle: add micro-movement so the point is not pixel-still.
-            val off = engines.jitter.next(dtSec)
+            // Scaled by this fix's own accuracy, for the same reason as in the route
+            // engine: a cold-start fix claiming 30 m must not sit on the line.
+            val radius = PositionJitter.radiusForAccuracy(accuracy, cfg.accuracyMeters)
+            val off = engines.jitter.next(dtSec, radius)
             val moved = GeoMath.offsetMeters(GeoPoint(lat, lon), off.eastMeters, off.northMeters)
             lat = moved.lat
             lon = moved.lon

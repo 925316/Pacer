@@ -76,12 +76,16 @@ class RouteSimulator(
             val (p, brg) = route.pointAt(s.distanceMeters)
             val fx = realism.next(s.tSec, s.speedMps, dtSec, brg)
             val cadence = StrideLinker.cadenceForSpeed(s.speedMps, rng = cadenceRng)
+            // The walk widens only while this fix's claim is still above its settled value,
+            // so a cold receiver does not draw its position on the line it just said it
+            // could be 30 m away from. See PositionJitter.radiusForAccuracy.
+            val jitterRadius = PositionJitter.radiusForAccuracy(fx.accuracyMeters, steadyAccuracyMeters)
             out += FixSample(
                 tSec = s.tSec,
                 // The noise rides on the reported point only. Distance, speed, steps and
                 // the bearing stay those of the geometry, so the run's own numbers still
                 // describe the route it claims to have covered.
-                point = positionJitter?.next(dtSec)?.let {
+                point = positionJitter?.next(dtSec, jitterRadius)?.let {
                     GeoMath.offsetMeters(p, it.eastMeters, it.northMeters)
                 } ?: p,
                 speedMps = s.speedMps,
@@ -129,7 +133,13 @@ class RouteSimulator(
         var t = 0.0
         while (t <= STATIONARY_SECONDS) {
             val fx = realism.next(t, 0.0, dtSec, 0f)
-            val wander = jitter?.next(dtSec)
+            // Same rule as the moving case: the walk is as wide as the fix claims it is.
+            // A standing subject advertising 30 m of accuracy must not repeat the same
+            // double to the last bit while saying it could be 30 m away.
+            val wander = jitter?.next(
+                dtSec,
+                PositionJitter.radiusForAccuracy(fx.accuracyMeters, steadyAccuracyMeters),
+            )
             out += FixSample(
                 tSec = t,
                 point = if (wander != null) {

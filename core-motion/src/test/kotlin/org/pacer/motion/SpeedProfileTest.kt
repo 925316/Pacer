@@ -85,6 +85,45 @@ class SpeedProfileTest {
     }
 
     @Test
+    fun `the stride tapers so moving speeds get a believable cadence`() {
+        // A constant 0.70 m stride at 1.0 m/s implies 86 SPM, which the old 140 floor had to
+        // override, so the speed/cadence/stride triangle stopped agreeing up to 1.71 m/s -
+        // the first step of the human-run preset is 1.6. The stride now shrinks with speed,
+        // which lifts the raw cadence above the floor across the moving band.
+        assertTrue(
+            "stride must grow monotonically through the taper",
+            StrideLinker.strideForSpeed(0.5) < StrideLinker.strideForSpeed(1.0),
+        )
+        assertTrue(
+            "a shuffle is shorter than a run stride",
+            StrideLinker.strideForSpeed(1.0) < StrideLinker.strideForSpeed(1.5),
+        )
+        // At and above 1.1 m/s the raw cadence clears the floor on its own, so the floor
+        // no longer rewrites it. This is the same threshold ConsistencyChecker uses to
+        // decide a subject is "moving"; the two must agree or the checker flags walking.
+        for (speed in listOf(1.1, 1.2, 1.6)) {
+            val raw = speed / StrideLinker.strideForSpeed(speed) * 60.0
+            assertTrue(
+                "raw cadence at $speed m/s was $raw, below the floor",
+                raw >= StrideLinker.MIN_CADENCE_SPM,
+            )
+        }
+    }
+
+    @Test
+    fun `the triangle holds across the running band`() {
+        // speed = cadence * stride / 60 is the invariant that makes steps, distance and
+        // cadence describe one motion. It used to fail for every speed the human-run preset
+        // actually uses at the start of the run.
+        for (speed in listOf(1.2, 1.6, 2.0, 2.6, 3.0, 3.4, 4.0)) {
+            val stride = StrideLinker.strideForSpeed(speed)
+            val cadence = StrideLinker.cadenceForSpeed(speed, stride, rng = Random(3L))
+            val implied = cadence * stride / 60.0
+            assertEquals("speed $speed", speed, implied, 0.12)
+        }
+    }
+
+    @Test
     fun `signal realism warms up and holds bearing when still`() {
         val sim = SignalRealism(seed = 5L)
         val cold = sim.next(0.0, 3.0, 1.0, 90f)
